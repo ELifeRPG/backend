@@ -1,0 +1,19 @@
+name: Dispatch client generation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'openapi/eliferpg-api-v1.json'
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify backend-api-client-dotnet
+        env:
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+        run: |
+          gh api repos/ELifeRPG/backend-api-client-dotnet/dispatches \
+            -f event_type=core-spec-updated \
+            -f "client_payload[sha]=${{ github.sha }}"
