@@ -1,0 +1,14 @@
+services:
+  workspace:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: "sleep infinity"
+    # A devcontainer is Development by definition — this also makes `dotnet build` pick up
+    # appsettings.Development.json (needed for the build-time OpenAPI doc generation on
+    # src/Api, which touches Marten's connection-string resolution during service registration).
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+    volumes:
+      - "../:/workspace:cached"
+      - "${HOME}/.gitconfig:/home/vscode/.gitconfig:ro"

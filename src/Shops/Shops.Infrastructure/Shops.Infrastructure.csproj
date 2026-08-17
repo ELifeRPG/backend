@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Marten" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Shops.Application\Shops.Application.csproj" />
+    <ProjectReference Include="..\..\Shared\Shared.Integration\Shared.Integration.csproj" />
+  </ItemGroup>
+
+</Project>

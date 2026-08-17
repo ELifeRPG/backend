@@ -1,0 +1,24 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+
+## VS/Rider
+.vs/
+.idea/
+*.userosscache
+*.sln.docstates
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Local overrides
+.devcontainer/compose.override.local.yml
+.devcontainer/Dockerfile.local
+
+## Project tooling
+.superpowers/
+.worktrees/
+.serena/

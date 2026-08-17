@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- This test project is its own composition root, so — unlike the modules it references —
+         it does need Mediator.SourceGenerator to get a working IMediator. See ARCHITECTURE.md §9e. -->
+    <PackageReference Include="Mediator.SourceGenerator">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Accounts\Accounts.Application\Accounts.Application.csproj" />
+    <ProjectReference Include="..\..\src\Accounts\Accounts.Infrastructure\Accounts.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Characters\Characters.Application\Characters.Application.csproj" />
+    <ProjectReference Include="..\..\src\Characters\Characters.Infrastructure\Characters.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Banking\Banking.Application\Banking.Application.csproj" />
+    <ProjectReference Include="..\..\src\Banking\Banking.Infrastructure\Banking.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Companies\Companies.Application\Companies.Application.csproj" />
+    <ProjectReference Include="..\..\src\Companies\Companies.Infrastructure\Companies.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

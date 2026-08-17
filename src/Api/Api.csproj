@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OpenApiGenerateDocumentsOnBuild>true</OpenApiGenerateDocumentsOnBuild>
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/../../openapi</OpenApiDocumentsDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <!-- The host is the single place that owns the generated Mediator dispatcher — every module's
+         Application project references only Mediator.Abstractions. See ARCHITECTURE.md §9e. -->
+    <PackageReference Include="Mediator.SourceGenerator">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Accounts\Accounts.Api\Accounts.Api.csproj" />
+    <ProjectReference Include="..\Characters\Characters.Api\Characters.Api.csproj" />
+    <ProjectReference Include="..\Banking\Banking.Api\Banking.Api.csproj" />
+    <ProjectReference Include="..\Companies\Companies.Api\Companies.Api.csproj" />
+    <ProjectReference Include="..\Items\Items.Api\Items.Api.csproj" />
+    <ProjectReference Include="..\Shops\Shops.Api\Shops.Api.csproj" />
+  </ItemGroup>
+
+  <!-- The build-time generator writes "$(MSBuildProjectName).json" (Api.json) with no way to
+       rename it via MSBuild properties — rename to the repo's established checked-in filename so
+       nothing else (README, ARCHITECTURE.md, downstream Kiota clients) needs to change. -->
+  <Target Name="RenameOpenApiDocument" AfterTargets="GenerateOpenApiDocuments">
+    <Copy SourceFiles="$(OpenApiDocumentsDirectory)/Api.json"
+          DestinationFiles="$(OpenApiDocumentsDirectory)/eliferpg-api-v1.json"
+          OverwriteReadOnlyFiles="true"
+          Condition="Exists('$(OpenApiDocumentsDirectory)/Api.json')" />
+    <Delete Files="$(OpenApiDocumentsDirectory)/Api.json" TreatErrorsAsWarnings="true" />
+  </Target>
+
+</Project>

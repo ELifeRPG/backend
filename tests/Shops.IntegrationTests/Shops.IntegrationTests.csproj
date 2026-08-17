@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- This test project is its own composition root, so it needs Mediator.SourceGenerator itself. See ARCHITECTURE.md §9e. -->
+    <PackageReference Include="Mediator.SourceGenerator">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Accounts\Accounts.Application\Accounts.Application.csproj" />
+    <ProjectReference Include="..\..\src\Accounts\Accounts.Infrastructure\Accounts.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Characters\Characters.Application\Characters.Application.csproj" />
+    <ProjectReference Include="..\..\src\Characters\Characters.Infrastructure\Characters.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Banking\Banking.Application\Banking.Application.csproj" />
+    <ProjectReference Include="..\..\src\Banking\Banking.Infrastructure\Banking.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Companies\Companies.Application\Companies.Application.csproj" />
+    <ProjectReference Include="..\..\src\Companies\Companies.Infrastructure\Companies.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Items\Items.Application\Items.Application.csproj" />
+    <ProjectReference Include="..\..\src\Items\Items.Infrastructure\Items.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Shops\Shops.Application\Shops.Application.csproj" />
+    <ProjectReference Include="..\..\src\Shops\Shops.Infrastructure\Shops.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Shared\Shared.Integration\Shared.Integration.csproj" />
+    <ProjectReference Include="..\..\src\Shared\Shared.Integration.Abstractions\Shared.Integration.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

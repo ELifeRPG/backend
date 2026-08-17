@@ -1,0 +1,12 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <AssemblyName>ELifeRPG.$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>ELifeRPG.$(MSBuildProjectName)</RootNamespace>
+  </PropertyGroup>
+
+</Project>

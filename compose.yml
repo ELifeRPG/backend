@@ -1,0 +1,104 @@
+networks:
+  core:
+
+volumes:
+  pg-data:
+  tempo-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+
+services:
+  postgres:
+    image: postgres:17
+    ports:
+      - "5433:5432" # host 5432 already in use on this machine
+    environment:
+      POSTGRES_PASSWORD: supersecret
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - core
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm --features=token-exchange,admin-fine-grained-authz
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/postgres
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: supersecret
+      KC_DB_SCHEMA: keycloak
+    ports:
+      - "8180:8080" # host 8080 already in use on this machine
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    depends_on:
+      - postgres
+    networks:
+      - core
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./infra/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4327:4317" # OTLP gRPC (host 4317 already in use on this machine)
+      - "4328:4318" # OTLP HTTP (host 4318 already in use on this machine)
+    depends_on:
+      - tempo
+      - loki
+    networks:
+      - core
+
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./infra/tempo-config.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks:
+      - core
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090" # host 9090 already in use on this machine
+    networks:
+      - core
+
+  loki:
+    image: grafana/loki:latest
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - loki-data:/loki
+    ports:
+      - "3101:3100" # host 3100 already in use on this machine
+    networks:
+      - core
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - core

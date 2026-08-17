@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- Only the host references Mediator.SourceGenerator — see ARCHITECTURE.md §9e. -->
+    <PackageReference Include="Mediator.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Items.Domain\Items.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,11 @@
+{
+  "name": "Workstation",
+  "dockerComposeFile": [
+    "compose.yml",
+    "compose.override.local.yml"
+  ],
+  "service": "workspace",
+  "workspaceFolder": "/workspace",
+  "initializeCommand": "bash .devcontainer/initialize.sh",
+  "shutdownAction": "stopCompose"
+}

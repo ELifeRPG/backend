@@ -1,0 +1,60 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/Shared.Kernel/Shared.Kernel.csproj" />
+    <Project Path="src/Shared/Shared.Integration.Abstractions/Shared.Integration.Abstractions.csproj" />
+    <Project Path="src/Shared/Shared.Integration/Shared.Integration.csproj" />
+    <Project Path="src/Shared/Shared.Infrastructure/Shared.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Characters/">
+    <Project Path="src/Characters/Characters.Domain/Characters.Domain.csproj" />
+    <Project Path="src/Characters/Characters.Application/Characters.Application.csproj" />
+    <Project Path="src/Characters/Characters.Infrastructure/Characters.Infrastructure.csproj" />
+    <Project Path="src/Characters/Characters.Api/Characters.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Banking/">
+    <Project Path="src/Banking/Banking.Domain/Banking.Domain.csproj" />
+    <Project Path="src/Banking/Banking.Application/Banking.Application.csproj" />
+    <Project Path="src/Banking/Banking.Infrastructure/Banking.Infrastructure.csproj" />
+    <Project Path="src/Banking/Banking.Api/Banking.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Companies/">
+    <Project Path="src/Companies/Companies.Domain/Companies.Domain.csproj" />
+    <Project Path="src/Companies/Companies.Application/Companies.Application.csproj" />
+    <Project Path="src/Companies/Companies.Infrastructure/Companies.Infrastructure.csproj" />
+    <Project Path="src/Companies/Companies.Api/Companies.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Items/">
+    <Project Path="src/Items/Items.Domain/Items.Domain.csproj" />
+    <Project Path="src/Items/Items.Application/Items.Application.csproj" />
+    <Project Path="src/Items/Items.Infrastructure/Items.Infrastructure.csproj" />
+    <Project Path="src/Items/Items.Api/Items.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Shops/">
+    <Project Path="src/Shops/Shops.Domain/Shops.Domain.csproj" />
+    <Project Path="src/Shops/Shops.Application/Shops.Application.csproj" />
+    <Project Path="src/Shops/Shops.Infrastructure/Shops.Infrastructure.csproj" />
+    <Project Path="src/Shops/Shops.Api/Shops.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Accounts/">
+    <Project Path="src/Accounts/Accounts.Domain/Accounts.Domain.csproj" />
+    <Project Path="src/Accounts/Accounts.Application/Accounts.Application.csproj" />
+    <Project Path="src/Accounts/Accounts.Infrastructure/Accounts.Infrastructure.csproj" />
+    <Project Path="src/Accounts/Accounts.Api/Accounts.Api.csproj" />
+  </Folder>
+  <Project Path="src/Api/Api.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="tests/Accounts.Domain.UnitTests/Accounts.Domain.UnitTests.csproj" />
+    <Project Path="tests/Accounts.IntegrationTests/Accounts.IntegrationTests.csproj" />
+    <Project Path="tests/Characters.Domain.UnitTests/Characters.Domain.UnitTests.csproj" />
+    <Project Path="tests/Characters.IntegrationTests/Characters.IntegrationTests.csproj" />
+    <Project Path="tests/Banking.Domain.UnitTests/Banking.Domain.UnitTests.csproj" />
+    <Project Path="tests/Banking.IntegrationTests/Banking.IntegrationTests.csproj" />
+    <Project Path="tests/Companies.Domain.UnitTests/Companies.Domain.UnitTests.csproj" />
+    <Project Path="tests/Companies.IntegrationTests/Companies.IntegrationTests.csproj" />
+    <Project Path="tests/Items.Domain.UnitTests/Items.Domain.UnitTests.csproj" />
+    <Project Path="tests/Items.IntegrationTests/Items.IntegrationTests.csproj" />
+    <Project Path="tests/Shops.Domain.UnitTests/Shops.Domain.UnitTests.csproj" />
+    <Project Path="tests/Shops.IntegrationTests/Shops.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
