@@ -26,8 +26,13 @@ services:
       - core
 
   keycloak:
+    # Not stock Keycloak: the realm declares the `link-bohemia-gameaccount` required action and the
+    # backend calls this realm's `/bohemia-gameaccount/pin` endpoint, both of which come from the
+    # keycloak-bohemia-gameaccount provider. Built rather than pulled because a plugin's own
+    # published image is a whole Keycloak server, and two of them cannot be layered.
     build:
       context: ./infra/keycloak
+    image: eliferpg/keycloak-with-providers:local
     command: start-dev --import-realm --features=token-exchange,admin-fine-grained-authz
     environment:
       KEYCLOAK_ADMIN: admin

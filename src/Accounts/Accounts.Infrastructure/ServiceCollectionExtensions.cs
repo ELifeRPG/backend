@@ -31,7 +31,7 @@ public static class AccountInfrastructureExtensions
             client.BaseAddress = new Uri(options.BaseUrl);
         });
 
-        // Talks to the keycloak-spi-reforger endpoints in the realm, using the same
+        // Talks to the keycloak-bohemia-gameaccount endpoints in the realm, using the same
         // service-account credentials as the provisioner above.
         services.AddHttpClient<IBohemiaGameAccountLinker, KeycloakBohemiaGameAccountLinker>((serviceProvider, client) =>
         {

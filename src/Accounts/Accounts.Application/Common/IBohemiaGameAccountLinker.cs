@@ -1,7 +1,7 @@
 namespace ELifeRPG.Accounts.Application.Common;
 
 /// <summary>
-/// The backend's view of the Keycloak game-account linking SPI (keycloak-spi-reforger).
+/// The backend's view of the Keycloak game-account linking SPI (keycloak-bohemia-gameaccount).
 ///
 /// Linking itself never happens here: the player types an in-game PIN into Keycloak's own form and
 /// Keycloak writes the binding onto their user. The backend only mints the PIN when an unlinked

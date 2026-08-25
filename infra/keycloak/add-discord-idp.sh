@@ -154,7 +154,7 @@ incompatibilities, each of which stops the login:
 
 Discord therefore needs a dedicated identity provider extension (an
 AbstractOAuth2IdentityProvider subclass) added to the Keycloak image, the same way this
-project already ships keycloak-spi-reforger. Once that jar is in the image and reports a
+project already ships keycloak-bohemia-gameaccount. Once that jar is in the image and reports a
 provider id, re-run this script with --provider-id <that id>.
 
 Re-run with --allow-unsupported-provider to create it anyway (login will fail).

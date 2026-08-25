@@ -20,18 +20,21 @@ You do **not** need .NET installed on your host — the devcontainer provides th
 
 ### Start local infrastructure
 
-Keycloak runs a **custom image** carrying the `keycloak-spi-reforger` provider — the realm declares
-the `link-bohemia-gameaccount` required action and the backend calls this realm's
-`/bohemia-gameaccount/pin` endpoint, neither of which exists on stock Keycloak. Build it once from
-the sibling repo first:
-
-```sh
-(cd ../keycloak-spi-reforger && mvn -B clean package && docker build -t eliferpg/keycloak-spi-reforger:dev .)
-```
+Keycloak runs a **custom image** carrying two provider jars — the realm declares the
+`link-bohemia-gameaccount` required action and the backend calls this realm's
+`/bohemia-gameaccount/pin` endpoint, neither of which exists on stock Keycloak, and the `eliferpg`
+theme styles the account/admin/email pages.
+[infra/keycloak/Dockerfile](./infra/keycloak/Dockerfile) composes it: a stock Keycloak server plus
+one `COPY` per provider jar, each lifted from that plugin's published image at a pinned version.
+Compose builds it for you — nothing to build by hand.
 
 ```sh
 docker compose up -d
 ```
+
+Adding another provider is an `ARG`, a `FROM`, and a `COPY` in that Dockerfile; bumping one is a
+single version change there. Because Compose only builds when the image is missing, re-run with
+`docker compose up -d --build` after either.
 
 This starts Postgres, Keycloak, and the observability stack (OpenTelemetry Collector, Tempo, Prometheus, Loki, Grafana). Host ports are intentionally **not** the defaults, since those are commonly already taken by other local services:
 
@@ -60,6 +63,16 @@ Inside the devcontainer, Postgres is then reachable at `postgres:5432` and Keycl
 The `eliferpg` realm (this local instance's one dev tenant — see [ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-identity-provider-keycloak) for the one-realm-per-tenant model) is auto-imported on container start from [infra/keycloak/eliferpg-realm.json](./infra/keycloak/eliferpg-realm.json). It comes preconfigured with:
 
 - `gameserver-dev` — stands in for one gameserver's Bridge client (Client Credentials, `gameserver:session:create` + `gameserver:characters:write` + `gameserver:banking:manage` + `gameserver:banking:write` + `gameserver:companies:write` + `gameserver:skills:write` scopes, `impersonation` role). Secret: `local-dev-only-not-a-real-secret`.
+- `loginTheme` is **`eliferpg-reforger`**, not `eliferpg`, even though this image now
+  layers both provider jars. `eliferpg-reforger` (from keycloak-bohemia-gameaccount) is
+  the only theme here that carries `link-bohemia-gameaccount.ftl`, and
+  `keycloak-theme-eliferpg` 1.0.1's `eliferpg` login theme declares `parent=keycloak`, so
+  it neither ships that template nor inherits it. Pointing `loginTheme` at `eliferpg`
+  makes the required-action page fail with a FreeMarker `TemplateNotFoundException`
+  (HTTP 500). The other three theme fields stay on `eliferpg` — account, admin, and email
+  need no template from the provider. Once `eliferpg`'s login theme reparents onto
+  `eliferpg-reforger` (or ships the template itself), `loginTheme` can move back to
+  `eliferpg` and the login page gets the styled theme too.
 - `account-service` — used to provision Keycloak users for new accounts (Client Credentials, `manage-users` + `view-realm` roles on `realm-management`). Secret: `account-service-secret`.
 
 These are throwaway local-dev values, intentionally committed in plaintext — same posture as the Postgres/Grafana/Keycloak-admin credentials above. If you change anything in the realm via the admin console and want to persist it, re-export and patch the client secrets back in (Keycloak redacts them on export):
@@ -100,9 +113,10 @@ of either one, bump that stage's version tag in `infra/keycloak/Dockerfile`, the
 `docker compose build keycloak` (or `docker compose up -d --build keycloak`).
 
 **[`eliferpg` theme](https://github.com/ELifeRPG/keycloak-theme-eliferpg)** —
-covers login, account, admin, and email, configured via
+ships login, account, admin, and email variants, configured via
 `loginTheme`/`accountTheme`/`adminTheme`/`emailTheme` in
-`infra/keycloak/eliferpg-realm.json`.
+`infra/keycloak/eliferpg-realm.json`. This realm uses it for all but `loginTheme`, which
+stays on `eliferpg-reforger` — see the realm notes above for why.
 
 **[`keycloak-bohemia-gameaccount`](https://github.com/ELifeRPG/keycloak-bohemia-gameaccount)**
 — a required action, registered in `eliferpg-realm.json`'s `requiredActions` as

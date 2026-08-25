@@ -10,7 +10,7 @@ namespace ELifeRPG.Accounts.IntegrationTests;
 /// <summary>
 /// Requires the local infra stack (`docker compose up -d`) and the devcontainer connected to its
 /// network — see README.md. Not run as part of a normal `dotnet test` against an empty environment.
-/// Also requires the keycloak-spi-reforger provider in the realm: an unlinked join mints a link PIN
+/// Also requires the keycloak-bohemia-gameaccount provider in the realm: an unlinked join mints a link PIN
 /// through it.
 ///
 /// Joins the "HiveSettings" collection because the linked case asserts

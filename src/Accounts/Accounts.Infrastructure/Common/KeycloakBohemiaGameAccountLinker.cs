@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace ELifeRPG.Accounts.Infrastructure.Common;
 
 /// <summary>
-/// Talks to the game-account linking endpoints the keycloak-spi-reforger provider adds to the realm.
+/// Talks to the game-account linking endpoints the keycloak-bohemia-gameaccount provider adds to the realm.
 ///
 /// Both endpoints are trusted-caller only: they require a service-account token carrying
 /// <c>accounts:bohemia-gameaccount:manage</c>. That scope permits minting a PIN for an arbitrary

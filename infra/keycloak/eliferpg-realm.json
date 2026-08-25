@@ -1,7 +1,7 @@
 {
   "id": "33b4bf86-a82b-4013-a006-4e5821bbf20e",
   "realm": "eliferpg",
-  "loginTheme": "eliferpg",
+  "loginTheme": "eliferpg-reforger",
   "accountTheme": "eliferpg",
   "adminTheme": "eliferpg",
   "emailTheme": "eliferpg",
@@ -2999,15 +2999,6 @@
       "defaultAction": false,
       "priority": 1000,
       "config": {}
-    },
-    {
-      "alias": "link-bohemia-gameaccount",
-      "name": "Link Bohemia Game Account",
-      "providerId": "link-bohemia-gameaccount",
-      "enabled": true,
-      "defaultAction": false,
-      "priority": 100,
-      "config": {}
     }
   ],
   "browserFlow": "browser",
@@ -3039,6 +3030,5 @@
   },
   "clientPolicies": {
     "policies": []
-  },
-  "loginTheme": "eliferpg"
+  }
 }
