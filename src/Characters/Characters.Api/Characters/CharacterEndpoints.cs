@@ -12,7 +12,11 @@ namespace Microsoft.AspNetCore.Builder;
 public static class CharacterModule
 {
     public const string CharactersWriteScope = "gameserver:characters:write";
+    public const string SkillsWriteScope = "gameserver:skills:write";
+    public const string SkillsManageScope = "gameserver:skills:manage";
     private const string CharactersWritePolicy = "Characters.Write";
+    internal const string SkillsWritePolicy = "Skills.Write";
+    internal const string SkillsManagePolicy = "Skills.Manage";
 
     public static IServiceCollection AddCharacterModule(this IServiceCollection services, IConfiguration configuration)
     {
@@ -23,7 +27,15 @@ public static class CharacterModule
             .AddPolicy(CharactersWritePolicy, policy => policy.RequireAssertion(context =>
                 (context.User.FindFirst("scope")?.Value ?? string.Empty)
                     .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Contains(CharactersWriteScope)));
+                    .Contains(CharactersWriteScope)))
+            .AddPolicy(SkillsWritePolicy, policy => policy.RequireAssertion(context =>
+                (context.User.FindFirst("scope")?.Value ?? string.Empty)
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Contains(SkillsWriteScope)))
+            .AddPolicy(SkillsManagePolicy, policy => policy.RequireAssertion(context =>
+                (context.User.FindFirst("scope")?.Value ?? string.Empty)
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Contains(SkillsManageScope)));
 
         return services;
     }
@@ -110,6 +122,8 @@ public static class CharacterModule
             .ProducesProblem(StatusCodes.Status404NotFound)
             .WithName("EndCharacterSession")
             .WithDescription("Ends a character's in-game session, e.g. on player disconnect.");
+
+        group.MapSkillsEndpoints();
 
         return app;
     }

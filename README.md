@@ -50,7 +50,7 @@ Inside the devcontainer, Postgres is then reachable at `postgres:5432` and Keycl
 
 The `eliferpg` realm (this local instance's one dev tenant — see [ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-identity-provider-keycloak) for the one-realm-per-tenant model) is auto-imported on container start from [infra/keycloak/eliferpg-realm.json](./infra/keycloak/eliferpg-realm.json). It comes preconfigured with:
 
-- `gameserver-dev` — stands in for one gameserver's Bridge client (Client Credentials, `gameserver:session:create` + `gameserver:characters:write` + `gameserver:banking:manage` + `gameserver:banking:write` + `gameserver:companies:write` scopes, `impersonation` role). Secret: `dev-secret-change-me`.
+- `gameserver-dev` — stands in for one gameserver's Bridge client (Client Credentials, `gameserver:session:create` + `gameserver:characters:write` + `gameserver:banking:manage` + `gameserver:banking:write` + `gameserver:companies:write` + `gameserver:skills:write` scopes, `impersonation` role). Secret: `dev-secret-change-me`.
 - `account-service` — used to provision Keycloak users for new accounts (Client Credentials, `manage-users` + `view-realm` roles on `realm-management`). Secret: `account-service-secret`.
 
 These are throwaway local-dev values, intentionally committed in plaintext — same posture as the Postgres/Grafana/Keycloak-admin credentials above. If you change anything in the realm via the admin console and want to persist it, re-export and patch the client secrets back in (Keycloak redacts them on export):
@@ -129,6 +129,7 @@ For feature-by-feature `curl` walkthroughs (minting a Bridge token, and exercisi
 
 - [docs/accounts.md](./docs/accounts.md) — session bootstrap
 - [docs/characters.md](./docs/characters.md) — characters and their sessions
+- [docs/skills.md](./docs/skills.md) — character skill progression
 - [docs/banking.md](./docs/banking.md) — banks, accounts, deposits/withdrawals/transfers, Corporate accounts, transaction history
 - [docs/companies.md](./docs/companies.md) — companies and membership
 - [docs/items.md](./docs/items.md) — the staff-curated item catalog

@@ -1,6 +1,7 @@
 using ELifeRPG.Characters.Application.Common;
 using ELifeRPG.Characters.Domain;
 using ELifeRPG.Characters.Infrastructure.Common;
+using ELifeRPG.Characters.Infrastructure.Skills;
 using ELifeRPG.Shared.Infrastructure;
 using JasperFx.MultiTenancy;
 using Marten;
@@ -23,9 +24,11 @@ public static class CharacterInfrastructureExtensions
             options.Events.TenancyStyle = TenancyStyle.Conjoined;
             options.Policies.AllDocumentsAreMultiTenanted();
             options.Projections.Add<CharacterProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
+            options.Projections.Add<CharacterSkillsProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
         });
 
         services.TryAddScoped<ICharacterRepository, MartenCharacterRepository>();
+        services.TryAddScoped<ICharacterSkillsRepository, MartenCharacterSkillsRepository>();
 
         return services;
     }

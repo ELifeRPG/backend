@@ -934,6 +934,7 @@
         "address",
         "phone",
         "accounts:manage",
+        "gameserver:skills:manage",
         "organization",
         "offline_access",
         "microprofile-jwt"
@@ -1025,6 +1026,7 @@
         "gameserver:items:manage",
         "gameserver:shops:manage",
         "gameserver:shops:write",
+        "gameserver:skills:write",
         "profile",
         "roles",
         "gameserver:session:revoke",
@@ -1237,6 +1239,7 @@
         "web-origins",
         "acr",
         "accounts:manage",
+        "gameserver:skills:manage",
         "profile",
         "roles",
         "basic",
@@ -1856,6 +1859,24 @@
     {
       "id": "2bf758fa-e50d-4c66-87ad-1ffbc8b47f8f",
       "name": "gameserver:shops:write",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "7cf17f7c-083b-4105-8ffa-62ef2b39a9a9",
+      "name": "gameserver:skills:write",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "706a40b1-2aef-48c0-948e-a8fcc9eaa85a",
+      "name": "gameserver:skills:manage",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",

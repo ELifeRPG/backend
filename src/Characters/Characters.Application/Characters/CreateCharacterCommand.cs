@@ -1,4 +1,5 @@
 using ELifeRPG.Accounts.Application.Accounts;
+using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Characters.Application.Common;
 using ELifeRPG.Characters.Domain.Events;
 
@@ -27,7 +28,7 @@ public sealed class CreateCharacterHandler(ICharacterRepository characterReposit
             return new CreateCharacterResult.AccountNotFound();
         }
 
-        if (accountLookup is AccountLookupResult.Found { Status: ELifeRPG.Accounts.Domain.AccountStatus.Locked })
+        if (accountLookup is AccountLookupResult.Found { Status: AccountStatus.Locked })
         {
             return new CreateCharacterResult.AccountLocked();
         }
