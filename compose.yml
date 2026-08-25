@@ -22,7 +22,8 @@ services:
       - core
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    build:
+      context: ./infra/keycloak
     command: start-dev --import-realm --features=token-exchange,admin-fine-grained-authz
     environment:
       KEYCLOAK_ADMIN: admin
@@ -36,7 +37,6 @@ services:
       - "8180:8080" # host 8080 already in use on this machine
     volumes:
       - ./infra/keycloak:/opt/keycloak/data/import:ro
-      - ./infra/keycloak/providers:/opt/keycloak/providers:ro
     depends_on:
       - postgres
     networks:

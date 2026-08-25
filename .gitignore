@@ -22,6 +22,3 @@ Thumbs.db
 .superpowers/
 .worktrees/
 .serena/
-
-## Downloaded Keycloak provider jars (fetched by infra/keycloak/fetch-theme.sh)
-infra/keycloak/providers/*.jar
