@@ -18,6 +18,10 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - pg-data:/var/lib/postgresql/data
+      # Creates the `keycloak` schema that KC_DB_SCHEMA below expects. Runs only on first
+      # initialisation of the volume — which is when it is needed, since Keycloak cannot create
+      # its own schema and otherwise fails to start after `docker compose down -v`.
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
     networks:
       - core
 

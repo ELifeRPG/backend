@@ -50,7 +50,7 @@ Inside the devcontainer, Postgres is then reachable at `postgres:5432` and Keycl
 
 The `eliferpg` realm (this local instance's one dev tenant — see [ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-identity-provider-keycloak) for the one-realm-per-tenant model) is auto-imported on container start from [infra/keycloak/eliferpg-realm.json](./infra/keycloak/eliferpg-realm.json). It comes preconfigured with:
 
-- `gameserver-dev` — stands in for one gameserver's Bridge client (Client Credentials, `gameserver:session:create` + `gameserver:characters:write` + `gameserver:banking:manage` + `gameserver:banking:write` + `gameserver:companies:write` + `gameserver:skills:write` scopes, `impersonation` role). Secret: `dev-secret-change-me`.
+- `gameserver-dev` — stands in for one gameserver's Bridge client (Client Credentials, `gameserver:session:create` + `gameserver:characters:write` + `gameserver:banking:manage` + `gameserver:banking:write` + `gameserver:companies:write` + `gameserver:skills:write` scopes, `impersonation` role). Secret: `local-dev-only-not-a-real-secret`.
 - `account-service` — used to provision Keycloak users for new accounts (Client Credentials, `manage-users` + `view-realm` roles on `realm-management`). Secret: `account-service-secret`.
 
 These are throwaway local-dev values, intentionally committed in plaintext — same posture as the Postgres/Grafana/Keycloak-admin credentials above. If you change anything in the realm via the admin console and want to persist it, re-export and patch the client secrets back in (Keycloak redacts them on export):
@@ -164,6 +164,33 @@ Run everything at once (all eight test projects, unit and integration) with:
 ```sh
 dotnet test ELifeRPG.Core.slnx
 ```
+
+### Discord login
+
+`infra/keycloak/add-discord-idp.sh` adds Discord as an identity provider:
+
+```sh
+DISCORD_CLIENT_ID=... DISCORD_CLIENT_SECRET=... ./infra/keycloak/add-discord-idp.sh
+```
+
+It applies to a **running** Keycloak over the Admin API rather than editing
+`eliferpg-realm.json`, on purpose. Verified against 26.0.8: a realm referencing a
+`providerId` the server does not have makes Keycloak refuse to start at all (`Invalid
+identity provider id`), so committing a Discord block before the provider is in the image
+would take the whole stack down, not just Discord login. Over the Admin API the same
+mistake is a 4xx from the script.
+
+**Discord needs a provider extension; stock Keycloak cannot broker it.** There is no
+Discord provider in 26.0.8, and the generic `oidc` one does not work — verified end to
+end against a stand-in Discord, three separate failures: no `id_token` in the token
+response (Discord is OAuth2, not OIDC), `id` instead of `sub` in `/users/@me`, and OIDC
+nonce validation. The script refuses up front and explains this rather than creating a
+provider nobody can log in through. Once a Discord provider jar is in the image, re-run
+with `--provider-id <that id>`.
+
+`--print-realm-json` emits the block for `eliferpg-realm.json` once that is true. It uses
+`${DISCORD_CLIENT_ID}`/`${DISCORD_CLIENT_SECRET}` placeholders, which Keycloak substitutes
+from the environment at import time (verified), so the secret stays out of git.
 
 ### Local secrets
 

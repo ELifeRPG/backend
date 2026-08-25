@@ -8,7 +8,7 @@ Assumes `src/Api` is running (see the main [README](../README.md#run)) and you'r
 
 ```sh
 BRIDGE_TOKEN=$(curl -s -X POST http://keycloak:8080/realms/eliferpg/protocol/openid-connect/token \
-  -d "client_id=gameserver-dev" -d "client_secret=dev-secret-change-me" -d "grant_type=client_credentials" \
+  -d "client_id=gameserver-dev" -d "client_secret=local-dev-only-not-a-real-secret" -d "grant_type=client_credentials" \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
 
 curl -X POST http://localhost:5100/api/accounts/session-bootstrap \

@@ -59,7 +59,7 @@ internal sealed class KeycloakTestClient
             new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["client_id"] = "gameserver-dev",
-                ["client_secret"] = "dev-secret-change-me",
+                ["client_secret"] = "local-dev-only-not-a-real-secret",
                 ["grant_type"] = "client_credentials",
             }));
         ownTokenResponse.EnsureSuccessStatusCode();
@@ -71,7 +71,7 @@ internal sealed class KeycloakTestClient
             new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["client_id"] = "gameserver-dev",
-                ["client_secret"] = "dev-secret-change-me",
+                ["client_secret"] = "local-dev-only-not-a-real-secret",
                 ["grant_type"] = "urn:ietf:params:oauth:grant-type:token-exchange",
                 ["subject_token"] = ownAccessToken,
                 ["subject_token_type"] = "urn:ietf:params:oauth:token-type:access_token",

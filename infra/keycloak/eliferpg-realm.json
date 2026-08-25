@@ -82,6 +82,15 @@
         "attributes": {}
       },
       {
+        "id": "8ed6102a-b86e-4c4a-8e6a-7013291cf8c4",
+        "name": "staff",
+        "description": "Can view and moderate player accounts (search, lock/unlock) via the web portal's admin Accounts page.",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "33b4bf86-a82b-4013-a006-4e5821bbf20e",
+        "attributes": {}
+      },
+      {
         "id": "4179c7e3-bee2-40a6-96b5-85396828f79e",
         "name": "offline_access",
         "description": "${role_offline-access}",
@@ -947,7 +956,7 @@
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "dev-secret-change-me",
+      "secret": "local-dev-only-not-a-real-secret",
       "redirectUris": [],
       "webOrigins": [],
       "notBefore": 0,
