@@ -6,6 +6,15 @@ public interface IBankAccountRepository
 {
     ValueTask<BankAccount?> FindByIdAsync(BankAccountId bankAccountId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Loads the account for a subsequent Append + SaveChangesAsync, using Marten's optimistic
+    /// concurrency (FetchForWriting) so a second writer against the same account is caught at
+    /// SaveChangesAsync time instead of silently lost. Use this — not FindByIdAsync — whenever the
+    /// caller is about to mutate the account and Append an event. FindByIdAsync stays reserved for
+    /// read-only queries that never Append.
+    /// </summary>
+    ValueTask<BankAccount?> FetchForUpdateAsync(BankAccountId bankAccountId, CancellationToken cancellationToken);
+
     ValueTask<IReadOnlyList<BankAccount>> FindByCharacterIdAsync(CharacterId characterId, CancellationToken cancellationToken);
 
     ValueTask<IReadOnlyList<BankAccount>> FindByCompanyIdAsync(CompanyId companyId, CancellationToken cancellationToken);

@@ -10,7 +10,8 @@ public union SubmitApplicationResult(
     SubmitApplicationResult.CompanyNotFound,
     SubmitApplicationResult.CharacterNotFound,
     SubmitApplicationResult.AlreadyMember,
-    SubmitApplicationResult.DuplicateApplication)
+    SubmitApplicationResult.DuplicateApplication,
+    SubmitApplicationResult.ConcurrentModification)
 {
     public record Submitted(CompanyApplicationId ApplicationId);
 
@@ -21,6 +22,8 @@ public union SubmitApplicationResult(
     public record AlreadyMember;
 
     public record DuplicateApplication;
+
+    public record ConcurrentModification;
 }
 
 public sealed record SubmitApplicationCommand(CompanyId CompanyId, CharacterId CharacterId, string Message) : IRequest<SubmitApplicationResult>;
@@ -30,7 +33,7 @@ public sealed class SubmitApplicationHandler(ICompanyRepository companyRepositor
 {
     public async ValueTask<SubmitApplicationResult> Handle(SubmitApplicationCommand request, CancellationToken cancellationToken)
     {
-        var company = await companyRepository.FindByIdAsync(request.CompanyId, cancellationToken);
+        var company = await companyRepository.FetchForUpdateAsync(request.CompanyId, cancellationToken);
         if (company is null)
         {
             return new SubmitApplicationResult.CompanyNotFound();
@@ -57,7 +60,15 @@ public sealed class SubmitApplicationHandler(ICompanyRepository companyRepositor
         }
 
         companyRepository.Append(request.CompanyId, domainEvent);
-        await companyRepository.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await companyRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (CompanyConcurrencyException)
+        {
+            return new SubmitApplicationResult.ConcurrentModification();
+        }
 
         return new SubmitApplicationResult.Submitted(domainEvent.ApplicationId);
     }

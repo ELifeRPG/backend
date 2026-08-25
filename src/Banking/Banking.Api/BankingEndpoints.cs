@@ -183,11 +183,15 @@ public static class BankingModule
                         NewBalance = deposited.NewBalance,
                     }),
                     DepositResult.BankAccountNotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
+                    DepositResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this account",
+                        statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
             .Produces<TransactionResultDto>()
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("DepositToBankAccount")
             .WithDescription("Deposits cash into a bank account.");
 
@@ -213,6 +217,9 @@ public static class BankingModule
                         statusCode: StatusCodes.Status403Forbidden),
                     WithdrawResult.InsufficientBalance => Results.Problem(
                         title: "Insufficient balance",
+                        statusCode: StatusCodes.Status409Conflict),
+                    WithdrawResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this account",
                         statusCode: StatusCodes.Status409Conflict),
                 };
             })
@@ -249,6 +256,9 @@ public static class BankingModule
                         statusCode: StatusCodes.Status403Forbidden),
                     TransferResult.InsufficientBalance => Results.Problem(
                         title: "Insufficient balance",
+                        statusCode: StatusCodes.Status409Conflict),
+                    TransferResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this account",
                         statusCode: StatusCodes.Status409Conflict),
                 };
             })

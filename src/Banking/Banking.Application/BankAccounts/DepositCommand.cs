@@ -1,12 +1,15 @@
 using ELifeRPG.Banking.Application.Common;
+using ELifeRPG.Banking.Domain.Exceptions;
 
 namespace ELifeRPG.Banking.Application.BankAccounts;
 
-public union DepositResult(DepositResult.Deposited, DepositResult.BankAccountNotFound)
+public union DepositResult(DepositResult.Deposited, DepositResult.BankAccountNotFound, DepositResult.ConcurrentModification)
 {
     public record Deposited(decimal Amount, decimal Fee, decimal NewBalance);
 
     public record BankAccountNotFound;
+
+    public record ConcurrentModification;
 }
 
 public sealed record DepositCommand(BankAccountId BankAccountId, decimal Amount) : IRequest<DepositResult>;
@@ -15,7 +18,7 @@ public sealed class DepositHandler(IBankAccountRepository bankAccountRepository)
 {
     public async ValueTask<DepositResult> Handle(DepositCommand request, CancellationToken cancellationToken)
     {
-        var bankAccount = await bankAccountRepository.FindByIdAsync(request.BankAccountId, cancellationToken);
+        var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.BankAccountId, cancellationToken);
         if (bankAccount is null)
         {
             return new DepositResult.BankAccountNotFound();
@@ -23,7 +26,15 @@ public sealed class DepositHandler(IBankAccountRepository bankAccountRepository)
 
         var domainEvent = bankAccount.Deposit(request.Amount);
         bankAccountRepository.Append(request.BankAccountId, domainEvent);
-        await bankAccountRepository.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await bankAccountRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (BankAccountConcurrencyException)
+        {
+            return new DepositResult.ConcurrentModification();
+        }
 
         return new DepositResult.Deposited(domainEvent.Amount, domainEvent.Fee, bankAccount.Balance);
     }

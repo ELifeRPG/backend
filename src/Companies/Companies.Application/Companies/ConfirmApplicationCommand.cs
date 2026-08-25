@@ -8,7 +8,8 @@ public union ConfirmApplicationResult(
     ConfirmApplicationResult.CompanyNotFound,
     ConfirmApplicationResult.NotAuthorized,
     ConfirmApplicationResult.ApplicationNotFound,
-    ConfirmApplicationResult.InvalidState)
+    ConfirmApplicationResult.InvalidState,
+    ConfirmApplicationResult.ConcurrentModification)
 {
     public record Confirmed;
 
@@ -19,6 +20,8 @@ public union ConfirmApplicationResult(
     public record ApplicationNotFound;
 
     public record InvalidState;
+
+    public record ConcurrentModification;
 }
 
 public sealed record ConfirmApplicationCommand(CompanyId CompanyId, CompanyApplicationId ApplicationId, CharacterId ActingCharacterId)
@@ -29,7 +32,7 @@ public sealed class ConfirmApplicationHandler(ICompanyRepository companyReposito
 {
     public async ValueTask<ConfirmApplicationResult> Handle(ConfirmApplicationCommand request, CancellationToken cancellationToken)
     {
-        var company = await companyRepository.FindByIdAsync(request.CompanyId, cancellationToken);
+        var company = await companyRepository.FetchForUpdateAsync(request.CompanyId, cancellationToken);
         if (company is null)
         {
             return new ConfirmApplicationResult.CompanyNotFound();
@@ -54,7 +57,14 @@ public sealed class ConfirmApplicationHandler(ICompanyRepository companyReposito
             return new ConfirmApplicationResult.InvalidState();
         }
 
-        await companyRepository.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await companyRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (CompanyConcurrencyException)
+        {
+            return new ConfirmApplicationResult.ConcurrentModification();
+        }
 
         return new ConfirmApplicationResult.Confirmed();
     }

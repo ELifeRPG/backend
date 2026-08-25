@@ -1,5 +1,6 @@
 using ELifeRPG.Banking.Application.BankAccounts;
 using ELifeRPG.Banking.Application.Common;
+using ELifeRPG.Banking.Domain;
 using ELifeRPG.Banking.Domain.Events;
 using ELifeRPG.Banking.Domain.Exceptions;
 using ELifeRPG.Shared.Integration.Abstractions;
@@ -97,20 +98,55 @@ public sealed class PurchaseListingHandler(
         var totalPrice = listing.Price * request.Quantity;
 
         var bankAccountRepository = bankAccountRepositoryFactory.CreateFor(transaction.Handle);
-        var buyerAccount = await bankAccountRepository.FindByIdAsync(request.BuyerBankAccountId, cancellationToken);
-        if (buyerAccount is null)
-        {
-            return new PurchaseListingResult.BuyerAccountNotFound();
-        }
 
-        var payoutAccount = await bankAccountRepository.FindByIdAsync(shop.PayoutBankAccountId, cancellationToken);
-        if (payoutAccount is null)
+        // Lock acquisition order must not depend on buyer/payout role: which account is "buyer" and
+        // which is "payout" varies per request, so locking in request order (buyer, then payout) can
+        // have two concurrent purchases — each buying from the other's shop — take the same two
+        // account locks in opposite orders, deadlocking in Postgres (SQLSTATE 40P01). Sorting by the
+        // underlying id before locking makes the acquisition order the same for both transactions
+        // regardless of role, which rules that out.
+        BankAccount buyerAccount;
+        BankAccount payoutAccount;
+        if (request.BuyerBankAccountId == shop.PayoutBankAccountId)
         {
-            // The shop's own payout account disappearing isn't a caller-triggerable business case —
-            // propagates as a 500 rather than adding a dedicated result branch. Same deliberate gap
-            // TransferHandler's TargetBankAccountNotFound case left unmapped before this migration —
-            // see ARCHITECTURE.md §9e.
-            throw new InvalidOperationException($"Shop {request.ShopId}'s payout bank account {shop.PayoutBankAccountId} does not exist.");
+            // Buying from one's own shop — buyer and payout are the same account. Lock it once.
+            var account = await bankAccountRepository.FetchForUpdateAsync(request.BuyerBankAccountId, cancellationToken);
+            if (account is null)
+            {
+                return new PurchaseListingResult.BuyerAccountNotFound();
+            }
+
+            buyerAccount = account;
+            payoutAccount = account;
+        }
+        else
+        {
+            var (firstId, secondId) = request.BuyerBankAccountId.Value.CompareTo(shop.PayoutBankAccountId.Value) < 0
+                ? (request.BuyerBankAccountId, shop.PayoutBankAccountId)
+                : (shop.PayoutBankAccountId, request.BuyerBankAccountId);
+
+            var firstAccount = await bankAccountRepository.FetchForUpdateAsync(firstId, cancellationToken);
+            var secondAccount = await bankAccountRepository.FetchForUpdateAsync(secondId, cancellationToken);
+
+            var fetchedBuyerAccount = firstId == request.BuyerBankAccountId ? firstAccount : secondAccount;
+            var fetchedPayoutAccount = firstId == shop.PayoutBankAccountId ? firstAccount : secondAccount;
+
+            if (fetchedBuyerAccount is null)
+            {
+                return new PurchaseListingResult.BuyerAccountNotFound();
+            }
+
+            if (fetchedPayoutAccount is null)
+            {
+                // The shop's own payout account disappearing isn't a caller-triggerable business case —
+                // propagates as a 500 rather than adding a dedicated result branch. Same deliberate gap
+                // TransferHandler's TargetBankAccountNotFound case left unmapped before this migration —
+                // see ARCHITECTURE.md §9e.
+                throw new InvalidOperationException($"Shop {request.ShopId}'s payout bank account {shop.PayoutBankAccountId} does not exist.");
+            }
+
+            buyerAccount = fetchedBuyerAccount;
+            payoutAccount = fetchedPayoutAccount;
         }
 
         var isAuthorized = await BankAccountAuthorization.IsAuthorizedAsync(buyerAccount, request.BuyerCharacterId, mediator, cancellationToken);

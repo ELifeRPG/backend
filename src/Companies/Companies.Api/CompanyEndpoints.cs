@@ -45,11 +45,15 @@ public static class CompanyModule
                     CreateCompanyResult.FounderNotFound => Results.Problem(
                         title: "Founder character not found",
                         statusCode: StatusCodes.Status404NotFound),
+                    CreateCompanyResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this company",
+                        statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(CompaniesWritePolicy)
             .Produces<CompanyDto>()
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("CreateCompany")
             .WithDescription("Creates a new company; the founder becomes its first member.");
 
@@ -100,6 +104,9 @@ public static class CompanyModule
                     AddMemberResult.AlreadyMember => Results.Problem(
                         title: "Character is already a member",
                         statusCode: StatusCodes.Status409Conflict),
+                    AddMemberResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this company",
+                        statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(CompaniesWritePolicy)
@@ -134,6 +141,9 @@ public static class CompanyModule
                         statusCode: StatusCodes.Status409Conflict),
                     SubmitApplicationResult.DuplicateApplication => Results.Problem(
                         title: "Character already has an open application to this company",
+                        statusCode: StatusCodes.Status409Conflict),
+                    SubmitApplicationResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this company",
                         statusCode: StatusCodes.Status409Conflict),
                 };
             })
@@ -191,6 +201,9 @@ public static class CompanyModule
                     ConfirmApplicationResult.InvalidState => Results.Problem(
                         title: "Application must be Pending to be confirmed",
                         statusCode: StatusCodes.Status409Conflict),
+                    ConfirmApplicationResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this company",
+                        statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(CompaniesWritePolicy)
@@ -224,6 +237,9 @@ public static class CompanyModule
                     AcceptApplicationResult.AlreadyMember => Results.Problem(
                         title: "Character is already a member",
                         statusCode: StatusCodes.Status409Conflict),
+                    AcceptApplicationResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this company",
+                        statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(CompaniesWritePolicy)
@@ -253,6 +269,9 @@ public static class CompanyModule
                         statusCode: StatusCodes.Status403Forbidden),
                     DenyApplicationResult.InvalidState => Results.Problem(
                         title: "Application has already been decided",
+                        statusCode: StatusCodes.Status409Conflict),
+                    DenyApplicationResult.ConcurrentModification => Results.Problem(
+                        title: "Another operation already committed against this company",
                         statusCode: StatusCodes.Status409Conflict),
                 };
             })

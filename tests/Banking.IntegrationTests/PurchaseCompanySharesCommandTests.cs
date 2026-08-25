@@ -51,18 +51,28 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var buyerId = await CreateCharacterAsync(mediator);
         var bankAccountId = await OpenBankAccountAsync(mediator, buyerId);
-        await mediator.Send(new DepositCommand(bankAccountId, 1000m));
+        var depositResult = await mediator.Send(new DepositCommand(bankAccountId, 1000m));
+        Assert.True(depositResult is DepositResult.Deposited, $"Expected Deposited, got {depositResult}");
+        var balanceAfterDeposit = depositResult is DepositResult.Deposited deposited ? deposited.NewBalance : 0m;
         var companyId = await CreateCompanyAsync(mediator, buyerId);
 
         var result = await mediator.Send(new PurchaseCompanySharesCommand(bankAccountId, buyerId, companyId, 10, 5m));
 
         Assert.True(result is PurchaseCompanySharesResult.Purchased, $"Expected Purchased, got {result}");
 
+        // Same fee formula as Banking.Domain.BankAccount.CalculateFee, using the fixed 0.20/0.02
+        // parameters every OpenBankCommand call in this test file passes (see OpenBankAccountAsync
+        // below). Computed against balanceAfterDeposit (not the raw 1000m deposit) because Deposit
+        // itself charges a fee — see PurchaseListingTests for the identical pattern in Shops.
+        const decimal totalPrice = 10 * 5m;
+        var expectedFee = 0.20m + (totalPrice * 0.02m);
+        var expectedBalance = balanceAfterDeposit - totalPrice - expectedFee;
+
         var accountDetails = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
         Assert.True(accountDetails is BankAccountDetailsResult.Found, $"Expected Found, got {accountDetails}");
         if (accountDetails is BankAccountDetailsResult.Found found)
         {
-            Assert.True(found.BankAccount.Balance < 950m, "Balance should be reduced by 50 (10 * 5) plus fee.");
+            Assert.Equal(expectedBalance, found.BankAccount.Balance);
         }
 
         var companyDetails = await mediator.Send(new CompanyDetailsQuery(companyId));
@@ -174,6 +184,44 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
         if (accountDetails is BankAccountDetailsResult.Found found)
         {
             Assert.Equal(balanceAfterDeposit, found.BankAccount.Balance);
+        }
+    }
+
+    [Fact]
+    public async Task TwoConcurrentPurchases_AgainstSameBankAccount_ExactlyOneSucceeds()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var buyerId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, buyerId);
+        await mediator.Send(new DepositCommand(bankAccountId, 1000m));
+        var companyAId = await CreateCompanyAsync(mediator, buyerId);
+        var companyBId = await CreateCompanyAsync(mediator, buyerId);
+
+        // Two concurrent purchases from different companies, both paid from the same bank account,
+        // each costing ~600 against a ~1000 balance — only one can succeed without overdrawing.
+        var results = await Task.WhenAll(
+            Task.Run(async () =>
+            {
+                await using var innerScope = _provider.CreateAsyncScope();
+                var innerMediator = innerScope.ServiceProvider.GetRequiredService<IMediator>();
+                return await innerMediator.Send(new PurchaseCompanySharesCommand(bankAccountId, buyerId, companyAId, 100, 6m));
+            }),
+            Task.Run(async () =>
+            {
+                await using var innerScope = _provider.CreateAsyncScope();
+                var innerMediator = innerScope.ServiceProvider.GetRequiredService<IMediator>();
+                return await innerMediator.Send(new PurchaseCompanySharesCommand(bankAccountId, buyerId, companyBId, 100, 6m));
+            }));
+
+        var succeeded = results.Count(r => r is PurchaseCompanySharesResult.Purchased);
+        Assert.Equal(1, succeeded);
+
+        var accountDetails = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
+        Assert.True(accountDetails is BankAccountDetailsResult.Found, $"Expected Found, got {accountDetails}");
+        if (accountDetails is BankAccountDetailsResult.Found found)
+        {
+            Assert.True(found.BankAccount.Balance >= 0m, "Balance must never go negative.");
         }
     }
 

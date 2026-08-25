@@ -9,7 +9,8 @@ public union AcceptApplicationResult(
     AcceptApplicationResult.NotAuthorized,
     AcceptApplicationResult.ApplicationNotFound,
     AcceptApplicationResult.InvalidState,
-    AcceptApplicationResult.AlreadyMember)
+    AcceptApplicationResult.AlreadyMember,
+    AcceptApplicationResult.ConcurrentModification)
 {
     public record Accepted;
 
@@ -22,6 +23,8 @@ public union AcceptApplicationResult(
     public record InvalidState;
 
     public record AlreadyMember;
+
+    public record ConcurrentModification;
 }
 
 public sealed record AcceptApplicationCommand(CompanyId CompanyId, CompanyApplicationId ApplicationId, CharacterId ActingCharacterId)
@@ -32,7 +35,7 @@ public sealed class AcceptApplicationHandler(ICompanyRepository companyRepositor
 {
     public async ValueTask<AcceptApplicationResult> Handle(AcceptApplicationCommand request, CancellationToken cancellationToken)
     {
-        var company = await companyRepository.FindByIdAsync(request.CompanyId, cancellationToken);
+        var company = await companyRepository.FetchForUpdateAsync(request.CompanyId, cancellationToken);
         if (company is null)
         {
             return new AcceptApplicationResult.CompanyNotFound();
@@ -62,7 +65,14 @@ public sealed class AcceptApplicationHandler(ICompanyRepository companyRepositor
             return new AcceptApplicationResult.AlreadyMember();
         }
 
-        await companyRepository.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await companyRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (CompanyConcurrencyException)
+        {
+            return new AcceptApplicationResult.ConcurrentModification();
+        }
 
         return new AcceptApplicationResult.Accepted();
     }

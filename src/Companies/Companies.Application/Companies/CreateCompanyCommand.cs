@@ -1,14 +1,17 @@
 using ELifeRPG.Characters.Application.Characters;
 using ELifeRPG.Companies.Application.Common;
 using ELifeRPG.Companies.Domain.Events;
+using ELifeRPG.Companies.Domain.Exceptions;
 
 namespace ELifeRPG.Companies.Application.Companies;
 
-public union CreateCompanyResult(CreateCompanyResult.Created, CreateCompanyResult.FounderNotFound)
+public union CreateCompanyResult(CreateCompanyResult.Created, CreateCompanyResult.FounderNotFound, CreateCompanyResult.ConcurrentModification)
 {
     public record Created(CompanyId CompanyId);
 
     public record FounderNotFound;
+
+    public record ConcurrentModification;
 }
 
 public sealed record CreateCompanyCommand(string Name, CharacterId FounderCharacterId) : IRequest<CreateCompanyResult>;
@@ -36,7 +39,15 @@ public sealed class CreateCompanyHandler(ICompanyRepository companyRepository, I
 
         companyRepository.StartStream(company, createdEvent);
         companyRepository.Append(companyId, memberAddedEvent);
-        await companyRepository.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await companyRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (CompanyConcurrencyException)
+        {
+            return new CreateCompanyResult.ConcurrentModification();
+        }
 
         return new CreateCompanyResult.Created(companyId);
     }

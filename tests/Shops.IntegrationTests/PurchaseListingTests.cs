@@ -296,6 +296,38 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         Assert.Equal(preBalanceLoser, loserBalance);
     }
 
+    [Fact]
+    public async Task TwoConcurrentPurchases_BySameBuyer_AgainstDifferentListings_ExactlyOneSucceedsIfBalanceInsufficientForBoth()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingAId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 60m, stock: 10);
+        var (_, listingBId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 60m, stock: 10);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+
+        // Two concurrent purchases from the same buyer account, each costing 60 against a ~100
+        // balance — only one can succeed without overdrawing.
+        var results = await Task.WhenAll(
+            Task.Run(async () =>
+            {
+                await using var innerScope = _provider.CreateAsyncScope();
+                var innerMediator = innerScope.ServiceProvider.GetRequiredService<IMediator>();
+                return await innerMediator.Send(new PurchaseListingCommand(shopId, listingAId, 1, buyerId, buyerAccountId));
+            }),
+            Task.Run(async () =>
+            {
+                await using var innerScope = _provider.CreateAsyncScope();
+                var innerMediator = innerScope.ServiceProvider.GetRequiredService<IMediator>();
+                return await innerMediator.Send(new PurchaseListingCommand(shopId, listingBId, 1, buyerId, buyerAccountId));
+            }));
+
+        var succeeded = results.Count(r => r is PurchaseListingResult.Purchased);
+        Assert.Equal(1, succeeded);
+    }
+
     private async Task<AccountId> CreateActiveAccountAsync(IMediator mediator)
     {
         var bohemiaId = new GameId(Guid.NewGuid());

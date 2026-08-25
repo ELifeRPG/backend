@@ -6,7 +6,12 @@ using ELifeRPG.Companies.Domain;
 
 namespace ELifeRPG.Banking.Application.BankAccounts;
 
-public union WithdrawResult(WithdrawResult.Withdrawn, WithdrawResult.BankAccountNotFound, WithdrawResult.NotAuthorized, WithdrawResult.InsufficientBalance)
+public union WithdrawResult(
+    WithdrawResult.Withdrawn,
+    WithdrawResult.BankAccountNotFound,
+    WithdrawResult.NotAuthorized,
+    WithdrawResult.InsufficientBalance,
+    WithdrawResult.ConcurrentModification)
 {
     public record Withdrawn(decimal Amount, decimal Fee, decimal NewBalance);
 
@@ -15,6 +20,8 @@ public union WithdrawResult(WithdrawResult.Withdrawn, WithdrawResult.BankAccount
     public record NotAuthorized;
 
     public record InsufficientBalance;
+
+    public record ConcurrentModification;
 }
 
 public sealed record WithdrawCommand(BankAccountId BankAccountId, CharacterId CharacterId, decimal Amount) : IRequest<WithdrawResult>;
@@ -23,7 +30,7 @@ public sealed class WithdrawHandler(IBankAccountRepository bankAccountRepository
 {
     public async ValueTask<WithdrawResult> Handle(WithdrawCommand request, CancellationToken cancellationToken)
     {
-        var bankAccount = await bankAccountRepository.FindByIdAsync(request.BankAccountId, cancellationToken);
+        var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.BankAccountId, cancellationToken);
         if (bankAccount is null)
         {
             return new WithdrawResult.BankAccountNotFound();
@@ -46,7 +53,15 @@ public sealed class WithdrawHandler(IBankAccountRepository bankAccountRepository
         }
 
         bankAccountRepository.Append(request.BankAccountId, domainEvent);
-        await bankAccountRepository.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await bankAccountRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (BankAccountConcurrencyException)
+        {
+            return new WithdrawResult.ConcurrentModification();
+        }
 
         return new WithdrawResult.Withdrawn(domainEvent.Amount, domainEvent.Fee, bankAccount.Balance);
     }

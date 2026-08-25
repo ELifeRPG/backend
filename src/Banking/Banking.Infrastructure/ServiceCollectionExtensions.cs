@@ -21,6 +21,19 @@ public static class BankingInfrastructureExtensions
             options.Events.DatabaseSchemaName = "banking";
             options.DatabaseSchemaName = "banking";
             options.Events.TenancyStyle = TenancyStyle.Conjoined;
+
+            // Marten 9's default (UseIdentityMapForAggregates = true) opts any session that calls
+            // Events.FetchForWriting<T> into identity-map tracking for T, for that session's whole
+            // lifetime — including later, unrelated LoadAsync<T> calls made through the very same
+            // scoped IBankAccountRepository (e.g. a query handler running later in the same request
+            // scope, after a FetchForUpdateAsync call elsewhere in that scope). Since
+            // MartenBankAccountRepository holds one session per request, that would make FindByIdAsync
+            // silently return a stale, session-cached document instead of the current row once
+            // FetchForUpdateAsync had run once in that scope. Restoring V8 (non-caching) semantics here
+            // keeps every load a real, fresh query — see MartenBankAccountRepository.FetchForUpdateAsync
+            // for the matching aggregate-instance-reuse gotcha this also avoids on the write side.
+            options.Events.UseIdentityMapForAggregates = false;
+
             options.Policies.AllDocumentsAreMultiTenanted();
             options.Projections.Add<BankProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
             options.Projections.Add<BankAccountProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);

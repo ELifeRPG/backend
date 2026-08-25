@@ -701,6 +701,189 @@
         }
       }
     },
+    "/api/characters/{characterId}/skills/actions": {
+      "post": {
+        "tags": [
+          "Characters"
+        ],
+        "description": "Reports a gameplay action for a character, granting XP to every skill the action's catalog entry rewards, scaled by Quantity. Repeated occurrences of the same action should be coalesced into Quantity rather than calling this once per micro-action.",
+        "operationId": "RecordSkillAction",
+        "parameters": [
+          {
+            "name": "characterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordSkillActionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordSkillActionResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/characters/{characterId}/skills/xp": {
+      "post": {
+        "tags": [
+          "Characters"
+        ],
+        "description": "Directly grants skill XP, bypassing the action catalog. Staff/admin-only correction path, recorded with XpSource.ManualGrant for audit.",
+        "operationId": "GrantSkillXp",
+        "parameters": [
+          {
+            "name": "characterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantSkillXpRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantSkillXpResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/characters/{characterId}/skills": {
+      "get": {
+        "tags": [
+          "Characters"
+        ],
+        "description": "Lists every skill's level/XP for a character, defaulting untouched skills to level 1 with 0 XP.",
+        "operationId": "GetCharacterSkills",
+        "parameters": [
+          {
+            "name": "characterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CharacterSkillDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills": {
+      "get": {
+        "tags": [
+          "Characters"
+        ],
+        "description": "Static catalog of every known skill, its category, and display name.",
+        "operationId": "GetSkillCatalog",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SkillCatalogEntryDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/banks": {
       "post": {
         "tags": [
@@ -1021,6 +1204,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -1281,6 +1474,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2530,6 +2733,48 @@
           }
         }
       },
+      "CharacterSkillDto": {
+        "required": [
+          "skill",
+          "category",
+          "totalXp",
+          "level",
+          "xpForNextLevel"
+        ],
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "totalXp": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "level": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "xpForNextLevel": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "CompanyApplicationDto": {
         "required": [
           "applicationId",
@@ -2706,6 +2951,51 @@
           },
           "whitelistEnabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "GrantSkillXpRequestDto": {
+        "required": [
+          "skill",
+          "amount"
+        ],
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string"
+          },
+          "amount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "GrantSkillXpResponseDto": {
+        "required": [
+          "newTotalXp",
+          "newLevel"
+        ],
+        "type": "object",
+        "properties": {
+          "newTotalXp": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "newLevel": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -2910,6 +3200,47 @@
           }
         }
       },
+      "RecordSkillActionRequestDto": {
+        "required": [
+          "action"
+        ],
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "RecordSkillActionResponseDto": {
+        "required": [
+          "gains",
+          "skills"
+        ],
+        "type": "object",
+        "properties": {
+          "gains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillXpGrantDto"
+            }
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CharacterSkillDto"
+            }
+          }
+        }
+      },
       "RevokeTokenRequestDto": {
         "required": [
           "jti",
@@ -3052,6 +3383,67 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "SkillCatalogEntryDto": {
+        "required": [
+          "skill",
+          "category",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "SkillXpGrantDto": {
+        "required": [
+          "skill",
+          "xpGained",
+          "newTotalXp",
+          "newLevel",
+          "didLevelUp"
+        ],
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string"
+          },
+          "xpGained": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "newTotalXp": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "newLevel": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "didLevelUp": {
+            "type": "boolean"
           }
         }
       },

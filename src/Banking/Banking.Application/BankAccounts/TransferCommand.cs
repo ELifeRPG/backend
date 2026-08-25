@@ -9,7 +9,8 @@ public union TransferResult(
     TransferResult.BankAccountNotFound,
     TransferResult.TargetBankAccountNotFound,
     TransferResult.NotAuthorized,
-    TransferResult.InsufficientBalance)
+    TransferResult.InsufficientBalance,
+    TransferResult.ConcurrentModification)
 {
     public record Transferred(decimal Amount, decimal Fee, decimal NewBalance);
 
@@ -20,6 +21,8 @@ public union TransferResult(
     public record NotAuthorized;
 
     public record InsufficientBalance;
+
+    public record ConcurrentModification;
 }
 
 public sealed record TransferCommand(BankAccountId SourceBankAccountId, BankAccountId TargetBankAccountId, CharacterId CharacterId, decimal Amount)
@@ -29,13 +32,13 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
 {
     public async ValueTask<TransferResult> Handle(TransferCommand request, CancellationToken cancellationToken)
     {
-        var sourceAccount = await bankAccountRepository.FindByIdAsync(request.SourceBankAccountId, cancellationToken);
+        var sourceAccount = await bankAccountRepository.FetchForUpdateAsync(request.SourceBankAccountId, cancellationToken);
         if (sourceAccount is null)
         {
             return new TransferResult.BankAccountNotFound();
         }
 
-        var targetAccount = await bankAccountRepository.FindByIdAsync(request.TargetBankAccountId, cancellationToken);
+        var targetAccount = await bankAccountRepository.FetchForUpdateAsync(request.TargetBankAccountId, cancellationToken);
         if (targetAccount is null)
         {
             return new TransferResult.TargetBankAccountNotFound();
@@ -59,12 +62,17 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
 
         var inEvent = targetAccount.ReceiveTransfer(request.SourceBankAccountId, request.Amount);
 
-        // Both appends land in the same Marten session (MartenBankAccountRepository owns one session
-        // for its whole lifetime) — SaveChangesAsync below commits both streams atomically. Verified
-        // against live Postgres; see ARCHITECTURE.md §9e.
         bankAccountRepository.Append(request.SourceBankAccountId, outEvent);
         bankAccountRepository.Append(request.TargetBankAccountId, inEvent);
-        await bankAccountRepository.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await bankAccountRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (BankAccountConcurrencyException)
+        {
+            return new TransferResult.ConcurrentModification();
+        }
 
         return new TransferResult.Transferred(outEvent.Amount, outEvent.Fee, sourceAccount.Balance);
     }

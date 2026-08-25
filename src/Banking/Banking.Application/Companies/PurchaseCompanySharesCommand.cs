@@ -64,14 +64,14 @@ public sealed class PurchaseCompanySharesHandler(
         // disposed here — only `transaction` owns the underlying connection/transaction. See Global
         // Constraints in docs/superpowers/plans/2026-08-15-cross-module-atomic-writes.md.
         var bankAccountRepository = bankAccountRepositoryFactory.CreateFor(transaction.Handle);
-        var bankAccount = await bankAccountRepository.FindByIdAsync(request.PayerBankAccountId, cancellationToken);
+        var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.PayerBankAccountId, cancellationToken);
         if (bankAccount is null)
         {
             return new PurchaseCompanySharesResult.BankAccountNotFound();
         }
 
         var companyRepository = companyRepositoryFactory.CreateFor(transaction.Handle);
-        var company = await companyRepository.FindByIdAsync(request.CompanyId, cancellationToken);
+        var company = await companyRepository.FetchForUpdateAsync(request.CompanyId, cancellationToken);
         if (company is null)
         {
             return new PurchaseCompanySharesResult.CompanyNotFound();

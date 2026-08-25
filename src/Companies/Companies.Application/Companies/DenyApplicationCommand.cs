@@ -8,7 +8,8 @@ public union DenyApplicationResult(
     DenyApplicationResult.CompanyNotFound,
     DenyApplicationResult.NotAuthorized,
     DenyApplicationResult.ApplicationNotFound,
-    DenyApplicationResult.InvalidState)
+    DenyApplicationResult.InvalidState,
+    DenyApplicationResult.ConcurrentModification)
 {
     public record Denied;
 
@@ -19,6 +20,8 @@ public union DenyApplicationResult(
     public record ApplicationNotFound;
 
     public record InvalidState;
+
+    public record ConcurrentModification;
 }
 
 public sealed record DenyApplicationCommand(CompanyId CompanyId, CompanyApplicationId ApplicationId, CharacterId ActingCharacterId)
@@ -29,7 +32,7 @@ public sealed class DenyApplicationHandler(ICompanyRepository companyRepository)
 {
     public async ValueTask<DenyApplicationResult> Handle(DenyApplicationCommand request, CancellationToken cancellationToken)
     {
-        var company = await companyRepository.FindByIdAsync(request.CompanyId, cancellationToken);
+        var company = await companyRepository.FetchForUpdateAsync(request.CompanyId, cancellationToken);
         if (company is null)
         {
             return new DenyApplicationResult.CompanyNotFound();
@@ -54,7 +57,14 @@ public sealed class DenyApplicationHandler(ICompanyRepository companyRepository)
             return new DenyApplicationResult.InvalidState();
         }
 
-        await companyRepository.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await companyRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (CompanyConcurrencyException)
+        {
+            return new DenyApplicationResult.ConcurrentModification();
+        }
 
         return new DenyApplicationResult.Denied();
     }
