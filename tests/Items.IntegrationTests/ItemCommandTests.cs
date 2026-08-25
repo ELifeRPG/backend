@@ -74,26 +74,31 @@ public sealed class ItemCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Item_CreatedOnOneServer_IsInvisibleFromAnotherServer()
+    public async Task Handle_ItemCreatedUnderOneServer_IsVisibleFromAnotherServer()
     {
-        await using var providerB = TestServices.BuildProvider("gameserver-two");
-
-        await using var scopeA = _provider.CreateAsyncScope();
-        var mediatorA = scopeA.ServiceProvider.GetRequiredService<IMediator>();
-        var result = await mediatorA.Send(new CreateItemCommand("Bandage", "Medical_Bandage"));
-        Assert.True(result is CreateItemResult.Created, $"Expected Created, got {result}");
-        if (result is not CreateItemResult.Created created)
+        // Hive model: the item catalog is a set of definitions (display name + prefab class), so the
+        // same prefab means the same thing on every map. This asserts the opposite of the pre-hive
+        // behaviour — see docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+        ItemId itemId;
+        await using (var scope = _provider.CreateAsyncScope())
         {
-            throw new InvalidOperationException("Unreachable.");
+            var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+            var result = await mediator.Send(new CreateItemCommand("Bandage", "ELRPG_Bandage"), CancellationToken.None);
+            Assert.True(result is CreateItemResult.Created, $"Expected Created, got {result}");
+            if (result is not CreateItemResult.Created created)
+            {
+                throw new InvalidOperationException("Unreachable.");
+            }
+
+            itemId = created.ItemId;
         }
 
-        await using var scopeB = providerB.CreateAsyncScope();
-        var mediatorB = scopeB.ServiceProvider.GetRequiredService<IMediator>();
+        await using var otherProvider = TestServices.BuildProvider("gameserver-two");
+        await using var otherScope = otherProvider.CreateAsyncScope();
+        var otherMediator = otherScope.ServiceProvider.GetRequiredService<IMediator>();
 
-        var lookupFromCreatingServer = await mediatorA.Send(new ItemLookupQuery(created.ItemId));
-        var lookupFromOtherServer = await mediatorB.Send(new ItemLookupQuery(created.ItemId));
+        var found = await otherMediator.Send(new ItemLookupQuery(itemId), CancellationToken.None);
 
-        Assert.True(lookupFromCreatingServer is ItemLookupResult.Found, $"Expected Found from the creating server, got {lookupFromCreatingServer}");
-        Assert.True(lookupFromOtherServer is ItemLookupResult.NotFound, $"Expected NotFound from a different server, got {lookupFromOtherServer}");
+        Assert.True(found is ItemLookupResult.Found, $"Expected Found from a different server, got {found}");
     }
 }

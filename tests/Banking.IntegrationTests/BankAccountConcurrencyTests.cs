@@ -83,7 +83,7 @@ public sealed class BankAccountConcurrencyTests : IAsyncLifetime
 
     private async Task<CharacterId> CreateCharacterAsync(IMediator mediator)
     {
-        var session = await mediator.Send(new CreateSessionCommand(new GameId(Guid.NewGuid()), "gameserver-dev"));
+        var session = await mediator.Send(new CreateSessionCommand(new GameId(Guid.NewGuid())));
         _createdUsernames.Add(session.KeycloakUsername);
         var result = await mediator.Send(new CreateCharacterCommand(session.AccountId, "Concurrency Test Character"));
         Assert.True(result is CreateCharacterResult.Created, $"Expected Created, got {result}");

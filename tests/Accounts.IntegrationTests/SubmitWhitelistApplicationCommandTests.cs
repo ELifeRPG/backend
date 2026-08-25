@@ -39,7 +39,7 @@ public sealed class SubmitWhitelistApplicationCommandTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var bohemiaId = new GameId(Guid.NewGuid());
-        var session = await mediator.Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var session = await mediator.Send(new CreateSessionCommand(bohemiaId));
         _createdUsernames.Add(session.KeycloakUsername);
         return session.AccountId;
     }
@@ -51,7 +51,7 @@ public sealed class SubmitWhitelistApplicationCommandTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
-        var result = await mediator.Send(new SubmitWhitelistApplicationCommand(accountId, "gameserver-dev", "let me in"));
+        var result = await mediator.Send(new SubmitWhitelistApplicationCommand(accountId, "let me in"));
 
         Assert.True(result is SubmitWhitelistApplicationResult.Submitted, $"Expected Submitted, got {result}");
     }
@@ -62,20 +62,20 @@ public sealed class SubmitWhitelistApplicationCommandTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
-        var result = await mediator.Send(new SubmitWhitelistApplicationCommand(new AccountId(Guid.NewGuid()), "gameserver-dev", "text"));
+        var result = await mediator.Send(new SubmitWhitelistApplicationCommand(new AccountId(Guid.NewGuid()), "text"));
 
         Assert.True(result is SubmitWhitelistApplicationResult.AccountNotFound, $"Expected AccountNotFound, got {result}");
     }
 
     [Fact]
-    public async Task Handle_AlreadyPendingForSameServer_ReturnsAlreadyPending()
+    public async Task Handle_AlreadyPending_ReturnsAlreadyPending()
     {
         var accountId = await CreateAccountAsync();
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        await mediator.Send(new SubmitWhitelistApplicationCommand(accountId, "gameserver-dev", "first"));
+        await mediator.Send(new SubmitWhitelistApplicationCommand(accountId, "first"));
 
-        var result = await mediator.Send(new SubmitWhitelistApplicationCommand(accountId, "gameserver-dev", "second"));
+        var result = await mediator.Send(new SubmitWhitelistApplicationCommand(accountId, "second"));
 
         Assert.True(result is SubmitWhitelistApplicationResult.AlreadyPending, $"Expected AlreadyPending, got {result}");
     }

@@ -1,6 +1,5 @@
 using ELifeRPG.Items.Application.Common;
 using ELifeRPG.Items.Infrastructure.Common;
-using JasperFx.MultiTenancy;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -17,8 +16,6 @@ public static class ItemInfrastructureExtensions
             options.Connection(configuration.GetConnectionString("ItemDatabase")!);
             options.Events.DatabaseSchemaName = "items";
             options.DatabaseSchemaName = "items";
-            options.Events.TenancyStyle = TenancyStyle.Conjoined;
-            options.Policies.AllDocumentsAreMultiTenanted();
             options.Projections.Add<ItemProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
         });
 

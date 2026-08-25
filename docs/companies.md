@@ -2,7 +2,7 @@
 
 Companies, membership, and (seeded) positions/permissions. See [MIGRATION.md §8](../MIGRATION.md#8-migration-plan-feature-4--companies).
 
-Company data is isolated per gameserver — reads (`GET /api/companies`, `GET /api/companies/{id}`) now require the `gameserver:companies:write` scope too (previously unscoped), and a company created via one gameserver is invisible to every other gameserver in the same deployment.
+Company data is hive-wide — reads (`GET /api/companies`, `GET /api/companies/{id}`) now require the `gameserver:companies:write` scope too (previously unscoped), and a company created via one gameserver is visible from every other gameserver in the same deployment.
 
 Needs `$BRIDGE_TOKEN` (see [Accounts](./accounts.md)) and a `characterId` from [Characters](./characters.md) to found the company.
 

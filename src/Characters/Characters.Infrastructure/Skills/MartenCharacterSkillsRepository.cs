@@ -16,9 +16,9 @@ public sealed class MartenCharacterSkillsRepository : ICharacterSkillsRepository
 {
     private readonly IDocumentSession _session;
 
-    public MartenCharacterSkillsRepository(ICharactersStore store, ICurrentGameServer currentGameServer)
+    public MartenCharacterSkillsRepository(ICharactersStore store)
     {
-        _session = store.LightweightSession(currentGameServer.ClientId);
+        _session = store.LightweightSession();
     }
 
     public async ValueTask<CharacterSkills?> FindByCharacterIdAsync(CharacterId characterId, CancellationToken cancellationToken)

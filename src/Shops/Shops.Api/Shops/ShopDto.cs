@@ -14,6 +14,8 @@ public sealed record ShopDto
 
     public required Guid PayoutBankAccountId { get; init; }
 
+    public required Guid ServerId { get; init; }
+
     public static ShopDto Create(Shop source) => new()
     {
         ShopId = source.Id.Value,
@@ -22,5 +24,17 @@ public sealed record ShopDto
         OwnerCompanyId = source.OwnerCompanyId?.Value,
         DisplayName = source.DisplayName,
         PayoutBankAccountId = source.PayoutBankAccountId.Value,
+        ServerId = source.ServerId.Value,
+    };
+
+    public static ShopDto Create(OpenShopResult.Opened source, OpenShopRequestDto request, GameServerId serverId) => new()
+    {
+        ShopId = source.ShopId.Value,
+        OwnerType = request.OwnerType,
+        OwnerCharacterId = request.OwnerCharacterId,
+        OwnerCompanyId = request.OwnerCompanyId,
+        DisplayName = request.DisplayName,
+        PayoutBankAccountId = request.PayoutBankAccountId,
+        ServerId = serverId.Value,
     };
 }

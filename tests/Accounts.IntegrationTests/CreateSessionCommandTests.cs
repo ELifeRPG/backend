@@ -10,7 +10,13 @@ namespace ELifeRPG.Accounts.IntegrationTests;
 /// <summary>
 /// Requires the local infra stack (`docker compose up -d`) and the devcontainer connected to its
 /// network — see README.md. Not run as part of a normal `dotnet test` against an empty environment.
+/// Joins the "HiveSettings" collection (see <see cref="HiveSettingsCollection"/>) because
+/// <see cref="Handle_NewBohemiaId_CreatesAccountWithExpectedKeycloakUsername"/> asserts
+/// <see cref="SessionStatus.Active"/> unconditionally — it would flake if it interleaved with
+/// <see cref="CreateSessionCommandWhitelistGateTests"/> or <see cref="HiveSettingsTests"/>
+/// toggling the shared <c>WhitelistEnabled</c> singleton mid-run.
 /// </summary>
+[Collection("HiveSettings")]
 public sealed class CreateSessionCommandTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
@@ -38,7 +44,7 @@ public sealed class CreateSessionCommandTests : IAsyncLifetime
     {
         var bohemiaId = new GameId(Guid.NewGuid());
 
-        var result = await Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var result = await Send(new CreateSessionCommand(bohemiaId));
 
         _createdUsernames.Add(result.KeycloakUsername);
         Assert.Equal(KeycloakUsername.For(bohemiaId), result.KeycloakUsername);
@@ -50,8 +56,8 @@ public sealed class CreateSessionCommandTests : IAsyncLifetime
     {
         var bohemiaId = new GameId(Guid.NewGuid());
 
-        var first = await Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
-        var second = await Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var first = await Send(new CreateSessionCommand(bohemiaId));
+        var second = await Send(new CreateSessionCommand(bohemiaId));
 
         _createdUsernames.Add(first.KeycloakUsername);
         Assert.Equal(first.AccountId, second.AccountId);

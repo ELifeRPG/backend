@@ -21,7 +21,7 @@ public static class AccountInfrastructureExtensions
                 options.DatabaseSchemaName = "account";
                 options.Projections.Add<AccountProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
                 options.Projections.Add<WhitelistApplicationProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
-                options.Schema.For<GameServer>().Identity(x => x.ClientId);
+                options.Schema.For<GameServer>().Identity(x => x.Id).UniqueIndex(x => x.ClientId);
             });
 
         services.Configure<KeycloakOptions>(configuration.GetSection("Keycloak"));
@@ -35,6 +35,7 @@ public static class AccountInfrastructureExtensions
         services.TryAddSingleton<ITokenRevocationStore, InMemoryTokenRevocationStore>();
         services.TryAddScoped<IWhitelistApplicationRepository, MartenWhitelistApplicationRepository>();
         services.TryAddScoped<IGameServerRepository, MartenGameServerRepository>();
+        services.TryAddScoped<IHiveSettingsRepository, MartenHiveSettingsRepository>();
 
         return services;
     }

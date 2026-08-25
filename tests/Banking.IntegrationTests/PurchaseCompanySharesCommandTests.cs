@@ -228,7 +228,7 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
     private async Task<AccountId> CreateActiveAccountAsync(IMediator mediator)
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
 
         _createdUsernames.Add(result.KeycloakUsername);
 

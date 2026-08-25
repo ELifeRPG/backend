@@ -2,7 +2,9 @@ namespace ELifeRPG.Accounts.Api.GameServers;
 
 public sealed record UpdateGameServerSettingsRequestDto
 {
-    public bool? WhitelistEnabled { get; init; }
+    public string? DisplayName { get; init; }
 
-    public UpdateGameServerSettingsCommand ToCommand(string clientId) => new(clientId, WhitelistEnabled);
+    public string? MapName { get; init; }
+
+    public UpdateGameServerSettingsCommand ToCommand(string clientId) => new(clientId, DisplayName, MapName);
 }

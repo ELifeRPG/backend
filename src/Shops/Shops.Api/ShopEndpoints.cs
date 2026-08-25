@@ -22,7 +22,8 @@ public static class ShopModule
         services.AddShopInfrastructure(configuration);
         services.AddSignalR();
         services.AddSingleton<ShopsHubNotifier>();
-        services.AddScoped<ICurrentGameServer, HttpContextCurrentGameServer>();
+        services.AddScoped<ICurrentGameServerClientId, HttpContextCurrentGameServerClientId>();
+        services.AddScoped<ICurrentGameServer, RegistryCurrentGameServer>();
 
         services.AddAuthorizationBuilder()
             .AddPolicy(ShopsManagePolicy, policy => policy.RequireAssertion(context => HasScope(context, ShopsManageScope)))
@@ -40,6 +41,7 @@ public static class ShopModule
         group.MapPost("shops", async (
                 [FromBody] OpenShopRequestDto request,
                 IMediator mediator,
+                ICurrentGameServer currentGameServer,
                 CancellationToken cancellationToken) =>
             {
                 if (!Enum.TryParse<ShopOwnerType>(request.OwnerType, out var ownerType))
@@ -66,15 +68,10 @@ public static class ShopModule
 
                 return result switch
                 {
-                    OpenShopResult.Opened opened => Results.Ok(new ShopDto
-                    {
-                        ShopId = opened.ShopId.Value,
-                        OwnerType = request.OwnerType,
-                        OwnerCharacterId = request.OwnerCharacterId,
-                        OwnerCompanyId = request.OwnerCompanyId,
-                        DisplayName = request.DisplayName,
-                        PayoutBankAccountId = request.PayoutBankAccountId,
-                    }),
+                    // RegistryCurrentGameServer caches per scope, so this is a repeat of the
+                    // handler's own lookup, not a second registry round-trip.
+                    OpenShopResult.Opened opened => Results.Ok(ShopDto.Create(
+                        opened, request, await currentGameServer.GetIdAsync(cancellationToken))),
                     OpenShopResult.CharacterNotFound => Results.Problem(title: "Character not found", statusCode: StatusCodes.Status404NotFound),
                     OpenShopResult.CompanyNotFound => Results.Problem(title: "Company not found", statusCode: StatusCodes.Status404NotFound),
                 };

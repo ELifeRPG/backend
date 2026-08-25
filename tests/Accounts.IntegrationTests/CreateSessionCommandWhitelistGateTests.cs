@@ -1,4 +1,4 @@
-using ELifeRPG.Accounts.Application.Common;
+using ELifeRPG.Accounts.Application.Hive;
 using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Application.Whitelist;
 using ELifeRPG.Accounts.Domain;
@@ -13,6 +13,7 @@ namespace ELifeRPG.Accounts.IntegrationTests;
 /// Requires the local infra stack (`docker compose up -d`) and the devcontainer connected to its
 /// network — see README.md. Not run as part of a normal `dotnet test` against an empty environment.
 /// </summary>
+[Collection("HiveSettings")]
 public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
@@ -40,10 +41,9 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
     {
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var serverClientId = $"whitelist-off-{Guid.NewGuid()}";
         var bohemiaId = new GameId(Guid.NewGuid());
 
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId, serverClientId));
+        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
 
         _createdUsernames.Add(result.KeycloakUsername);
         Assert.Equal(SessionStatus.Active, result.Status);
@@ -54,15 +54,21 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
     {
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var gameServerRepository = scope.ServiceProvider.GetRequiredService<IGameServerRepository>();
-        var serverClientId = $"whitelist-on-{Guid.NewGuid()}";
-        await gameServerRepository.UpsertAsync(new GameServer { ClientId = serverClientId, WhitelistEnabled = true }, CancellationToken.None);
-        var bohemiaId = new GameId(Guid.NewGuid());
 
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId, serverClientId));
+        await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: true), CancellationToken.None);
+        try
+        {
+            var bohemiaId = new GameId(Guid.NewGuid());
 
-        _createdUsernames.Add(result.KeycloakUsername);
-        Assert.Equal(SessionStatus.NotWhitelisted, result.Status);
+            var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
+
+            _createdUsernames.Add(result.KeycloakUsername);
+            Assert.Equal(SessionStatus.NotWhitelisted, result.Status);
+        }
+        finally
+        {
+            await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: false), CancellationToken.None);
+        }
     }
 
     [Fact]
@@ -70,25 +76,69 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
     {
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var gameServerRepository = scope.ServiceProvider.GetRequiredService<IGameServerRepository>();
-        var serverClientId = $"whitelist-approved-{Guid.NewGuid()}";
-        await gameServerRepository.UpsertAsync(new GameServer { ClientId = serverClientId, WhitelistEnabled = true }, CancellationToken.None);
-        var bohemiaId = new GameId(Guid.NewGuid());
 
-        var first = await mediator.Send(new CreateSessionCommand(bohemiaId, serverClientId));
-        _createdUsernames.Add(first.KeycloakUsername);
-        var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand(first.AccountId, serverClientId, "text"));
-        Assert.True(submitResult is SubmitWhitelistApplicationResult.Submitted, $"Expected Submitted, got {submitResult}");
-        if (submitResult is not SubmitWhitelistApplicationResult.Submitted submitted)
+        await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: true), CancellationToken.None);
+        try
         {
-            throw new InvalidOperationException("Unreachable.");
+            var bohemiaId = new GameId(Guid.NewGuid());
+
+            var first = await mediator.Send(new CreateSessionCommand(bohemiaId));
+            _createdUsernames.Add(first.KeycloakUsername);
+            var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand(first.AccountId, "text"));
+            Assert.True(submitResult is SubmitWhitelistApplicationResult.Submitted, $"Expected Submitted, got {submitResult}");
+            if (submitResult is not SubmitWhitelistApplicationResult.Submitted submitted)
+            {
+                throw new InvalidOperationException("Unreachable.");
+            }
+
+            await mediator.Send(new StartWhitelistApplicationReviewCommand(submitted.WhitelistApplicationId));
+            await mediator.Send(new ApproveWhitelistApplicationCommand(submitted.WhitelistApplicationId));
+
+            var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
+
+            Assert.Equal(SessionStatus.Active, result.Status);
         }
+        finally
+        {
+            await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: false), CancellationToken.None);
+        }
+    }
 
-        await mediator.Send(new StartWhitelistApplicationReviewCommand(submitted.WhitelistApplicationId));
-        await mediator.Send(new ApproveWhitelistApplicationCommand(submitted.WhitelistApplicationId));
+    [Fact]
+    public async Task Bootstrap_WithHiveWhitelistEnabled_ApprovedOnceStaysActiveOnRebootstrap()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId, serverClientId));
+        await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: true), CancellationToken.None);
+        try
+        {
+            var bohemiaId = new GameId(Guid.NewGuid());
+            var bootstrap = await mediator.Send(
+                new CreateSessionCommand(bohemiaId), CancellationToken.None);
+            _createdUsernames.Add(bootstrap.KeycloakUsername);
+            Assert.Equal(SessionStatus.NotWhitelisted, bootstrap.Status);
 
-        Assert.Equal(SessionStatus.Active, result.Status);
+            var submitResult = await mediator.Send(
+                new SubmitWhitelistApplicationCommand(bootstrap.AccountId, "please"), CancellationToken.None);
+            Assert.True(submitResult is SubmitWhitelistApplicationResult.Submitted, $"Expected Submitted, got {submitResult}");
+            if (submitResult is not SubmitWhitelistApplicationResult.Submitted submitted)
+            {
+                throw new InvalidOperationException("Unreachable.");
+            }
+
+            await mediator.Send(new StartWhitelistApplicationReviewCommand(submitted.WhitelistApplicationId), CancellationToken.None);
+            await mediator.Send(new ApproveWhitelistApplicationCommand(submitted.WhitelistApplicationId), CancellationToken.None);
+
+            // Approved once — subsequent bootstraps for the same account stay whitelisted hive-wide.
+            var rebootstrap = await mediator.Send(
+                new CreateSessionCommand(bohemiaId), CancellationToken.None);
+
+            Assert.Equal(SessionStatus.Active, rebootstrap.Status);
+        }
+        finally
+        {
+            await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: false), CancellationToken.None);
+        }
     }
 }

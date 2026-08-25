@@ -1,5 +1,18 @@
 # Multi-Gameserver Tenancy — Design
 
+> **⚠️ SUPERSEDED (2026-08-22) by
+> [`2026-08-22-hive-tenancy-design.md`](./2026-08-22-hive-tenancy-design.md).**
+>
+> This spec scopes `Characters`/`Banking`/`Companies`/`Items`/`Shops` per
+> gameserver using Marten conjoined multi-tenancy. That isolation has been
+> **removed**: one deployment is now one "hive" of servers (one server = one
+> map), characters travel between them, and all gameplay data is hive-wide.
+>
+> Kept for the rationale and the verification history behind decisions that
+> outlived it — notably the `ForTransaction`/row-lock interaction
+> (ARCHITECTURE.md §9e gotcha 9) and the reasoning about `ICurrentGameServer`
+> living per module. **Do not treat its tenancy model as current.**
+
 ## Summary
 
 Per `ARCHITECTURE.md` §4.1, a "tenant" is one full self-hosted ELifeRPG

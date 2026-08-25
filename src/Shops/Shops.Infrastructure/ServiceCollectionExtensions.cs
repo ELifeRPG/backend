@@ -1,6 +1,5 @@
 using ELifeRPG.Shops.Application.Common;
 using ELifeRPG.Shops.Infrastructure.Common;
-using JasperFx.MultiTenancy;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -17,8 +16,6 @@ public static class ShopInfrastructureExtensions
             options.Connection(configuration.GetConnectionString("ShopDatabase")!);
             options.Events.DatabaseSchemaName = "shops";
             options.DatabaseSchemaName = "shops";
-            options.Events.TenancyStyle = TenancyStyle.Conjoined;
-            options.Policies.AllDocumentsAreMultiTenanted();
             options.Projections.Add<ShopProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
             options.Projections.Add<ShopListingProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
         });

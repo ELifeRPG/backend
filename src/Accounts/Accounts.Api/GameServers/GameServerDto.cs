@@ -1,14 +1,7 @@
 namespace ELifeRPG.Accounts.Api.GameServers;
 
-public sealed record GameServerDto
+public sealed record GameServerDto(Guid Id, string ClientId, string DisplayName, string MapName)
 {
-    public required string ClientId { get; init; }
-
-    public required bool WhitelistEnabled { get; init; }
-
-    public static GameServerDto Create(GameServer source) => new()
-    {
-        ClientId = source.ClientId,
-        WhitelistEnabled = source.WhitelistEnabled,
-    };
+    public static GameServerDto Create(GameServer source)
+        => new(source.Id.Value, source.ClientId, source.DisplayName, source.MapName);
 }

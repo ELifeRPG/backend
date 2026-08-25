@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using System.Security.Claims;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.AspNetCore.Builder;
@@ -52,12 +51,10 @@ public static class AccountModule
 
         group.MapPost("session-bootstrap", async (
                 [FromBody] CreateSessionRequestDto request,
-                ClaimsPrincipal user,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
-                var serverClientId = user.FindFirst("client_id")?.Value ?? string.Empty;
-                var result = await mediator.Send(request.ToCommand(serverClientId), cancellationToken);
+                var result = await mediator.Send(request.ToCommand(), cancellationToken);
                 return Results.Ok(SessionDto.Create(result));
             })
             .RequireAuthorization(SessionCreatePolicy)

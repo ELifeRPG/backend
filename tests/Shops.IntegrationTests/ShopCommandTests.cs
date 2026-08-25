@@ -7,6 +7,7 @@ using ELifeRPG.Characters.Application.Characters;
 using ELifeRPG.Companies.Application.Companies;
 using ELifeRPG.Items.Application.Items;
 using ELifeRPG.Shared.Kernel;
+using ELifeRPG.Shops.Application.Common;
 using ELifeRPG.Shops.Application.Shops;
 using ELifeRPG.Shops.Domain;
 using Mediator;
@@ -267,8 +268,11 @@ public sealed class ShopCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Shop_OpenedOnOneServer_IsInvisibleFromAnotherServer()
+    public async Task Shop_OpenedOnOneServer_IsVisibleFromAnotherServer()
     {
+        // Hive model: shops are hive-wide, so a shop opened via one gameserver must be reachable
+        // from another. Asserts the opposite of the pre-hive behaviour — see
+        // docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
         await using var providerB = TestServices.BuildProvider("gameserver-two");
 
         await using var scopeA = _provider.CreateAsyncScope();
@@ -283,13 +287,42 @@ public sealed class ShopCommandTests : IAsyncLifetime
         var lookupFromOtherServer = await mediatorB.Send(new ShopQuery(shopId));
 
         Assert.True(lookupFromCreatingServer is ShopQueryResult.Found, $"Expected Found from the creating server, got {lookupFromCreatingServer}");
-        Assert.True(lookupFromOtherServer is ShopQueryResult.NotFound, $"Expected NotFound from a different server, got {lookupFromOtherServer}");
+        Assert.True(lookupFromOtherServer is ShopQueryResult.Found, $"Expected Found from a different server, got {lookupFromOtherServer}");
+    }
+
+    [Fact]
+    public async Task OpenShop_StampsTheServerItWasOpenedOn()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var currentServer = scope.ServiceProvider.GetRequiredService<ICurrentGameServer>();
+        var expectedServerId = await currentServer.GetIdAsync(CancellationToken.None);
+        var characterId = await CreateCharacterAsync(mediator);
+        var payoutAccountId = await OpenPersonalBankAccountAsync(mediator, characterId);
+
+        var result = await mediator.Send(new OpenShopCommand(ShopOwnerType.Personal, characterId, null, "Corner Store", payoutAccountId));
+
+        Assert.True(result is OpenShopResult.Opened, $"Expected Opened, got {result}");
+        if (result is not OpenShopResult.Opened opened)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        var shopQuery = await mediator.Send(new ShopQuery(opened.ShopId));
+
+        Assert.True(shopQuery is ShopQueryResult.Found, $"Expected Found, got {shopQuery}");
+        if (shopQuery is not ShopQueryResult.Found found)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        Assert.Equal(expectedServerId, found.Shop.ServerId);
     }
 
     private async Task<AccountId> CreateActiveAccountAsync(IMediator mediator)
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
 
         _createdUsernames.Add(result.KeycloakUsername);
 

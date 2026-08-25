@@ -68,6 +68,7 @@ builder.Services.AddSingleton(typeof(Mediator.IPipelineBehavior<,>), typeof(Requ
 builder.Services.AddAccountModule(builder.Configuration);
 builder.Services.AddWhitelistModule(builder.Configuration);
 builder.Services.AddGameServerModule(builder.Configuration);
+builder.Services.AddHiveModule(builder.Configuration);
 builder.Services.AddCharacterModule(builder.Configuration);
 builder.Services.AddBankingModule(builder.Configuration);
 builder.Services.AddCompanyModule(builder.Configuration);
@@ -108,6 +109,7 @@ app.UseAuthorization();
 app.MapAccountModule();
 app.MapWhitelistModule();
 app.MapGameServerModule();
+app.MapHiveModule();
 app.MapCharacterModule();
 app.MapBankingModule();
 app.MapCompanyModule();

@@ -1,3 +1,4 @@
+using ELifeRPG.Shared.Kernel;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -5,10 +6,10 @@ namespace ELifeRPG.Shops.IntegrationTests;
 
 /// <summary>
 /// Shared DI/Mediator setup for every test class in this project — see ARCHITECTURE.md §9e.
-/// Parameterized by the gameserver client id so tests can build two independently-tenanted
-/// providers to prove per-server isolation of Shop/ShopListing data — matches
-/// Banking.IntegrationTests/Companies.IntegrationTests' TestServices.cs (main's tenancy work,
-/// merged into this branch).
+/// Parameterized by the gameserver client id so tests can build two providers reporting as
+/// different calling servers — Shop/ShopListing data is hive-wide (no longer tenanted), so this now
+/// exists to prove cross-server *visibility*, not isolation. Matches
+/// Banking.IntegrationTests/Companies.IntegrationTests' TestServices.cs.
 /// </summary>
 internal static class TestServices
 {
@@ -55,21 +56,28 @@ internal static class TestServices
 
         var fake = new FixedCurrentGameServer(gameServerClientId);
         services.AddScoped<ELifeRPG.Characters.Application.Common.ICurrentGameServer>(_ => fake);
-        services.AddScoped<ELifeRPG.Banking.Application.Common.ICurrentGameServer>(_ => fake);
-        services.AddScoped<ELifeRPG.Companies.Application.Common.ICurrentGameServer>(_ => fake);
-        services.AddScoped<ELifeRPG.Items.Application.Common.ICurrentGameServer>(_ => fake);
         services.AddScoped<ELifeRPG.Shops.Application.Common.ICurrentGameServer>(_ => fake);
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }
 }
 
+// Banking and Companies no longer have their own ICurrentGameServer (deleted outright — see
+// docs/superpowers/specs/2026-08-22-hive-tenancy-design.md); Characters' and Shops' both survive,
+// reshaped to resolve a durable GameServerId instead of keying tenancy.
 internal sealed class FixedCurrentGameServer(string clientId) :
     ELifeRPG.Characters.Application.Common.ICurrentGameServer,
-    ELifeRPG.Banking.Application.Common.ICurrentGameServer,
-    ELifeRPG.Companies.Application.Common.ICurrentGameServer,
-    ELifeRPG.Items.Application.Common.ICurrentGameServer,
     ELifeRPG.Shops.Application.Common.ICurrentGameServer
 {
     public string ClientId { get; } = clientId;
+
+    // Neither Characters' nor Shops' ICurrentGameServer keys tenancy anymore — both resolve a
+    // durable GameServerId. Deterministic per client id so this fake stays consistent with itself;
+    // nothing in either module validates registry membership. See
+    // Characters.IntegrationTests/TestServices.cs.
+    public ValueTask<GameServerId> GetIdAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(new GameServerId(DeterministicGuid(ClientId)));
+
+    private static Guid DeterministicGuid(string value)
+        => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
 }

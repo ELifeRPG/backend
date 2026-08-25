@@ -3,10 +3,19 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ELifeRPG.Items.IntegrationTests;
 
+/// <summary>
+/// Hive model: the item catalog has no per-gameserver scoping, so there is nothing left to fix here —
+/// see docs/superpowers/specs/2026-08-22-hive-tenancy-design.md. BuildProvider still accepts a
+/// gameServerClientId parameter (unused) so
+/// Handle_ItemCreatedUnderOneServer_IsVisibleFromAnotherServer can build a second, independent
+/// provider without needing a real reason to vary it.
+/// </summary>
 internal static class TestServices
 {
     public static ServiceProvider BuildProvider(string gameServerClientId = "gameserver-dev")
     {
+        _ = gameServerClientId;
+
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -21,13 +30,7 @@ internal static class TestServices
             options.ServiceLifetime = ServiceLifetime.Transient;
         });
         services.AddItemInfrastructure(configuration);
-        services.AddScoped<ELifeRPG.Items.Application.Common.ICurrentGameServer>(_ => new FixedCurrentGameServer(gameServerClientId));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }
-}
-
-internal sealed class FixedCurrentGameServer(string clientId) : ELifeRPG.Items.Application.Common.ICurrentGameServer
-{
-    public string ClientId { get; } = clientId;
 }

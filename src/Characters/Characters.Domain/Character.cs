@@ -10,7 +10,23 @@ public class Character
 
     public string Name { get; private set; } = string.Empty;
 
-    public decimal Cash { get; private set; }
+    /// <summary>
+    /// Which server (map) this character is currently on. Set at creation and changed only by
+    /// travel — a rare, auditable transition, unlike position, which is volatile and lives on
+    /// CharacterPresence instead. See docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+    ///
+    /// This field was added to <c>CharacterCreated</c> on 2026-08-22. Events written before that
+    /// date have no corresponding JSON property. The steady-state read path (Marten
+    /// <c>ProjectionLifecycle.Inline</c> + <c>LoadAsync&lt;Character&gt;</c>) never replays those raw
+    /// events — it reads the already-materialised snapshot document — so this is silently harmless
+    /// today. But System.Text.Json binds a missing constructor argument to its default rather than
+    /// throwing, so anything that genuinely replays a pre-migration stream (a projection rebuild,
+    /// <c>AggregateStreamAsync</c>, async-daemon catch-up, restore-from-events) will silently produce
+    /// <c>default(GameServerId)</c> (<c>Guid.Empty</c>) for it — no exception, no warning. Treat
+    /// <c>CurrentServerId</c> on any character replayed from pre-2026-08-22 events as unset, not
+    /// trustworthy.
+    /// </summary>
+    public GameServerId CurrentServerId { get; private set; }
 
     public bool SessionActive { get; private set; }
 
@@ -48,6 +64,7 @@ public class Character
         Id = domainEvent.Id;
         AccountId = domainEvent.AccountId;
         Name = domainEvent.Name;
+        CurrentServerId = domainEvent.CurrentServerId;
     }
 
     public void Apply(CharacterSessionStarted domainEvent)

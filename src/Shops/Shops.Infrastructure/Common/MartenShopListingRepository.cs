@@ -12,11 +12,10 @@ public sealed class MartenShopListingRepository : IShopListingRepository, IAsync
 {
     private readonly IDocumentSession _session;
     private readonly NpgsqlTransaction? _crossModuleTransaction;
-    private readonly string? _tenantId;
 
-    public MartenShopListingRepository(IShopsStore store, ICurrentGameServer currentGameServer)
+    public MartenShopListingRepository(IShopsStore store)
     {
-        _session = store.LightweightSession(currentGameServer.ClientId);
+        _session = store.LightweightSession();
     }
 
     /// <summary>
@@ -26,15 +25,11 @@ public sealed class MartenShopListingRepository : IShopListingRepository, IAsync
     /// version-checked append machinery does not work on a ForTransaction-bound session — see
     /// docs/superpowers/specs/2026-08-16-purchase-listing-cross-module-migration.md). Intentionally
     /// never disposed by this class in that path; see the Global Constraints section of this plan.
-    /// `tenantId` is the same value the factory set on the session's `SessionOptions.TenantId`,
-    /// threaded through separately because ReserveStockAsync's row-lock query is raw SQL against the
-    /// doc table and needs to scope by the table's actual (tenant_id, id) primary key.
     /// </summary>
-    internal MartenShopListingRepository(IDocumentSession session, NpgsqlTransaction crossModuleTransaction, string tenantId)
+    internal MartenShopListingRepository(IDocumentSession session, NpgsqlTransaction crossModuleTransaction)
     {
         _session = session;
         _crossModuleTransaction = crossModuleTransaction;
-        _tenantId = tenantId;
     }
 
     public async ValueTask<ShopListing?> FindByIdAsync(ShopListingId listingId, CancellationToken cancellationToken)
@@ -59,14 +54,13 @@ public sealed class MartenShopListingRepository : IShopListingRepository, IAsync
             // stands in for Marten's optimistic concurrency, which doesn't work here (verified via
             // the Task 1/1b spikes referenced above; syntax mirrors
             // tests/Shops.IntegrationTests/CrossModuleRowLockSpikeTests.cs exactly). Exact doc-table
-            // name confirmed via Task 1c: shops.mt_doc_shoplisting. The table's primary key is the
-            // composite (tenant_id, id), so both columns must be filtered for this query to use the
-            // index instead of seq-scanning the whole table.
+            // name confirmed via Task 1c: shops.mt_doc_shoplisting. The table's primary key is now
+            // `id` alone (tenancy removed), so a single-column predicate is the index lookup — see
+            // ARCHITECTURE.md §9e gotcha 9.
             var connection = _crossModuleTransaction.Connection;
             await using var lockCommand = connection!.CreateCommand();
             lockCommand.Transaction = _crossModuleTransaction;
-            lockCommand.CommandText = "SELECT id FROM shops.mt_doc_shoplisting WHERE tenant_id = @tenant AND id = @id FOR UPDATE";
-            lockCommand.Parameters.AddWithValue("@tenant", _tenantId!);
+            lockCommand.CommandText = "SELECT id FROM shops.mt_doc_shoplisting WHERE id = @id FOR UPDATE";
             lockCommand.Parameters.AddWithValue("@id", listingId.Value);
             var lockedId = await lockCommand.ExecuteScalarAsync(cancellationToken);
             if (lockedId is null)

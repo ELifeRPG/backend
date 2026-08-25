@@ -7,6 +7,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Shops.Domain\Shops.Domain.csproj" />
+    <!-- Only for Accounts.Application's public GameServerIdByClientIdQuery contract, used by
+         RegistryCurrentGameServer — never Accounts.Domain/Infrastructure. See ARCHITECTURE.md §9e. -->
+    <ProjectReference Include="..\..\Accounts\Accounts.Application\Accounts.Application.csproj" />
     <!-- Only for Characters.Application's public CharacterLookupQuery contract — never Characters.Domain/Infrastructure. See ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Characters\Characters.Application\Characters.Application.csproj" />
     <!-- Only for Companies.Application's public CompanyLookupQuery/CompanyMemberPermissionsQuery contracts. -->

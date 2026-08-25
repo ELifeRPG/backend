@@ -230,8 +230,11 @@ public sealed class BankingCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task OpenBankAccount_ForBankOpenedOnAnotherServer_ReturnsBankNotFound()
+    public async Task OpenBankAccount_ForBankOpenedOnAnotherServer_Succeeds()
     {
+        // Hive model: banks are hive-wide, so a bank opened via one gameserver must be usable from
+        // another. Asserts the opposite of the pre-hive behaviour — see
+        // docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
         await using var providerB = TestServices.BuildProvider("gameserver-two");
 
         await using var scopeA = _provider.CreateAsyncScope();
@@ -244,12 +247,15 @@ public sealed class BankingCommandTests : IAsyncLifetime
 
         var result = await mediatorB.Send(new OpenBankAccountCommand(bankId, characterOnServerB));
 
-        Assert.True(result is OpenBankAccountResult.BankNotFound, $"Expected BankNotFound, got {result}");
+        Assert.True(result is OpenBankAccountResult.Opened, $"Expected Opened, got {result}");
     }
 
     [Fact]
-    public async Task BankAccount_OpenedOnOneServer_IsInvisibleFromAnotherServer()
+    public async Task BankAccount_OpenedOnOneServer_IsVisibleFromAnotherServer()
     {
+        // Hive model: money follows the player across maps, so an account opened via one gameserver
+        // must be reachable from another. Asserts the opposite of the pre-hive behaviour — see
+        // docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
         await using var providerB = TestServices.BuildProvider("gameserver-two");
 
         await using var scopeA = _provider.CreateAsyncScope();
@@ -263,13 +269,13 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var detailsFromOtherServer = await mediatorB.Send(new BankAccountDetailsQuery(bankAccountId));
 
         Assert.True(detailsFromCreatingServer is BankAccountDetailsResult.Found, $"Expected Found from the creating server, got {detailsFromCreatingServer}");
-        Assert.True(detailsFromOtherServer is BankAccountDetailsResult.NotFound, $"Expected NotFound from a different server, got {detailsFromOtherServer}");
+        Assert.True(detailsFromOtherServer is BankAccountDetailsResult.Found, $"Expected Found from a different server, got {detailsFromOtherServer}");
     }
 
     private async Task<AccountId> CreateActiveAccountAsync(IMediator mediator)
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
 
         _createdUsernames.Add(result.KeycloakUsername);
 

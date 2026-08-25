@@ -221,8 +221,11 @@ public sealed class CompanyCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Company_CreatedOnOneServer_IsInvisibleFromAnotherServer()
+    public async Task Company_CreatedOnOneServer_IsVisibleFromAnotherServer()
     {
+        // Hive model: companies operate across the whole hive, so a company created via one
+        // gameserver must be reachable from another. Asserts the opposite of the pre-hive
+        // behaviour — see docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
         await using var providerB = TestServices.BuildProvider("gameserver-two");
 
         await using var scopeA = _provider.CreateAsyncScope();
@@ -236,7 +239,7 @@ public sealed class CompanyCommandTests : IAsyncLifetime
         var lookupFromOtherServer = await mediatorB.Send(new CompanyLookupQuery(companyId));
 
         Assert.True(lookupFromCreatingServer is CompanyLookupResult.Found, $"Expected Found from the creating server, got {lookupFromCreatingServer}");
-        Assert.True(lookupFromOtherServer is CompanyLookupResult.NotFound, $"Expected NotFound from a different server, got {lookupFromOtherServer}");
+        Assert.True(lookupFromOtherServer is CompanyLookupResult.Found, $"Expected Found from a different server, got {lookupFromOtherServer}");
     }
 
     [Fact]
@@ -494,7 +497,7 @@ public sealed class CompanyCommandTests : IAsyncLifetime
     private async Task<AccountId> CreateActiveAccountAsync(IMediator mediator)
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
 
         _createdUsernames.Add(result.KeycloakUsername);
 

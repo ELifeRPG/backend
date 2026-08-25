@@ -6,4 +6,5 @@ public sealed record ShopOpened(
     CharacterId? OwnerCharacterId,
     CompanyId? OwnerCompanyId,
     string DisplayName,
-    BankAccountId PayoutBankAccountId);
+    BankAccountId PayoutBankAccountId,
+    GameServerId ServerId);

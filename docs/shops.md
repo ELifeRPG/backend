@@ -2,9 +2,9 @@
 
 A shop, owned by a Character (Personal) or a Company (Corporate), lists catalog items ([Items](./items.md)) for sale at a price with finite stock. See [MIGRATION.md](../MIGRATION.md) for how this fits the overall migration plan.
 
-Shop data is isolated per gameserver — reads also require the `gameserver:shops:write` scope, and a shop opened via one gameserver is invisible to every other gameserver in the same deployment.
+Shop data is hive-wide — reads also require the `gameserver:shops:write` scope, and a shop opened via one gameserver is visible from every other gameserver in the same deployment. `Shop.ServerId` records which map a shop physically stands on.
 
-Needs `$BRIDGE_TOKEN` (see [Accounts](./accounts.md)), a `characterId` from [Characters](./characters.md), a payout `bankAccountId` from [Banking](./banking.md) (the shop's owner must already have opened an account there), and an `itemId` from [Items](./items.md).
+Needs `$BRIDGE_TOKEN` (see [Accounts](./accounts.md)), a `characterId` from [Characters](./characters.md), a payout `bankAccountId` from [Banking](./banking.md) (the shop's owner must already have opened an account there), and an `itemId` from [Items](./items.md). The calling gameserver must also already be registered — see [Game server registry](./accounts.md#game-server-registry) — since `POST /api/shops` resolves `ICurrentGameServer` and 500s for an unregistered `client_id`.
 
 `POST /api/shops` needs the `gameserver:shops:manage` scope; managing listings and reads (`GET /api/shops`, `GET /api/shops/{id}`) need `gameserver:shops:write` (both also granted to `gameserver-dev`):
 

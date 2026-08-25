@@ -69,6 +69,8 @@ curl -s "http://localhost:8180/admin/realms/eliferpg/partial-export?exportClient
 
 **Rollout note for existing local Keycloak volumes:** the `view-realm` grant on `account-service` and the `admin` realm role (added for account role management, see [docs/accounts.md](./docs/accounts.md#managing-an-accounts-roles)) are baked into `infra/keycloak/eliferpg-realm.json` and only take effect on a fresh `--import-realm` — i.e. a new or reset Keycloak container/volume. If you already have a running Keycloak container from before this change, its realm was imported once and won't pick these up automatically. Either wipe it (`docker compose down -v`, see "Resetting local data" below) so the next `docker compose up -d` re-imports the updated realm, or apply the grants manually via the Admin API against your existing container. Otherwise the new role-management endpoints will 403.
 
+**Rollout note for existing local Postgres volumes (hive migration):** this change rebuilds five modules' doc-table primary keys and changes `mt_doc_gameserver`'s identity from `varchar(clientId)` to `uuid(Id)` — a table rebuild Marten cannot do in place against an existing schema. If you have a running Postgres volume from before this change, wipe it (`docker compose down -v`, see "Resetting local data" below) so the next `docker compose up -d` starts from a clean schema. Afterward, a gameserver must be registered via `POST /api/game-servers` (see [docs/accounts.md](./docs/accounts.md#game-server-registry)) before character or shop creation will work.
+
 ### Keycloak providers (theme + bohemia-gameaccount)
 
 The `keycloak` service's image combines two provider jars, each pulled from its

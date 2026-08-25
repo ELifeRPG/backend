@@ -2,7 +2,7 @@
 
 A staff-curated catalog of purchasable game items — display name plus the ArmA Reforger prefab class name the gameserver spawns on a grant. See [MIGRATION.md](../MIGRATION.md) for how this fits the overall migration plan.
 
-Item data is isolated per gameserver — reads also require the `gameserver:items:manage` scope, and an item created via one gameserver is invisible to every other gameserver in the same deployment.
+Item data is hive-wide — reads also require the `gameserver:items:manage` scope, and an item created via one gameserver is visible from every other gameserver in the same deployment: the catalog is one shared list for the whole hive, not one per map.
 
 Needs `$BRIDGE_TOKEN` (see [Accounts](./accounts.md)). `POST /api/items`, `GET /api/items`, and `GET /api/items/{id}` all need the `gameserver:items:manage` scope (also granted to `gameserver-dev`) — `Items` only has the one scope, unlike `Banking`/`Companies`/`Shops`, which reuse a separate write scope for reads:
 

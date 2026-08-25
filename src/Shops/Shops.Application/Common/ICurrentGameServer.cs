@@ -1,12 +1,14 @@
+using ELifeRPG.Shared.Kernel;
+
 namespace ELifeRPG.Shops.Application.Common;
 
 /// <summary>
-/// The gameserver whose data the current request should be scoped to — resolves to the calling
-/// Bridge's own OAuth client id. Every session this module opens is scoped to this value, so a Shop
-/// or ShopListing created via one gameserver is invisible from another, even within the same tenant.
-/// See docs/superpowers/plans/2026-08-15-multi-gameserver-tenancy.md.
+/// Which gameserver is making the current request. No longer a tenancy key — data is hive-wide as
+/// of docs/superpowers/specs/2026-08-22-hive-tenancy-design.md; this exists so a shop can record
+/// which server it was opened on (Task 10's Shop.ServerId). Async because resolving the OAuth
+/// client_id to a durable GameServerId is a registry lookup.
 /// </summary>
 public interface ICurrentGameServer
 {
-    string ClientId { get; }
+    ValueTask<GameServerId> GetIdAsync(CancellationToken cancellationToken);
 }

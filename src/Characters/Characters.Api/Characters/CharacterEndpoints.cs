@@ -21,7 +21,8 @@ public static class CharacterModule
     public static IServiceCollection AddCharacterModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddCharacterInfrastructure(configuration);
-        services.AddScoped<ICurrentGameServer, HttpContextCurrentGameServer>();
+        services.AddScoped<ICurrentGameServerClientId, HttpContextCurrentGameServerClientId>();
+        services.AddScoped<ICurrentGameServer, RegistryCurrentGameServer>();
 
         services.AddAuthorizationBuilder()
             .AddPolicy(CharactersWritePolicy, policy => policy.RequireAssertion(context =>
@@ -47,13 +48,17 @@ public static class CharacterModule
         group.MapPost("characters", async (
                 [FromBody] CreateCharacterRequestDto request,
                 IMediator mediator,
+                ICurrentGameServer currentGameServer,
                 CancellationToken cancellationToken) =>
             {
                 var result = await mediator.Send(request.ToCommand(), cancellationToken);
 
                 return result switch
                 {
-                    CreateCharacterResult.Created created => Results.Ok(CharacterDto.Create(created, request.Name)),
+                    // RegistryCurrentGameServer caches per scope, so this is a repeat of the
+                    // handler's own lookup, not a second registry round-trip.
+                    CreateCharacterResult.Created created => Results.Ok(CharacterDto.Create(
+                        created, request.Name, await currentGameServer.GetIdAsync(cancellationToken))),
                     CreateCharacterResult.AccountNotFound => Results.Problem(
                         title: "Account not found",
                         statusCode: StatusCodes.Status404NotFound),

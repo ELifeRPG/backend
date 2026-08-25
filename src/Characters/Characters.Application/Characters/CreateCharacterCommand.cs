@@ -16,7 +16,7 @@ public union CreateCharacterResult(CreateCharacterResult.Created, CreateCharacte
 
 public sealed record CreateCharacterCommand(AccountId AccountId, string Name) : IRequest<CreateCharacterResult>;
 
-public sealed class CreateCharacterHandler(ICharacterRepository characterRepository, IMediator mediator)
+public sealed class CreateCharacterHandler(ICharacterRepository characterRepository, IMediator mediator, ICurrentGameServer currentGameServer)
     : IRequestHandler<CreateCharacterCommand, CreateCharacterResult>
 {
     public async ValueTask<CreateCharacterResult> Handle(CreateCharacterCommand request, CancellationToken cancellationToken)
@@ -34,7 +34,8 @@ public sealed class CreateCharacterHandler(ICharacterRepository characterReposit
         }
 
         var characterId = new CharacterId(Guid.NewGuid());
-        var domainEvent = new CharacterCreated(characterId, request.AccountId, request.Name);
+        var serverId = await currentGameServer.GetIdAsync(cancellationToken);
+        var domainEvent = new CharacterCreated(characterId, request.AccountId, request.Name, serverId);
         var character = Character.Create(domainEvent);
 
         characterRepository.StartStream(character, domainEvent);

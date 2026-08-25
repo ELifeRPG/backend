@@ -3,7 +3,6 @@ using ELifeRPG.Characters.Domain;
 using ELifeRPG.Characters.Infrastructure.Common;
 using ELifeRPG.Characters.Infrastructure.Skills;
 using ELifeRPG.Shared.Infrastructure;
-using JasperFx.MultiTenancy;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -21,8 +20,6 @@ public static class CharacterInfrastructureExtensions
             options.Connection(configuration.GetConnectionString("CharacterDatabase")!);
             options.Events.DatabaseSchemaName = "characters";
             options.DatabaseSchemaName = "characters";
-            options.Events.TenancyStyle = TenancyStyle.Conjoined;
-            options.Policies.AllDocumentsAreMultiTenanted();
             options.Projections.Add<CharacterProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
             options.Projections.Add<CharacterSkillsProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
         });

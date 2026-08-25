@@ -11,7 +11,12 @@ namespace ELifeRPG.Accounts.IntegrationTests;
 /// <summary>
 /// Requires the local infra stack (`docker compose up -d`) and the devcontainer connected to its
 /// network — see README.md. Not run as part of a normal `dotnet test` against an empty environment.
+/// Joins the "HiveSettings" collection (see <see cref="HiveSettingsCollection"/>) because this class
+/// asserts <see cref="SessionStatus.Active"/> unconditionally after unlocking — it would flake if it
+/// interleaved with <see cref="CreateSessionCommandWhitelistGateTests"/> or
+/// <see cref="HiveSettingsTests"/> toggling the shared <c>WhitelistEnabled</c> singleton mid-run.
 /// </summary>
+[Collection("HiveSettings")]
 public sealed class LockAccountCommandTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
@@ -38,7 +43,7 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
     private async Task<(AccountId AccountId, GameId BohemiaId, string KeycloakUsername)> CreateAccountAsync()
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var response = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var response = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
         _createdUsernames.Add(response.KeycloakUsername);
         return (response.AccountId, bohemiaId, response.KeycloakUsername);
     }
@@ -53,7 +58,7 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
         Assert.True(result is LockAccountResult.Locked, $"Expected Locked, got {result}");
         Assert.False(await _keycloak.GetUserEnabledAsync(username));
 
-        var sessionAfterLock = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var sessionAfterLock = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
         Assert.Equal(SessionStatus.Blocked, sessionAfterLock.Status);
     }
 
@@ -106,7 +111,7 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
         Assert.True(result is UnlockAccountResult.Unlocked, $"Expected Unlocked, got {result}");
         Assert.True(await _keycloak.GetUserEnabledAsync(username));
 
-        var sessionAfterUnlock = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var sessionAfterUnlock = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
         Assert.Equal(SessionStatus.Active, sessionAfterUnlock.Status);
     }
 

@@ -1,7 +1,5 @@
 using ELifeRPG.Banking.Api.BankAccounts;
 using ELifeRPG.Banking.Api.Banks;
-using ELifeRPG.Banking.Api.Common;
-using ELifeRPG.Banking.Application.Common;
 using ELifeRPG.Banking.Application.Companies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -21,7 +19,6 @@ public static class BankingModule
     public static IServiceCollection AddBankingModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddBankingInfrastructure(configuration);
-        services.AddScoped<ICurrentGameServer, HttpContextCurrentGameServer>();
 
         services.AddAuthorizationBuilder()
             .AddPolicy(BankingManagePolicy, policy => policy.RequireAssertion(context => HasScope(context, BankingManageScope)))

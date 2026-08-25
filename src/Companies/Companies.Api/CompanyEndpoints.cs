@@ -1,6 +1,4 @@
-using ELifeRPG.Companies.Api.Common;
 using ELifeRPG.Companies.Api.Companies;
-using ELifeRPG.Companies.Application.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -17,7 +15,6 @@ public static class CompanyModule
     public static IServiceCollection AddCompanyModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddCompanyInfrastructure(configuration);
-        services.AddScoped<ICurrentGameServer, HttpContextCurrentGameServer>();
 
         services.AddAuthorizationBuilder()
             .AddPolicy(CompaniesWritePolicy, policy => policy.RequireAssertion(context =>

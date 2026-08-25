@@ -297,6 +297,54 @@ public sealed class PurchaseListingTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task PurchaseListing_StillCommitsShopAndBankingAtomically()
+    {
+        // Regression guard for removing conjoined tenancy from Banking, Companies, and Shops:
+        // PurchaseListingCommand spans the Shops and Banking stores through one
+        // ICrossModuleTransaction — a shared Postgres transaction holding one tenanted and one
+        // untenanted Marten session would silently break atomicity, so this proves both sessions
+        // still join the same transaction and commit together now that neither is tenanted.
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        Assert.True(depositResult is DepositResult.Deposited, $"Expected Deposited, got {depositResult}");
+        if (depositResult is not DepositResult.Deposited deposited)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        var balanceBefore = deposited.NewBalance;
+
+        var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 3, buyerId, buyerAccountId));
+
+        Assert.True(result is PurchaseListingResult.Purchased, $"Expected Purchased, got {result}");
+        if (result is not PurchaseListingResult.Purchased purchased)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        // Shops side committed: stock decremented and durably persisted (fresh query, not the
+        // in-memory NewStock the handler returned).
+        var shopQuery = await mediator.Send(new ShopQuery(shopId));
+        Assert.True(shopQuery is ShopQueryResult.Found, $"Expected Found, got {shopQuery}");
+        if (shopQuery is ShopQueryResult.Found found)
+        {
+            Assert.Equal(7, Assert.Single(found.Listings).Stock);
+        }
+
+        // Banking side committed: buyer balance debited by TotalPaid plus TransferOut's own fee
+        // (same formula as Banking.Domain.BankAccount.CalculateFee, using the fixed 0.20/0.02
+        // parameters every OpenBankAsync call in this test file passes to OpenBankCommand).
+        var expectedFee = 0.20m + (purchased.TotalPaid * 0.02m);
+        var balanceAfter = await GetBalanceAsync(mediator, buyerAccountId);
+        Assert.Equal(balanceBefore - purchased.TotalPaid - expectedFee, balanceAfter);
+    }
+
+    [Fact]
     public async Task TwoConcurrentPurchases_BySameBuyer_AgainstDifferentListings_ExactlyOneSucceedsIfBalanceInsufficientForBoth()
     {
         await using var scope = _provider.CreateAsyncScope();
@@ -331,7 +379,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
     private async Task<AccountId> CreateActiveAccountAsync(IMediator mediator)
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
 
         _createdUsernames.Add(result.KeycloakUsername);
 

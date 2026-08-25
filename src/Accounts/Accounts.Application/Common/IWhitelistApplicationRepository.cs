@@ -6,9 +6,9 @@ public interface IWhitelistApplicationRepository
 {
     ValueTask<WhitelistApplication?> FindByIdAsync(WhitelistApplicationId id, CancellationToken cancellationToken);
 
-    ValueTask<WhitelistApplication?> FindPendingAsync(AccountId accountId, string serverClientId, CancellationToken cancellationToken);
+    ValueTask<WhitelistApplication?> FindPendingAsync(AccountId accountId, CancellationToken cancellationToken);
 
-    ValueTask<WhitelistApplication?> FindApprovedAsync(AccountId accountId, string serverClientId, CancellationToken cancellationToken);
+    ValueTask<WhitelistApplication?> FindApprovedAsync(AccountId accountId, CancellationToken cancellationToken);
 
     ValueTask<IReadOnlyList<WhitelistApplication>> ListByStatusAsync(WhitelistApplicationStatus status, CancellationToken cancellationToken);
 

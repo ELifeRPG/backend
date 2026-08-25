@@ -6,14 +6,18 @@ using Marten;
 
 namespace ELifeRPG.Shops.Infrastructure.Common;
 
-/// <summary>Session is opened scoped to the calling gameserver's tenant id — see Task 6 Step 6a.</summary>
+/// <summary>
+/// Holds one session for this repository instance's lifetime — same reasoning as
+/// MartenCharacterRepository. Shops are hive-wide as of the 2026-08-22 tenancy change, so this no
+/// longer scopes the session to a calling gameserver.
+/// </summary>
 public sealed class MartenShopRepository : IShopRepository, IAsyncDisposable
 {
     private readonly IDocumentSession _session;
 
-    public MartenShopRepository(IShopsStore store, ICurrentGameServer currentGameServer)
+    public MartenShopRepository(IShopsStore store)
     {
-        _session = store.LightweightSession(currentGameServer.ClientId);
+        _session = store.LightweightSession();
     }
 
     public async ValueTask<Shop?> FindByIdAsync(ShopId shopId, CancellationToken cancellationToken)

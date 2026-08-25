@@ -18,12 +18,11 @@ public sealed class MartenCompanyRepository : ICompanyRepository, IAsyncDisposab
 {
     private readonly IDocumentSession _session;
     private readonly NpgsqlTransaction? _crossModuleTransaction;
-    private readonly string? _tenantId;
     private readonly Dictionary<Guid, JasperFx.Events.IEventStream<Company>> _pendingStreams = new();
 
-    public MartenCompanyRepository(ICompaniesStore store, ICurrentGameServer currentGameServer)
+    public MartenCompanyRepository(ICompaniesStore store)
     {
-        _session = store.LightweightSession(currentGameServer.ClientId);
+        _session = store.LightweightSession();
     }
 
     /// <summary>
@@ -32,11 +31,10 @@ public sealed class MartenCompanyRepository : ICompanyRepository, IAsyncDisposab
     /// never disposed by this class in that path; see Global Constraints in
     /// docs/superpowers/plans/2026-08-15-cross-module-atomic-writes.md.
     /// </summary>
-    internal MartenCompanyRepository(IDocumentSession session, NpgsqlTransaction crossModuleTransaction, string tenantId)
+    internal MartenCompanyRepository(IDocumentSession session, NpgsqlTransaction crossModuleTransaction)
     {
         _session = session;
         _crossModuleTransaction = crossModuleTransaction;
-        _tenantId = tenantId;
     }
 
     public async ValueTask<Company?> FindByIdAsync(CompanyId companyId, CancellationToken cancellationToken)
@@ -48,13 +46,13 @@ public sealed class MartenCompanyRepository : ICompanyRepository, IAsyncDisposab
         {
             // Row lock stands in for Marten's optimistic concurrency, which doesn't work on a
             // ForTransaction-bound session — same reasoning and syntax as
-            // MartenBankAccountRepository.FetchForUpdateAsync. Filters both columns of the table's
-            // composite (tenant_id, id) primary key so the query uses the index.
+            // MartenBankAccountRepository.FetchForUpdateAsync. The doc table's primary key is now `id`
+            // alone (tenancy removed), so a single-column predicate is the index lookup — see
+            // ARCHITECTURE.md §9e gotcha 9.
             var connection = _crossModuleTransaction.Connection;
             await using var lockCommand = connection!.CreateCommand();
             lockCommand.Transaction = _crossModuleTransaction;
-            lockCommand.CommandText = "SELECT id FROM companies.mt_doc_company WHERE tenant_id = @tenant AND id = @id FOR UPDATE";
-            lockCommand.Parameters.AddWithValue("@tenant", _tenantId!);
+            lockCommand.CommandText = "SELECT id FROM companies.mt_doc_company WHERE id = @id FOR UPDATE";
             lockCommand.Parameters.AddWithValue("@id", companyId.Value);
             var lockedId = await lockCommand.ExecuteScalarAsync(cancellationToken);
             if (lockedId is null)

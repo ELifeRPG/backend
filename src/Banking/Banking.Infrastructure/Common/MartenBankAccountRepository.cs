@@ -19,12 +19,11 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
 {
     private readonly IDocumentSession _session;
     private readonly NpgsqlTransaction? _crossModuleTransaction;
-    private readonly string? _tenantId;
     private readonly Dictionary<Guid, JasperFx.Events.IEventStream<BankAccount>> _pendingStreams = new();
 
-    public MartenBankAccountRepository(IBankingStore store, ICurrentGameServer currentGameServer)
+    public MartenBankAccountRepository(IBankingStore store)
     {
-        _session = store.LightweightSession(currentGameServer.ClientId);
+        _session = store.LightweightSession();
     }
 
     /// <summary>
@@ -35,14 +34,11 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
     /// gotcha 9, and MartenShopListingRepository.ReserveStockAsync for the identical pattern already
     /// proven for ShopListing). Intentionally never disposed by this class in that path; see the
     /// Global Constraints section of docs/superpowers/plans/2026-08-15-cross-module-atomic-writes.md.
-    /// `tenantId` is the same value the factory set on the session's SessionOptions.TenantId, needed
-    /// separately because the row-lock query is raw SQL against the doc table's (tenant_id, id) key.
     /// </summary>
-    internal MartenBankAccountRepository(IDocumentSession session, NpgsqlTransaction crossModuleTransaction, string tenantId)
+    internal MartenBankAccountRepository(IDocumentSession session, NpgsqlTransaction crossModuleTransaction)
     {
         _session = session;
         _crossModuleTransaction = crossModuleTransaction;
-        _tenantId = tenantId;
     }
 
     public async ValueTask<BankAccount?> FindByIdAsync(BankAccountId bankAccountId, CancellationToken cancellationToken)
@@ -54,13 +50,13 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
         {
             // Row lock stands in for Marten's optimistic concurrency, which doesn't work on a
             // ForTransaction-bound session — same reasoning and syntax as
-            // MartenShopListingRepository.ReserveStockAsync. Filters both columns of the table's
-            // composite (tenant_id, id) primary key so the query uses the index.
+            // MartenShopListingRepository.ReserveStockAsync. The doc table's primary key is now `id`
+            // alone (tenancy removed), so a single-column predicate is the index lookup — see
+            // ARCHITECTURE.md §9e gotcha 9.
             var connection = _crossModuleTransaction.Connection;
             await using var lockCommand = connection!.CreateCommand();
             lockCommand.Transaction = _crossModuleTransaction;
-            lockCommand.CommandText = "SELECT id FROM banking.mt_doc_bankaccount WHERE tenant_id = @tenant AND id = @id FOR UPDATE";
-            lockCommand.Parameters.AddWithValue("@tenant", _tenantId!);
+            lockCommand.CommandText = "SELECT id FROM banking.mt_doc_bankaccount WHERE id = @id FOR UPDATE";
             lockCommand.Parameters.AddWithValue("@id", bankAccountId.Value);
             var lockedId = await lockCommand.ExecuteScalarAsync(cancellationToken);
             if (lockedId is null)
@@ -104,9 +100,13 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
             .Where(x => x.OwnerCompanyId != null && x.OwnerCompanyId!.Value.Value == companyId.Value)
             .ToListAsync(cancellationToken);
 
-    // Safe only because the sole caller (BankAccountTransactionHistoryHandler) already resolves the
-    // account via a tenant-scoped FindByIdAsync first — a future direct caller of this method would
-    // bypass that guard, since _session.Events.FetchStreamAsync itself has no tenant check of its own.
+    // Deliberately unguarded: data is hive-wide as of the 2026-08-22 tenancy change, so
+    // _session.Events.FetchStreamAsync reading any bank account's history regardless of which server
+    // originally opened it is intended behavior, not a gap — there is no tenant boundary left to
+    // enforce here. (Before that change, this comment noted the method was safe only because the sole
+    // caller, BankAccountTransactionHistoryHandler, already resolved the account via a tenant-scoped
+    // FindByIdAsync first; FindByIdAsync is no longer tenant-scoped, so that guard no longer exists —
+    // and is no longer needed.)
     public async ValueTask<IReadOnlyList<BankAccountTransactionRecord>> GetHistoryAsync(
         BankAccountId bankAccountId,
         int limit,

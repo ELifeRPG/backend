@@ -36,7 +36,7 @@ public sealed class AccountsQueryTests : IAsyncLifetime
     private async Task<(AccountId AccountId, GameId BohemiaId)> CreateAccountAsync()
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var response = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var response = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
         _createdUsernames.Add(response.KeycloakUsername);
         return (response.AccountId, bohemiaId);
     }

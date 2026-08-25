@@ -14,9 +14,9 @@ public sealed class MartenBankRepository : IBankRepository, IAsyncDisposable
 {
     private readonly IDocumentSession _session;
 
-    public MartenBankRepository(IBankingStore store, ICurrentGameServer currentGameServer)
+    public MartenBankRepository(IBankingStore store)
     {
-        _session = store.LightweightSession(currentGameServer.ClientId);
+        _session = store.LightweightSession();
     }
 
     // Marten infers the document id type from Bank.Id (BankId, not Guid) — pass the strongly-typed

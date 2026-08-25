@@ -21,7 +21,8 @@ public sealed record OpenShopCommand(
     string DisplayName,
     BankAccountId PayoutBankAccountId) : IRequest<OpenShopResult>;
 
-public sealed class OpenShopHandler(IShopRepository shopRepository, IMediator mediator) : IRequestHandler<OpenShopCommand, OpenShopResult>
+public sealed class OpenShopHandler(IShopRepository shopRepository, IMediator mediator, ICurrentGameServer currentGameServer)
+    : IRequestHandler<OpenShopCommand, OpenShopResult>
 {
     public async ValueTask<OpenShopResult> Handle(OpenShopCommand request, CancellationToken cancellationToken)
     {
@@ -43,7 +44,8 @@ public sealed class OpenShopHandler(IShopRepository shopRepository, IMediator me
         }
 
         var shopId = new ShopId(Guid.NewGuid());
-        var domainEvent = new ShopOpened(shopId, request.OwnerType, request.OwnerCharacterId, request.OwnerCompanyId, request.DisplayName, request.PayoutBankAccountId);
+        var serverId = await currentGameServer.GetIdAsync(cancellationToken);
+        var domainEvent = new ShopOpened(shopId, request.OwnerType, request.OwnerCharacterId, request.OwnerCompanyId, request.DisplayName, request.PayoutBankAccountId, serverId);
         var shop = Shop.Create(domainEvent);
 
         shopRepository.StartStream(shop, domainEvent);

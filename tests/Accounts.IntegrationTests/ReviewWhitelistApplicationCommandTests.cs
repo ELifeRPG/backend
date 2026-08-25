@@ -39,9 +39,9 @@ public sealed class ReviewWhitelistApplicationCommandTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var bohemiaId = new GameId(Guid.NewGuid());
-        var session = await mediator.Send(new CreateSessionCommand(bohemiaId, "gameserver-dev"));
+        var session = await mediator.Send(new CreateSessionCommand(bohemiaId));
         _createdUsernames.Add(session.KeycloakUsername);
-        var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand(session.AccountId, "gameserver-dev", "text"));
+        var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand(session.AccountId, "text"));
         Assert.True(submitResult is SubmitWhitelistApplicationResult.Submitted, $"Expected Submitted, got {submitResult}");
         if (submitResult is not SubmitWhitelistApplicationResult.Submitted submitted)
         {

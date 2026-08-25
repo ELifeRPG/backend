@@ -29,12 +29,12 @@ public sealed class WhitelistApplicationRepositoryTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IWhitelistApplicationRepository>();
         var accountId = new AccountId(Guid.NewGuid());
-        var domainEvent = new WhitelistApplicationSubmitted(new WhitelistApplicationId(Guid.NewGuid()), accountId, "gameserver-dev", "text");
+        var domainEvent = new WhitelistApplicationSubmitted(new WhitelistApplicationId(Guid.NewGuid()), accountId, "text");
         var application = WhitelistApplication.Create(domainEvent);
         repository.StartStream(application, domainEvent);
         await repository.SaveChangesAsync(CancellationToken.None);
 
-        var pending = await repository.FindPendingAsync(accountId, "gameserver-dev", CancellationToken.None);
+        var pending = await repository.FindPendingAsync(accountId, CancellationToken.None);
 
         Assert.NotNull(pending);
         Assert.Equal(application.Id, pending!.Id);
@@ -46,12 +46,12 @@ public sealed class WhitelistApplicationRepositoryTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IWhitelistApplicationRepository>();
         var accountId = new AccountId(Guid.NewGuid());
-        var domainEvent = new WhitelistApplicationSubmitted(new WhitelistApplicationId(Guid.NewGuid()), accountId, "gameserver-dev", "text");
+        var domainEvent = new WhitelistApplicationSubmitted(new WhitelistApplicationId(Guid.NewGuid()), accountId, "text");
         var application = WhitelistApplication.Create(domainEvent);
         repository.StartStream(application, domainEvent);
         await repository.SaveChangesAsync(CancellationToken.None);
 
-        var approved = await repository.FindApprovedAsync(accountId, "gameserver-dev", CancellationToken.None);
+        var approved = await repository.FindApprovedAsync(accountId, CancellationToken.None);
 
         Assert.Null(approved);
     }
@@ -62,7 +62,7 @@ public sealed class WhitelistApplicationRepositoryTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IWhitelistApplicationRepository>();
         var accountId = new AccountId(Guid.NewGuid());
-        var submitted = new WhitelistApplicationSubmitted(new WhitelistApplicationId(Guid.NewGuid()), accountId, "gameserver-dev", "text");
+        var submitted = new WhitelistApplicationSubmitted(new WhitelistApplicationId(Guid.NewGuid()), accountId, "text");
         var application = WhitelistApplication.Create(submitted);
         repository.StartStream(application, submitted);
         await repository.SaveChangesAsync(CancellationToken.None);
@@ -73,7 +73,7 @@ public sealed class WhitelistApplicationRepositoryTests : IAsyncLifetime
         repository.Append(application.Id, approved);
         await repository.SaveChangesAsync(CancellationToken.None);
 
-        var found = await repository.FindApprovedAsync(accountId, "gameserver-dev", CancellationToken.None);
+        var found = await repository.FindApprovedAsync(accountId, CancellationToken.None);
 
         Assert.NotNull(found);
         Assert.Equal(WhitelistApplicationStatus.Approved, found!.Status);

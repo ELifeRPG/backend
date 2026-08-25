@@ -10,19 +10,16 @@ public sealed class ShopsHub(IShopsStore shopsStore) : Hub
 {
     public async Task SubscribeToShop(Guid shopId, CancellationToken cancellationToken)
     {
-        var clientId = Context.User?.FindFirst("client_id")?.Value;
-        if (string.IsNullOrEmpty(clientId))
-        {
-            throw new HubException("No client_id claim on this connection; cannot resolve the current gameserver.");
-        }
-
-        await using var session = shopsStore.QuerySession(clientId);
+        // Hive-wide as of the 2026-08-22 tenancy change: every shop is visible to every server, so
+        // there is no cross-tenant leak to guard against when joining a shop's group. The connection
+        // still had to authenticate and satisfy RequireAuthorization(ShopsWritePolicy) on the hub
+        // mapping itself — this method only additionally checks that the shop actually exists.
+        await using var session = shopsStore.QuerySession();
         var shop = await session.LoadAsync<Shop>(new ShopId(shopId), cancellationToken);
         if (shop is null)
         {
-            // Same externally-visible behavior as GET /api/shops/{shopId} for a shop belonging to
-            // a different tenant (or a genuinely unknown id) — silently no-op rather than joining
-            // the group, so the caller learns nothing about whether the shop exists elsewhere.
+            // Same externally-visible behavior as GET /api/shops/{shopId} for a genuinely unknown
+            // shop id — silently no-op rather than joining the group.
             return;
         }
 

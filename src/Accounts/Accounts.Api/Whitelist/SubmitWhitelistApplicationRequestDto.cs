@@ -6,6 +6,6 @@ public sealed record SubmitWhitelistApplicationRequestDto
 
     public required string ApplicationText { get; init; }
 
-    public SubmitWhitelistApplicationCommand ToCommand(string serverClientId) =>
-        new(new AccountId(AccountId), serverClientId, ApplicationText);
+    public SubmitWhitelistApplicationCommand ToCommand() =>
+        new(new AccountId(AccountId), ApplicationText);
 }

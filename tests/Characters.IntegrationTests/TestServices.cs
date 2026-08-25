@@ -1,3 +1,4 @@
+using ELifeRPG.Shared.Kernel;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -6,8 +7,8 @@ namespace ELifeRPG.Characters.IntegrationTests;
 /// <summary>
 /// Shared DI/Mediator setup — see Banking.IntegrationTests/TestServices.cs for why this needs to be
 /// the single AddMediator(...) call site for this compiled test project (Mediator.SourceGenerator
-/// rejects a second one). Parameterized by the gameserver client id so tests can build two
-/// independently-tenanted providers to prove per-server isolation.
+/// rejects a second one). Parameterized by the gameserver client id so tests can build providers that
+/// report as different calling servers.
 /// </summary>
 internal static class TestServices
 {
@@ -44,7 +45,18 @@ internal static class TestServices
     }
 }
 
-internal sealed class FixedCurrentGameServer(string clientId) : ELifeRPG.Characters.Application.Common.ICurrentGameServer
+internal sealed class FixedCurrentGameServer(string clientId)
+    : ELifeRPG.Characters.Application.Common.ICurrentGameServer
 {
-    public string ClientId { get; } = clientId;
+    // A deterministic id per client id, so two providers built with different client ids get
+    // genuinely distinct GameServerIds without each test needing an async registry round-trip in
+    // setup. Nothing in the Characters module validates that the id exists in the registry — it
+    // only records which server a character is on — so a synthesized id is sufficient here.
+    private readonly GameServerId _id = new(DeterministicGuid(clientId));
+
+    public ValueTask<GameServerId> GetIdAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(_id);
+
+    private static Guid DeterministicGuid(string value)
+        => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
 }

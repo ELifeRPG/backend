@@ -9,20 +9,19 @@ namespace ELifeRPG.Accounts.Domain.UnitTests;
 public sealed class WhitelistApplicationTests
 {
     private static WhitelistApplication CreateOpen() => WhitelistApplication.Create(new WhitelistApplicationSubmitted(
-        new WhitelistApplicationId(Guid.NewGuid()), new AccountId(Guid.NewGuid()), "gameserver-dev", "let me in please"));
+        new WhitelistApplicationId(Guid.NewGuid()), new AccountId(Guid.NewGuid()), "let me in please"));
 
     [Fact]
     public void Create_SetsFieldsFromEvent_AndStatusOpen()
     {
         var accountId = new AccountId(Guid.NewGuid());
         var id = new WhitelistApplicationId(Guid.NewGuid());
-        var domainEvent = new WhitelistApplicationSubmitted(id, accountId, "gameserver-dev", "text");
+        var domainEvent = new WhitelistApplicationSubmitted(id, accountId, "text");
 
         var application = WhitelistApplication.Create(domainEvent);
 
         Assert.Equal(id, application.Id);
         Assert.Equal(accountId, application.AccountId);
-        Assert.Equal("gameserver-dev", application.ServerClientId);
         Assert.Equal("text", application.ApplicationText);
         Assert.Equal(WhitelistApplicationStatus.Open, application.Status);
     }

@@ -279,7 +279,7 @@
         "tags": [
           "Whitelist"
         ],
-        "description": "Submits an account's whitelist application for the calling server.",
+        "description": "Submits an account's whitelist application for the hive.",
         "operationId": "SubmitWhitelistApplication",
         "requestBody": {
           "content": {
@@ -483,12 +483,65 @@
         }
       }
     },
+    "/api/game-servers": {
+      "post": {
+        "tags": [
+          "GameServers"
+        ],
+        "description": "Registers a game server in this hive. Re-registering an existing client id updates its display name and map.",
+        "operationId": "RegisterGameServer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterGameServerRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameServerDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "GameServers"
+        ],
+        "description": "Lists every game server registered in this hive.",
+        "operationId": "ListGameServers",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GameServerDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/game-servers/{clientId}": {
       "get": {
         "tags": [
           "GameServers"
         ],
-        "description": "Gets a server's settings, defaulted if never configured.",
+        "description": "Gets a registered game server's settings by client id.",
         "operationId": "GetGameServer",
         "parameters": [
           {
@@ -510,6 +563,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       },
@@ -517,7 +580,7 @@
         "tags": [
           "GameServers"
         ],
-        "description": "Partially updates a server's settings (e.g. WhitelistEnabled). Omitted fields are left unchanged.",
+        "description": "Partially updates a registered server's display name and map. Omitted fields are left unchanged.",
         "operationId": "UpdateGameServerSettings",
         "parameters": [
           {
@@ -546,6 +609,66 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GameServerDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hive/settings": {
+      "get": {
+        "tags": [
+          "Hive"
+        ],
+        "description": "Gets this hive's deployment-wide settings.",
+        "operationId": "GetHiveSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HiveSettingsDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Hive"
+        ],
+        "description": "Partially updates this hive's settings. Omitted fields are left unchanged.",
+        "operationId": "UpdateHiveSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateHiveSettingsRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HiveSettingsDto"
                 }
               }
             }
@@ -2703,6 +2826,7 @@
         "required": [
           "characterId",
           "name",
+          "currentServerId",
           "sessionActive"
         ],
         "type": "object",
@@ -2713,6 +2837,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "currentServerId": {
+            "type": "string",
+            "format": "uuid"
           },
           "sessionActive": {
             "type": "boolean"
@@ -2941,16 +3069,25 @@
       },
       "GameServerDto": {
         "required": [
+          "id",
           "clientId",
-          "whitelistEnabled"
+          "displayName",
+          "mapName"
         ],
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "clientId": {
             "type": "string"
           },
-          "whitelistEnabled": {
-            "type": "boolean"
+          "displayName": {
+            "type": "string"
+          },
+          "mapName": {
+            "type": "string"
           }
         }
       },
@@ -2996,6 +3133,17 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "HiveSettingsDto": {
+        "required": [
+          "whitelistEnabled"
+        ],
+        "type": "object",
+        "properties": {
+          "whitelistEnabled": {
+            "type": "boolean"
           }
         }
       },
@@ -3241,6 +3389,25 @@
           }
         }
       },
+      "RegisterGameServerRequestDto": {
+        "required": [
+          "clientId",
+          "displayName",
+          "mapName"
+        ],
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "mapName": {
+            "type": "string"
+          }
+        }
+      },
       "RevokeTokenRequestDto": {
         "required": [
           "jti",
@@ -3317,7 +3484,8 @@
           "shopId",
           "ownerType",
           "displayName",
-          "payoutBankAccountId"
+          "payoutBankAccountId",
+          "serverId"
         ],
         "type": "object",
         "properties": {
@@ -3346,6 +3514,10 @@
             "type": "string"
           },
           "payoutBankAccountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "serverId": {
             "type": "string",
             "format": "uuid"
           }
@@ -3542,6 +3714,26 @@
       "UpdateGameServerSettingsRequestDto": {
         "type": "object",
         "properties": {
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mapName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UpdateHiveSettingsRequestDto": {
+        "required": [
+          "whitelistEnabled"
+        ],
+        "type": "object",
+        "properties": {
           "whitelistEnabled": {
             "type": [
               "null",
@@ -3584,7 +3776,6 @@
         "required": [
           "whitelistApplicationId",
           "accountId",
-          "serverClientId",
           "applicationText",
           "status"
         ],
@@ -3597,9 +3788,6 @@
           "accountId": {
             "type": "string",
             "format": "uuid"
-          },
-          "serverClientId": {
-            "type": "string"
           },
           "applicationText": {
             "type": "string"
@@ -3660,6 +3848,9 @@
     },
     {
       "name": "GameServers"
+    },
+    {
+      "name": "Hive"
     },
     {
       "name": "Characters"

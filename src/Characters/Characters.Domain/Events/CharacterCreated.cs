@@ -1,3 +1,3 @@
 namespace ELifeRPG.Characters.Domain.Events;
 
-public sealed record CharacterCreated(CharacterId Id, AccountId AccountId, string Name);
+public sealed record CharacterCreated(CharacterId Id, AccountId AccountId, string Name, GameServerId CurrentServerId);

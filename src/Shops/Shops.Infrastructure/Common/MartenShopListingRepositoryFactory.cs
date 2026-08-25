@@ -1,12 +1,12 @@
-using ELifeRPG.Shops.Application.Common;
 using ELifeRPG.Shared.Integration;
 using ELifeRPG.Shared.Integration.Abstractions;
+using ELifeRPG.Shops.Application.Common;
 using Marten;
 using Marten.Services;
 
 namespace ELifeRPG.Shops.Infrastructure.Common;
 
-public sealed class MartenShopListingRepositoryFactory(IShopsStore store, ICurrentGameServer currentGameServer) : IShopListingRepositoryFactory
+public sealed class MartenShopListingRepositoryFactory(IShopsStore store) : IShopListingRepositoryFactory
 {
     // Tracking mode is left at SessionOptions' default deliberately — unlike its Companies/Banking
     // counterparts (which only ever call Events.Append), this session's ReserveStockAsync does call
@@ -17,9 +17,8 @@ public sealed class MartenShopListingRepositoryFactory(IShopsStore store, ICurre
     {
         var rawTransaction = handle.Unwrap();
         var options = SessionOptions.ForTransaction(rawTransaction, shouldAutoCommit: false);
-        options.TenantId = currentGameServer.ClientId;
 
         var session = store.OpenSession(options);
-        return new MartenShopListingRepository(session, rawTransaction, currentGameServer.ClientId);
+        return new MartenShopListingRepository(session, rawTransaction);
     }
 }

@@ -15,7 +15,7 @@ public union SubmitWhitelistApplicationResult(
     public record AlreadyPending;
 }
 
-public sealed record SubmitWhitelistApplicationCommand(AccountId AccountId, string ServerClientId, string ApplicationText)
+public sealed record SubmitWhitelistApplicationCommand(AccountId AccountId, string ApplicationText)
     : IRequest<SubmitWhitelistApplicationResult>;
 
 public sealed class SubmitWhitelistApplicationHandler(IAccountRepository accountRepository, IWhitelistApplicationRepository whitelistRepository)
@@ -29,14 +29,14 @@ public sealed class SubmitWhitelistApplicationHandler(IAccountRepository account
             return new SubmitWhitelistApplicationResult.AccountNotFound();
         }
 
-        var pending = await whitelistRepository.FindPendingAsync(request.AccountId, request.ServerClientId, cancellationToken);
+        var pending = await whitelistRepository.FindPendingAsync(request.AccountId, cancellationToken);
         if (pending is not null)
         {
             return new SubmitWhitelistApplicationResult.AlreadyPending();
         }
 
         var id = new WhitelistApplicationId(Guid.NewGuid());
-        var domainEvent = new WhitelistApplicationSubmitted(id, request.AccountId, request.ServerClientId, request.ApplicationText);
+        var domainEvent = new WhitelistApplicationSubmitted(id, request.AccountId, request.ApplicationText);
         var application = WhitelistApplication.Create(domainEvent);
 
         whitelistRepository.StartStream(application, domainEvent);

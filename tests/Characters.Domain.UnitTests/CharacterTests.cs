@@ -12,14 +12,15 @@ public class CharacterTests
     {
         var characterId = new CharacterId(Guid.NewGuid());
         var accountId = new AccountId(Guid.NewGuid());
-        var domainEvent = new CharacterCreated(characterId, accountId, "Alice");
+        var serverId = new GameServerId(Guid.NewGuid());
+        var domainEvent = new CharacterCreated(characterId, accountId, "Alice", serverId);
 
         var character = Character.Create(domainEvent);
 
         Assert.Equal(characterId, character.Id);
         Assert.Equal(accountId, character.AccountId);
         Assert.Equal("Alice", character.Name);
-        Assert.Equal(0m, character.Cash);
+        Assert.Equal(serverId, character.CurrentServerId);
     }
 
     [Fact]
@@ -27,7 +28,8 @@ public class CharacterTests
     {
         var characterId = new CharacterId(Guid.NewGuid());
         var accountId = new AccountId(Guid.NewGuid());
-        var domainEvent = new CharacterCreated(characterId, accountId, "Bob");
+        var serverId = new GameServerId(Guid.NewGuid());
+        var domainEvent = new CharacterCreated(characterId, accountId, "Bob", serverId);
 
         var character = new Character();
         character.Apply(domainEvent);
@@ -35,12 +37,13 @@ public class CharacterTests
         Assert.Equal(characterId, character.Id);
         Assert.Equal(accountId, character.AccountId);
         Assert.Equal("Bob", character.Name);
+        Assert.Equal(serverId, character.CurrentServerId);
     }
 
     [Fact]
     public void StartSession_SetsActiveAndClearsEndedAt()
     {
-        var character = Character.Create(new CharacterCreated(new CharacterId(Guid.NewGuid()), new AccountId(Guid.NewGuid()), "Alice"));
+        var character = Character.Create(new CharacterCreated(new CharacterId(Guid.NewGuid()), new AccountId(Guid.NewGuid()), "Alice", new GameServerId(Guid.NewGuid())));
 
         var domainEvent = character.StartSession();
 
@@ -52,7 +55,7 @@ public class CharacterTests
     [Fact]
     public void EndSession_ClearsActiveAndSetsEndedAt()
     {
-        var character = Character.Create(new CharacterCreated(new CharacterId(Guid.NewGuid()), new AccountId(Guid.NewGuid()), "Alice"));
+        var character = Character.Create(new CharacterCreated(new CharacterId(Guid.NewGuid()), new AccountId(Guid.NewGuid()), "Alice", new GameServerId(Guid.NewGuid())));
         character.StartSession();
 
         var domainEvent = character.EndSession();
@@ -66,7 +69,7 @@ public class CharacterTests
     {
         // No gameserver-crash/restart cleanup exists yet (see StartSession's doc comment) — a stale
         // "active" flag left over from an ungraceful restart must not permanently block reselecting.
-        var character = Character.Create(new CharacterCreated(new CharacterId(Guid.NewGuid()), new AccountId(Guid.NewGuid()), "Alice"));
+        var character = Character.Create(new CharacterCreated(new CharacterId(Guid.NewGuid()), new AccountId(Guid.NewGuid()), "Alice", new GameServerId(Guid.NewGuid())));
         character.StartSession();
 
         var exception = Record.Exception(() => character.StartSession());

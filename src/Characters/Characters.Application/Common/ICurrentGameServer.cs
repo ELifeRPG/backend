@@ -1,13 +1,14 @@
+using ELifeRPG.Shared.Kernel;
+
 namespace ELifeRPG.Characters.Application.Common;
 
 /// <summary>
-/// The gameserver whose data the current request should be scoped to — resolves to the calling
-/// Bridge's own OAuth client id. Every session this module opens is scoped to this value, so a
-/// character (and anything hanging off it) created via one gameserver is invisible from another,
-/// even within the same tenant. See
-/// docs/superpowers/specs/2026-08-15-multi-gameserver-tenancy-design.md.
+/// Which gameserver is making the current request. No longer a tenancy key — data is hive-wide as
+/// of docs/superpowers/specs/2026-08-22-hive-tenancy-design.md; this exists so a character can
+/// record which server it is on. Async because resolving the OAuth client_id to a durable
+/// GameServerId is a registry lookup.
 /// </summary>
 public interface ICurrentGameServer
 {
-    string ClientId { get; }
+    ValueTask<GameServerId> GetIdAsync(CancellationToken cancellationToken);
 }

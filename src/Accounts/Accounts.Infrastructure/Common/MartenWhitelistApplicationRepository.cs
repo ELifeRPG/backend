@@ -11,15 +11,15 @@ public sealed class MartenWhitelistApplicationRepository(IDocumentSession sessio
     public async ValueTask<WhitelistApplication?> FindByIdAsync(WhitelistApplicationId id, CancellationToken cancellationToken)
         => await session.LoadAsync<WhitelistApplication>(id, cancellationToken);
 
-    public async ValueTask<WhitelistApplication?> FindPendingAsync(AccountId accountId, string serverClientId, CancellationToken cancellationToken)
+    public async ValueTask<WhitelistApplication?> FindPendingAsync(AccountId accountId, CancellationToken cancellationToken)
         => await session.Query<WhitelistApplication>()
-            .Where(x => x.AccountId == accountId && x.ServerClientId == serverClientId
+            .Where(x => x.AccountId == accountId
                 && (x.Status == WhitelistApplicationStatus.Open || x.Status == WhitelistApplicationStatus.InReview))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async ValueTask<WhitelistApplication?> FindApprovedAsync(AccountId accountId, string serverClientId, CancellationToken cancellationToken)
+    public async ValueTask<WhitelistApplication?> FindApprovedAsync(AccountId accountId, CancellationToken cancellationToken)
         => await session.Query<WhitelistApplication>()
-            .Where(x => x.AccountId == accountId && x.ServerClientId == serverClientId && x.Status == WhitelistApplicationStatus.Approved)
+            .Where(x => x.AccountId == accountId && x.Status == WhitelistApplicationStatus.Approved)
             .FirstOrDefaultAsync(cancellationToken);
 
     public async ValueTask<IReadOnlyList<WhitelistApplication>> ListByStatusAsync(WhitelistApplicationStatus status, CancellationToken cancellationToken)

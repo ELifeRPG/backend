@@ -1,4 +1,5 @@
 global using ELifeRPG.Accounts.Application.GameServers;
+global using ELifeRPG.Accounts.Application.Hive;
 global using ELifeRPG.Accounts.Application.Sessions;
 global using ELifeRPG.Accounts.Application.Whitelist;
 global using ELifeRPG.Accounts.Domain;

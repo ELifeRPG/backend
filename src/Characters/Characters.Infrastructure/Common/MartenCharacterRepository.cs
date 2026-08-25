@@ -15,9 +15,9 @@ public sealed class MartenCharacterRepository : ICharacterRepository, IAsyncDisp
 {
     private readonly IDocumentSession _session;
 
-    public MartenCharacterRepository(ICharactersStore store, ICurrentGameServer currentGameServer)
+    public MartenCharacterRepository(ICharactersStore store)
     {
-        _session = store.LightweightSession(currentGameServer.ClientId);
+        _session = store.LightweightSession();
     }
 
     // Marten infers the document id type from Character.Id (CharacterId, not Guid) — pass the

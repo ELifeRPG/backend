@@ -2,7 +2,7 @@
 
 Banks, bank accounts (Personal or Corporate), and deposit/withdraw/transfer, plus transaction history. See [MIGRATION.md §7](../MIGRATION.md#7-migration-plan-feature-3--banking), [§9](../MIGRATION.md#9-corporate-bank-accounts-banking--companies) (Corporate accounts), and [§10](../MIGRATION.md#10-bank-account-transaction-history) (history).
 
-Banking data is isolated per gameserver — reads now require the `gameserver:banking:write` scope too (previously unscoped), and a token from one gameserver can never see another gameserver's banks or accounts, even within the same deployment.
+Banking data is hive-wide — every server in the deployment sees the same banks and accounts, since one deployment is one hive of servers sharing one world. Reads now require the `gameserver:banking:write` scope too (previously unscoped).
 
 Needs `$BRIDGE_TOKEN` (see [Accounts](./accounts.md)) and a `characterId` from [Characters](./characters.md).
 

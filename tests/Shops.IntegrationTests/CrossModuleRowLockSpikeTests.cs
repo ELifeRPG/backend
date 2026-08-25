@@ -69,10 +69,9 @@ public sealed class CrossModuleRowLockSpikeTests : IAsyncLifetime
             var npgsqlTransaction = transaction.Handle.Unwrap();
 
             // Acquire a row-level lock on the ShopListing doc row.
-            await AcquireRowLockAsync(npgsqlTransaction, "gameserver-dev", listingId.Value);
+            await AcquireRowLockAsync(npgsqlTransaction, listingId.Value);
 
             var options = SessionOptions.ForTransaction(npgsqlTransaction, shouldAutoCommit: false);
-            options.TenantId = "gameserver-dev";
             await using var session = store.OpenSession(options);
 
             // Load the aggregate and perform the domain operation.
@@ -120,10 +119,9 @@ public sealed class CrossModuleRowLockSpikeTests : IAsyncLifetime
                 await using var tx = await transactionFactory.BeginAsync(CancellationToken.None);
                 var npgsqlTx = tx.Handle.Unwrap();
 
-                await AcquireRowLockAsync(npgsqlTx, "gameserver-dev", listingId.Value);
+                await AcquireRowLockAsync(npgsqlTx, listingId.Value);
 
                 var options = SessionOptions.ForTransaction(npgsqlTx, shouldAutoCommit: false);
-                options.TenantId = "gameserver-dev";
                 await using var session = store.OpenSession(options);
 
                 var listing = await session.LoadAsync<ShopListing>(listingId, CancellationToken.None);
@@ -151,10 +149,9 @@ public sealed class CrossModuleRowLockSpikeTests : IAsyncLifetime
                 await using var tx = await transactionFactory.BeginAsync(CancellationToken.None);
                 var npgsqlTx = tx.Handle.Unwrap();
 
-                await AcquireRowLockAsync(npgsqlTx, "gameserver-dev", listingId.Value);
+                await AcquireRowLockAsync(npgsqlTx, listingId.Value);
 
                 var options = SessionOptions.ForTransaction(npgsqlTx, shouldAutoCommit: false);
-                options.TenantId = "gameserver-dev";
                 await using var session = store.OpenSession(options);
 
                 var listing = await session.LoadAsync<ShopListing>(listingId, CancellationToken.None);
@@ -188,19 +185,18 @@ public sealed class CrossModuleRowLockSpikeTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Acquire a Postgres row-level lock on the ShopListing document row. Filters by both columns of
-    /// the table's composite (tenant_id, id) primary key — production code (see
-    /// MartenShopListingRepository.ReserveStockAsync) mirrors this exactly.
+    /// Acquire a Postgres row-level lock on the ShopListing document row. Filters by the table's
+    /// primary key (`id` alone — tenancy removed, see ARCHITECTURE.md §9e gotcha 9) — production
+    /// code (see MartenShopListingRepository.ReserveStockAsync) mirrors this exactly.
     /// </summary>
-    private static async Task AcquireRowLockAsync(NpgsqlTransaction transaction, string tenantId, Guid listingId)
+    private static async Task AcquireRowLockAsync(NpgsqlTransaction transaction, Guid listingId)
     {
         var connection = transaction.Connection;
         Assert.NotNull(connection);
 
         await using var cmd = connection!.CreateCommand();
         cmd.Transaction = transaction;
-        cmd.CommandText = "SELECT id FROM shops.mt_doc_shoplisting WHERE tenant_id = @tenant AND id = @id FOR UPDATE";
-        cmd.Parameters.AddWithValue("@tenant", tenantId);
+        cmd.CommandText = "SELECT id FROM shops.mt_doc_shoplisting WHERE id = @id FOR UPDATE";
         cmd.Parameters.AddWithValue("@id", listingId);
 
         await cmd.ExecuteScalarAsync(CancellationToken.None);
@@ -236,7 +232,7 @@ public sealed class CrossModuleRowLockSpikeTests : IAsyncLifetime
 
     private async Task<CharacterId> CreateCharacterAsync(IMediator mediator)
     {
-        var session = await mediator.Send(new CreateSessionCommand(new GameId(Guid.NewGuid()), "gameserver-dev"));
+        var session = await mediator.Send(new CreateSessionCommand(new GameId(Guid.NewGuid())));
         _createdUsernames.Add(session.KeycloakUsername);
         var result = await mediator.Send(new CreateCharacterCommand(session.AccountId, "Spike Test Character"));
         Assert.True(result is CreateCharacterResult.Created, $"Expected Created, got {result}");

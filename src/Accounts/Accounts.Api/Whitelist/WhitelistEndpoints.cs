@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using System.Security.Claims;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.AspNetCore.Builder;
@@ -35,7 +34,6 @@ public static class WhitelistModule
 
         group.MapPost("", async (
                 [FromBody] SubmitWhitelistApplicationRequestDto request,
-                ClaimsPrincipal user,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
@@ -46,8 +44,7 @@ public static class WhitelistModule
                         statusCode: StatusCodes.Status400BadRequest);
                 }
 
-                var serverClientId = user.FindFirst("client_id")?.Value ?? string.Empty;
-                var result = await mediator.Send(request.ToCommand(serverClientId), cancellationToken);
+                var result = await mediator.Send(request.ToCommand(), cancellationToken);
 
                 return result switch
                 {
@@ -55,7 +52,7 @@ public static class WhitelistModule
                     SubmitWhitelistApplicationResult.AccountNotFound => Results.Problem(
                         title: "Account not found", statusCode: StatusCodes.Status404NotFound),
                     SubmitWhitelistApplicationResult.AlreadyPending => Results.Problem(
-                        title: "Account already has a pending application for this server",
+                        title: "Account already has a pending whitelist application",
                         statusCode: StatusCodes.Status409Conflict),
                 };
             })
@@ -65,7 +62,7 @@ public static class WhitelistModule
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("SubmitWhitelistApplication")
-            .WithDescription("Submits an account's whitelist application for the calling server.");
+            .WithDescription("Submits an account's whitelist application for the hive.");
 
         group.MapPost("{id:guid}/start-review", async (
                 Guid id,

@@ -1,6 +1,4 @@
-using ELifeRPG.Items.Api.Common;
 using ELifeRPG.Items.Api.Items;
-using ELifeRPG.Items.Application.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -17,7 +15,6 @@ public static class ItemModule
     public static IServiceCollection AddItemModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddItemInfrastructure(configuration);
-        services.AddScoped<ICurrentGameServer, HttpContextCurrentGameServer>();
 
         services.AddAuthorizationBuilder()
             .AddPolicy(ItemsManagePolicy, policy => policy.RequireAssertion(context => HasScope(context, ItemsManageScope)));

@@ -8,18 +8,17 @@ namespace ELifeRPG.Items.Infrastructure.Common;
 
 /// <summary>
 /// Holds one session for this repository instance's lifetime — same reasoning as
-/// MartenCompanyRepository. The session is opened scoped to the calling gameserver's tenant id
-/// (LightweightSession(currentGameServer.ClientId), not the parameterless overload) — see
-/// docs/superpowers/plans/2026-08-15-multi-gameserver-tenancy.md; matches MartenCompanyRepository/
-/// MartenCharacterRepository/MartenBankAccountRepository's identical constructor shape.
+/// MartenCompanyRepository. Hive model: the item catalog is shared across every gameserver, so the
+/// session is untenanted (the parameterless LightweightSession() overload) — see
+/// docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
 /// </summary>
 public sealed class MartenItemRepository : IItemRepository, IAsyncDisposable
 {
     private readonly IDocumentSession _session;
 
-    public MartenItemRepository(IItemsStore store, ICurrentGameServer currentGameServer)
+    public MartenItemRepository(IItemsStore store)
     {
-        _session = store.LightweightSession(currentGameServer.ClientId);
+        _session = store.LightweightSession();
     }
 
     public async ValueTask<Item?> FindByIdAsync(ItemId itemId, CancellationToken cancellationToken)
