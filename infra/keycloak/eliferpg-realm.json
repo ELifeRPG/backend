@@ -2900,6 +2900,15 @@
       "config": {}
     },
     {
+      "alias": "link-bohemia-gameaccount",
+      "name": "Link Bohemia Game Account",
+      "providerId": "link-bohemia-gameaccount",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 110,
+      "config": {}
+    },
+    {
       "alias": "update_user_locale",
       "name": "Update User Locale",
       "providerId": "update_user_locale",
