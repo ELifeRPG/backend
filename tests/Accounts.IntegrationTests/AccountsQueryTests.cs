@@ -1,5 +1,4 @@
 using ELifeRPG.Accounts.Application.Accounts;
-using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Shared.Kernel;
 using Mediator;
@@ -15,8 +14,6 @@ namespace ELifeRPG.Accounts.IntegrationTests;
 public sealed class AccountsQueryTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
-    private readonly KeycloakTestClient _keycloak = new();
-    private readonly List<string> _createdUsernames = [];
 
     public Task InitializeAsync()
     {
@@ -26,19 +23,16 @@ public sealed class AccountsQueryTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        foreach (var username in _createdUsernames)
-        {
-            await _keycloak.DeleteUserAsync(username);
-        }
         await _provider.DisposeAsync();
     }
 
+    // Linked on purpose: admin search matches on Bohemia ID, and an unlinked account has none.
     private async Task<(AccountId AccountId, GameId BohemiaId)> CreateAccountAsync()
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var response = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
-        _createdUsernames.Add(response.KeycloakUsername);
-        return (response.AccountId, bohemiaId);
+        using var scope = _provider.CreateScope();
+        var account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
+        return (account.Id, bohemiaId);
     }
 
     [Fact]
@@ -68,7 +62,7 @@ public sealed class AccountsQueryTests : IAsyncLifetime
             throw new InvalidOperationException($"Expected Found, got {result}.");
         }
         Assert.Contains(found.Accounts, a => a.Id == accountId);
-        Assert.All(found.Accounts, a => Assert.Contains(searchTerm, a.BohemiaId.Value.ToString(), StringComparison.OrdinalIgnoreCase));
+        Assert.All(found.Accounts, a => Assert.Contains(searchTerm, a.BohemiaId!.Value.Value.ToString(), StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

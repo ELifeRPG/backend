@@ -40,12 +40,18 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
         await _provider.DisposeAsync();
     }
 
+    // Lock/unlock disables and re-enables the account's Keycloak user, so this needs a real one.
+    // Linked as well, because the assertions re-bootstrap a session for the same Bohemia ID.
     private async Task<(AccountId AccountId, GameId BohemiaId, string KeycloakUsername)> CreateAccountAsync()
     {
         var bohemiaId = new GameId(Guid.NewGuid());
-        var response = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
-        _createdUsernames.Add(response.KeycloakUsername);
-        return (response.AccountId, bohemiaId, response.KeycloakUsername);
+        var username = $"test-lock-{Guid.NewGuid():N}";
+        var keycloakUserId = new KeycloakUserId(await _keycloak.CreateUserAsync(username));
+        _createdUsernames.Add(username);
+
+        using var scope = _provider.CreateScope();
+        var account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId, keycloakUserId);
+        return (account.Id, bohemiaId, username);
     }
 
     [Fact]

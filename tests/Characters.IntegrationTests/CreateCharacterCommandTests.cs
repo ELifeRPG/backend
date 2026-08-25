@@ -19,8 +19,6 @@ namespace ELifeRPG.Characters.IntegrationTests;
 public sealed class CreateCharacterCommandTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
-    private readonly KeycloakTestClient _keycloak = new();
-    private readonly List<string> _createdUsernames = [];
 
     public Task InitializeAsync()
     {
@@ -30,11 +28,6 @@ public sealed class CreateCharacterCommandTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        foreach (var username in _createdUsernames)
-        {
-            await _keycloak.DeleteUserAsync(username);
-        }
-
         await _provider.DisposeAsync();
     }
 
@@ -45,7 +38,7 @@ public sealed class CreateCharacterCommandTests : IAsyncLifetime
         // IAsyncDisposable, and the sync ServiceProviderEngineScope.Dispose() path rejects that.
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var accountId = await CreateActiveAccountAsync(mediator);
+        var accountId = await CreateActiveAccountAsync();
 
         var result = await mediator.Send(new CreateCharacterCommand(accountId, "Alice"));
 
@@ -73,7 +66,7 @@ public sealed class CreateCharacterCommandTests : IAsyncLifetime
         // IAsyncDisposable, and the sync ServiceProviderEngineScope.Dispose() path rejects that.
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var accountId = await CreateActiveAccountAsync(mediator);
+        var accountId = await CreateActiveAccountAsync();
 
         var accountSession = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         accountSession.Events.Append(accountId.Value, new AccountLocked(accountId));
@@ -91,7 +84,7 @@ public sealed class CreateCharacterCommandTests : IAsyncLifetime
         // IAsyncDisposable, and the sync ServiceProviderEngineScope.Dispose() path rejects that.
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var accountId = await CreateActiveAccountAsync(mediator);
+        var accountId = await CreateActiveAccountAsync();
 
         var created = await mediator.Send(new CreateCharacterCommand(accountId, "Queryable"));
         Assert.True(created is CreateCharacterResult.Created, $"Expected Created, got {created}");
@@ -178,16 +171,14 @@ public sealed class CreateCharacterCommandTests : IAsyncLifetime
         // IAsyncDisposable, and the sync ServiceProviderEngineScope.Dispose() path rejects that.
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        return await CreateActiveAccountAsync(mediator);
+        return await CreateActiveAccountAsync();
     }
 
-    private async Task<AccountId> CreateActiveAccountAsync(IMediator mediator)
+    // Accounts come from portal signup now, not from joining the gameserver:
+    // CreateSessionCommand no longer creates one. See TestAccounts.
+    private async Task<AccountId> CreateActiveAccountAsync()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
-
-        _createdUsernames.Add(result.KeycloakUsername);
-
-        return result.AccountId;
+        using var scope = _provider.CreateScope();
+        return (await TestAccounts.CreateAsync(scope.ServiceProvider)).Id;
     }
 }

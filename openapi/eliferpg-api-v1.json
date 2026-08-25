@@ -36,6 +36,37 @@
         }
       }
     },
+    "/api/accounts/me": {
+      "post": {
+        "tags": [
+          "Accounts"
+        ],
+        "description": "Creates (or returns) the account behind the calling Keycloak user. This is the portal-first entry point: the account exists from web signup onward, with no Bohemia ID until the player links their game identity. Idempotent.",
+        "operationId": "EnsureCurrentAccount",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentAccountDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/accounts/{accountId}/lock": {
       "post": {
         "tags": [
@@ -279,7 +310,7 @@
         "tags": [
           "Whitelist"
         ],
-        "description": "Submits an account's whitelist application for the hive.",
+        "description": "Submits the calling player's own whitelist application for the hive. The account is derived from the caller's Keycloak subject; a player may apply before ever joining the gameserver.",
         "operationId": "SubmitWhitelistApplication",
         "requestBody": {
           "content": {
@@ -2571,7 +2602,6 @@
       "AccountDto": {
         "required": [
           "id",
-          "bohemiaId",
           "status"
         ],
         "type": "object",
@@ -2581,7 +2611,10 @@
             "format": "uuid"
           },
           "bohemiaId": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "discordUsername": {
             "type": [
@@ -3051,6 +3084,22 @@
           }
         }
       },
+      "CurrentAccountDto": {
+        "required": [
+          "accountId",
+          "created"
+        ],
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        }
+      },
       "DepositRequestDto": {
         "required": [
           "amount"
@@ -3443,21 +3492,32 @@
       },
       "SessionDto": {
         "required": [
-          "accountId",
-          "keycloakUsername",
           "status"
         ],
         "type": "object",
         "properties": {
           "accountId": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "uuid"
           },
-          "keycloakUsername": {
-            "type": "string"
+          "keycloakUserId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "status": {
             "type": "string"
+          },
+          "linkPin": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -3637,15 +3697,10 @@
       },
       "SubmitWhitelistApplicationRequestDto": {
         "required": [
-          "accountId",
           "applicationText"
         ],
         "type": "object",
         "properties": {
-          "accountId": {
-            "type": "string",
-            "format": "uuid"
-          },
           "applicationText": {
             "type": "string"
           }

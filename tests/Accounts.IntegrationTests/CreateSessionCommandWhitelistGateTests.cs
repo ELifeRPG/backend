@@ -17,8 +17,6 @@ namespace ELifeRPG.Accounts.IntegrationTests;
 public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
-    private readonly KeycloakTestClient _keycloak = new();
-    private readonly List<string> _createdUsernames = [];
 
     public Task InitializeAsync()
     {
@@ -28,11 +26,6 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        foreach (var username in _createdUsernames)
-        {
-            await _keycloak.DeleteUserAsync(username);
-        }
-
         await _provider.DisposeAsync();
     }
 
@@ -42,10 +35,10 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var bohemiaId = new GameId(Guid.NewGuid());
+        await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
 
         var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
 
-        _createdUsernames.Add(result.KeycloakUsername);
         Assert.Equal(SessionStatus.Active, result.Status);
     }
 
@@ -59,10 +52,10 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
         try
         {
             var bohemiaId = new GameId(Guid.NewGuid());
+            await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
 
             var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
 
-            _createdUsernames.Add(result.KeycloakUsername);
             Assert.Equal(SessionStatus.NotWhitelisted, result.Status);
         }
         finally
@@ -81,10 +74,10 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
         try
         {
             var bohemiaId = new GameId(Guid.NewGuid());
+            var account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
 
-            var first = await mediator.Send(new CreateSessionCommand(bohemiaId));
-            _createdUsernames.Add(first.KeycloakUsername);
-            var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand(first.AccountId, "text"));
+            _provider.GetRequiredService<TestCurrentKeycloakUser>().Current = account.KeycloakUserId;
+            var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand("text"));
             Assert.True(submitResult is SubmitWhitelistApplicationResult.Submitted, $"Expected Submitted, got {submitResult}");
             if (submitResult is not SubmitWhitelistApplicationResult.Submitted submitted)
             {
@@ -114,13 +107,15 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
         try
         {
             var bohemiaId = new GameId(Guid.NewGuid());
+            var account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
+
             var bootstrap = await mediator.Send(
                 new CreateSessionCommand(bohemiaId), CancellationToken.None);
-            _createdUsernames.Add(bootstrap.KeycloakUsername);
             Assert.Equal(SessionStatus.NotWhitelisted, bootstrap.Status);
 
+            _provider.GetRequiredService<TestCurrentKeycloakUser>().Current = account.KeycloakUserId;
             var submitResult = await mediator.Send(
-                new SubmitWhitelistApplicationCommand(bootstrap.AccountId, "please"), CancellationToken.None);
+                new SubmitWhitelistApplicationCommand("please"), CancellationToken.None);
             Assert.True(submitResult is SubmitWhitelistApplicationResult.Submitted, $"Expected Submitted, got {submitResult}");
             if (submitResult is not SubmitWhitelistApplicationResult.Submitted submitted)
             {

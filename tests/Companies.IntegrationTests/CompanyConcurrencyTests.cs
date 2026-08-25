@@ -17,8 +17,6 @@ namespace ELifeRPG.Companies.IntegrationTests;
 public sealed class CompanyConcurrencyTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
-    private readonly KeycloakTestClient _keycloak = new();
-    private readonly List<string> _createdUsernames = [];
 
     public Task InitializeAsync()
     {
@@ -28,11 +26,6 @@ public sealed class CompanyConcurrencyTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        foreach (var username in _createdUsernames)
-        {
-            await _keycloak.DeleteUserAsync(username);
-        }
-
         await _provider.DisposeAsync();
     }
 
@@ -93,9 +86,14 @@ public sealed class CompanyConcurrencyTests : IAsyncLifetime
 
     private async Task<CharacterId> CreateCharacterAsync(IMediator mediator)
     {
-        var session = await mediator.Send(new CreateSessionCommand(new GameId(Guid.NewGuid())));
-        _createdUsernames.Add(session.KeycloakUsername);
-        var result = await mediator.Send(new CreateCharacterCommand(session.AccountId, "Concurrency Test Character"));
+        // Accounts come from portal signup now, not from joining the gameserver.
+        AccountId accountId;
+        using (var scope = _provider.CreateScope())
+        {
+            accountId = (await TestAccounts.CreateAsync(scope.ServiceProvider)).Id;
+        }
+
+        var result = await mediator.Send(new CreateCharacterCommand(accountId, "Concurrency Test Character"));
         Assert.True(result is CreateCharacterResult.Created, $"Expected Created, got {result}");
         if (result is not CreateCharacterResult.Created created)
         {

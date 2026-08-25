@@ -5,12 +5,46 @@ using System.Text.Json.Serialization;
 namespace ELifeRPG.Accounts.IntegrationTests;
 
 /// <summary>
-/// Minimal Keycloak admin client used only to clean up test data after integration tests run —
-/// not a production component.
+/// Minimal Keycloak admin client for integration-test setup and teardown — not a production
+/// component. It creates users too: production stopped provisioning Keycloak users when the
+/// bohemia_* identity was removed (players sign up on the portal), but tests that assert on
+/// Keycloak-side effects — lock/unlock disabling a user, realm-role assignment — still need one.
 /// </summary>
 internal sealed class KeycloakTestClient
 {
-    private readonly HttpClient _httpClient = new() { BaseAddress = new Uri("http://keycloak:8080/") };
+    private readonly HttpClient _httpClient = new()
+    {
+        BaseAddress = new Uri(Environment.GetEnvironmentVariable("ELIFERPG_TEST_KEYCLOAK_URL") is { Length: > 0 } url
+            ? url
+            : "http://keycloak:8080/"),
+    };
+
+    /// <summary>Creates a Keycloak user the way portal signup would, and returns its id.</summary>
+    public async Task<Guid> CreateUserAsync(string username)
+    {
+        var adminToken = await GetAdminTokenAsync();
+
+        using var createRequest = new HttpRequestMessage(HttpMethod.Post, "admin/realms/eliferpg/users")
+        {
+            Content = JsonContent.Create(new { username, enabled = true }),
+        };
+        createRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        using var createResponse = await _httpClient.SendAsync(createRequest);
+        createResponse.EnsureSuccessStatusCode();
+
+        using var lookupRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"admin/realms/eliferpg/users?username={Uri.EscapeDataString(username)}&exact=true");
+        lookupRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        using var lookupResponse = await _httpClient.SendAsync(lookupRequest);
+        lookupResponse.EnsureSuccessStatusCode();
+
+        var created = await lookupResponse.Content.ReadFromJsonAsync<List<KeycloakUserRepresentation>>();
+        var user = created?.SingleOrDefault()
+            ?? throw new InvalidOperationException($"Keycloak user '{username}' was created but could not be found.");
+
+        return Guid.Parse(user.Id);
+    }
 
     public async Task DeleteUserAsync(string username)
     {

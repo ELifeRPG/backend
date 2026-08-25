@@ -4,8 +4,6 @@ public sealed record KeycloakRealmRole(string Name, string? Description);
 
 public interface IKeycloakUserProvisioner
 {
-    ValueTask<KeycloakUserId> EnsureUserAsync(GameId bohemiaId, CancellationToken cancellationToken);
-
     ValueTask DisableUserAsync(KeycloakUserId keycloakUserId, CancellationToken cancellationToken);
 
     ValueTask EnableUserAsync(KeycloakUserId keycloakUserId, CancellationToken cancellationToken);

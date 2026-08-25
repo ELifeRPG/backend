@@ -283,3 +283,58 @@ longer be safe to assume the loser Account is empty.
   if this restriction is ever relaxed.
 - Merge survivor is always the Bohemia-ID-bearing account; the portal-only
   account is retired, not the other way around.
+
+## Addendum (2026-08-20): BohemiaId PIN verification moved into Keycloak
+
+This spec's Part 2 originally kept Keycloak entirely passive for the
+BohemiaId-linking half — PIN verification and the link/merge decision were
+to live entirely in the Central API, with Keycloak touched only via its
+Admin REST API after the fact. That design was evaluated against two
+Keycloak-native alternatives (a custom Required Action SPI, and a
+first-party "PIN entry as a vanilla generic-OIDC identity provider"
+wrapper) and was the recommended option — a custom SPI was flagged as
+repeating the exact risk shape (private SPI dependency, new JVM/Maven
+toolchain, custom container image) already rejected for the unrelated
+`TokenExchangeProvider` investigation in `ARCHITECTURE.md` §4.3.
+
+**The team decided to build the custom Required Action SPI anyway**,
+accepting those costs deliberately rather than by oversight. This
+supersedes the app-layer design as the actual direction for BohemiaId
+linking; the app-layer design's redeem/merge *logic* is unchanged and
+still required (the SPI is a new caller of it, not a replacement for it) —
+only *where PIN entry happens* changes, from a self-service webapp page to
+a required step inside Keycloak's own login flow.
+
+Full tradeoff analysis, the rejected app-layer recommendation, and the risk
+assessment (single point of failure on Keycloak startup, flow-scoping risk
+against staff/Admin UI logins, new toolchain/CI cost) live in the
+brainstorm session that produced this decision — not reproduced here.
+This has since shipped, across three repos:
+
+- **The SPI itself** lives in
+  [ELifeRPG/keycloak-bohemia-gameaccount](https://github.com/ELifeRPG/keycloak-bohemia-gameaccount)
+  (the repo was named `keycloak-eliferpg-spi` while this addendum was first
+  written). It provides the `link-bohemia-gameaccount` required action and a
+  realm resource exposing `POST /realms/{realm}/bohemia-gameaccount/pin`.
+- **In this repo**, the realm registers that required action and carries the
+  `bohemia_id` protocol mapper (an `oidc-usermodel-attribute-mapper` over the
+  user attribute the SPI writes) — see
+  [infra/keycloak/eliferpg-realm.json](../../../infra/keycloak/eliferpg-realm.json).
+  `KeycloakBohemiaGameAccountLinker` is the caller of the PIN endpoint, and
+  [infra/keycloak/Dockerfile](../../../infra/keycloak/Dockerfile) layers the
+  provider jar onto stock Keycloak. The README's "Keycloak providers" section
+  documents how that image is composed.
+- **In the webapp**, linking is handled entirely inside Keycloak: the player is
+  redirected there, enters the PIN shown in-game, and returns with a session
+  carrying the `bohemia_id` claim. That removed the "status reflects this
+  browser session only" problem rather than patching it — there is no local
+  "just linked" state to track, because the refreshed session is the source of
+  truth.
+
+(The per-repo implementation plans that coordinated this work are kept
+workspace-local by project convention and are deliberately not linked here.)
+
+The self-service portal flow this spec's Part 2 already describes
+(`links/codes`/`links/redeem`, both starting orders) is **not replaced** by
+the SPI — it remains the escape hatch for accounts that predate this
+feature or don't go through the Discord broker's first-login flow.

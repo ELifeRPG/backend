@@ -10,18 +10,22 @@ namespace Microsoft.AspNetCore.Builder;
 
 public static class WhitelistModule
 {
-    public const string WhitelistWriteScope = "gameserver:whitelist:write";
+    // Submission is player-facing: a player applies for themselves from the portal, before ever
+    // joining the gameserver. account:self:manage is already defined in the realm and granted to
+    // eliferpg-portal. gameserver:whitelist:write is deliberately no longer accepted here — it let
+    // any gameserver token submit on behalf of an arbitrary account.
+    public const string SelfManageScope = "account:self:manage";
     public const string WhitelistReviewerRole = "whitelist-reviewer";
-    private const string WhitelistWritePolicy = "Whitelist.Write";
+    private const string SelfManagePolicy = "Whitelist.SelfManage";
     public const string WhitelistReviewerPolicy = "Whitelist.Reviewer";
 
     public static IServiceCollection AddWhitelistModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddAuthorizationBuilder()
-            .AddPolicy(WhitelistWritePolicy, policy => policy.RequireAssertion(context =>
+            .AddPolicy(SelfManagePolicy, policy => policy.RequireAssertion(context =>
                 (context.User.FindFirst("scope")?.Value ?? string.Empty)
                     .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Contains(WhitelistWriteScope)))
+                    .Contains(SelfManageScope)))
             .AddPolicy(WhitelistReviewerPolicy, policy => policy.RequireAssertion(context =>
                 RealmRoleAuthorization.HasRole(context.User, WhitelistReviewerRole)));
 
@@ -50,19 +54,19 @@ public static class WhitelistModule
                 {
                     SubmitWhitelistApplicationResult.Submitted submitted => Results.Ok(WhitelistApplicationSubmittedDto.Create(submitted)),
                     SubmitWhitelistApplicationResult.AccountNotFound => Results.Problem(
-                        title: "Account not found", statusCode: StatusCodes.Status404NotFound),
+                        title: "No account for the calling user", statusCode: StatusCodes.Status404NotFound),
                     SubmitWhitelistApplicationResult.AlreadyPending => Results.Problem(
                         title: "Account already has a pending whitelist application",
                         statusCode: StatusCodes.Status409Conflict),
                 };
             })
-            .RequireAuthorization(WhitelistWritePolicy)
+            .RequireAuthorization(SelfManagePolicy)
             .Produces<WhitelistApplicationSubmittedDto>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("SubmitWhitelistApplication")
-            .WithDescription("Submits an account's whitelist application for the hive.");
+            .WithDescription("Submits the calling player's own whitelist application for the hive. The account is derived from the caller's Keycloak subject; a player may apply before ever joining the gameserver.");
 
         group.MapPost("{id:guid}/start-review", async (
                 Guid id,

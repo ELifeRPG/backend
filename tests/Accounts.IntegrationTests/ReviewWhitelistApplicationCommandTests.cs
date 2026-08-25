@@ -15,8 +15,6 @@ namespace ELifeRPG.Accounts.IntegrationTests;
 public sealed class ReviewWhitelistApplicationCommandTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
-    private readonly KeycloakTestClient _keycloak = new();
-    private readonly List<string> _createdUsernames = [];
 
     public Task InitializeAsync()
     {
@@ -26,11 +24,6 @@ public sealed class ReviewWhitelistApplicationCommandTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        foreach (var username in _createdUsernames)
-        {
-            await _keycloak.DeleteUserAsync(username);
-        }
-
         await _provider.DisposeAsync();
     }
 
@@ -38,10 +31,9 @@ public sealed class ReviewWhitelistApplicationCommandTests : IAsyncLifetime
     {
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var bohemiaId = new GameId(Guid.NewGuid());
-        var session = await mediator.Send(new CreateSessionCommand(bohemiaId));
-        _createdUsernames.Add(session.KeycloakUsername);
-        var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand(session.AccountId, "text"));
+        var account = await TestAccounts.CreateAsync(scope.ServiceProvider);
+        _provider.GetRequiredService<TestCurrentKeycloakUser>().Current = account.KeycloakUserId;
+        var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand("text"));
         Assert.True(submitResult is SubmitWhitelistApplicationResult.Submitted, $"Expected Submitted, got {submitResult}");
         if (submitResult is not SubmitWhitelistApplicationResult.Submitted submitted)
         {

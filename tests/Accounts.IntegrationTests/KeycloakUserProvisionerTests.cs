@@ -21,16 +21,19 @@ public sealed class KeycloakUserProvisionerTests : IAsyncLifetime
     {
         var options = Options.Create(new KeycloakOptions
         {
-            BaseUrl = "http://keycloak:8080/",
+            BaseUrl = Environment.GetEnvironmentVariable("ELIFERPG_TEST_KEYCLOAK_URL") is { Length: > 0 } url
+                ? url
+                : "http://keycloak:8080/",
             Realm = "eliferpg",
             ProvisioningClientId = "account-service",
             ProvisioningClientSecret = "account-service-secret",
         });
         _provisioner = new KeycloakUserProvisioner(new HttpClient { BaseAddress = new Uri(options.Value.BaseUrl) }, options);
 
-        var bohemiaId = new GameId(Guid.NewGuid());
-        _username = KeycloakUsername.For(bohemiaId);
-        _keycloakUserId = await _provisioner.EnsureUserAsync(bohemiaId, CancellationToken.None);
+        // The provisioner no longer creates users — portal signup does — so the subject under test
+        // is set up through the admin test client instead.
+        _username = $"test-provisioner-{Guid.NewGuid():N}";
+        _keycloakUserId = new KeycloakUserId(await _keycloak.CreateUserAsync(_username));
     }
 
     public async Task DisposeAsync() => await _keycloak.DeleteUserAsync(_username);

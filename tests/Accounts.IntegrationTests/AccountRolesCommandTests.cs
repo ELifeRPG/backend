@@ -33,12 +33,17 @@ public sealed class AccountRolesCommandTests : IAsyncLifetime
         await _provider.DisposeAsync();
     }
 
+    // Role assignment happens against Keycloak, so unlike most tests this one needs a real user
+    // there. Production no longer creates them — portal signup does — so the test client stands in.
     private async Task<AccountId> CreateAccountAsync()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
-        var response = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
-        _createdUsernames.Add(response.KeycloakUsername);
-        return response.AccountId;
+        var username = $"test-roles-{Guid.NewGuid():N}";
+        var keycloakUserId = new KeycloakUserId(await new KeycloakTestClient().CreateUserAsync(username));
+        _createdUsernames.Add(username);
+
+        using var scope = _provider.CreateScope();
+        var account = await TestAccounts.CreateAsync(scope.ServiceProvider, keycloakUserId: keycloakUserId);
+        return account.Id;
     }
 
     [Fact]

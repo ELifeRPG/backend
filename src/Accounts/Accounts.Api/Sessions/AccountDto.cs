@@ -6,7 +6,8 @@ public sealed record AccountDto
 {
     public required Guid Id { get; init; }
 
-    public required string BohemiaId { get; init; }
+    /// <summary>Null until the player links their in-game identity — the normal state for a fresh portal signup.</summary>
+    public string? BohemiaId { get; init; }
 
     // Not modeled on the Account aggregate yet — blocked on the separate, unmerged
     // account-linking work. Always null until that lands; matches the webapp's already-nullable
@@ -18,7 +19,7 @@ public sealed record AccountDto
     public static AccountDto Create(Account source) => new()
     {
         Id = source.Id.Value,
-        BohemiaId = source.BohemiaId.Value.ToString(),
+        BohemiaId = source.BohemiaId?.Value.ToString(),
         DiscordUsername = null,
         Status = source.Status.ToString(),
     };

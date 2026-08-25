@@ -10,32 +10,6 @@ public sealed class KeycloakUserProvisioner(HttpClient httpClient, IOptions<Keyc
 {
     private readonly KeycloakOptions _options = options.Value;
 
-    public async ValueTask<KeycloakUserId> EnsureUserAsync(GameId bohemiaId, CancellationToken cancellationToken)
-    {
-        var username = KeycloakUsername.For(bohemiaId);
-        var adminToken = await GetAdminTokenAsync(cancellationToken);
-
-        using var createRequest = new HttpRequestMessage(HttpMethod.Post, $"admin/realms/{_options.Realm}/users")
-        {
-            Content = JsonContent.Create(new { username, enabled = true }),
-        };
-        createRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
-
-        using var createResponse = await httpClient.SendAsync(createRequest, cancellationToken);
-        createResponse.EnsureSuccessStatusCode();
-
-        using var lookupRequest = new HttpRequestMessage(HttpMethod.Get, $"admin/realms/{_options.Realm}/users?username={Uri.EscapeDataString(username)}&exact=true");
-        lookupRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
-
-        using var lookupResponse = await httpClient.SendAsync(lookupRequest, cancellationToken);
-        lookupResponse.EnsureSuccessStatusCode();
-
-        var users = await lookupResponse.Content.ReadFromJsonAsync<List<KeycloakUserRepresentation>>(cancellationToken: cancellationToken);
-        var user = users?.SingleOrDefault() ?? throw new InvalidOperationException($"Keycloak user '{username}' was created but could not be found.");
-
-        return new KeycloakUserId(Guid.Parse(user.Id));
-    }
-
     public async ValueTask DisableUserAsync(KeycloakUserId keycloakUserId, CancellationToken cancellationToken)
         => await SetUserEnabledAsync(keycloakUserId, enabled: false, cancellationToken);
 

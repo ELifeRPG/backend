@@ -90,4 +90,76 @@ public class AccountTests
 
         Assert.Equal(AccountStatus.Locked, account.Status);
     }
+
+    // --- portal-first creation and later binding ---------------------------------------
+
+    [Fact]
+    public void Create_WithoutABohemiaId_IsUnlinked()
+    {
+        var domainEvent = new AccountCreated(new AccountId(Guid.NewGuid()), null, new KeycloakUserId(Guid.NewGuid()));
+
+        var account = Account.Create(domainEvent);
+
+        Assert.Null(account.BohemiaId);
+        Assert.False(account.IsLinked);
+        // Being unlinked is the normal state of a fresh web signup, not a degraded one.
+        Assert.Equal(AccountStatus.Active, account.Status);
+    }
+
+    [Fact]
+    public void BindBohemiaId_WhenUnlinked_LinksTheAccount()
+    {
+        var account = CreateUnlinkedAccount();
+        var bohemiaId = new GameId(Guid.NewGuid());
+
+        var domainEvent = account.BindBohemiaId(bohemiaId);
+
+        Assert.Equal(bohemiaId, account.BohemiaId);
+        Assert.True(account.IsLinked);
+        Assert.Equal(account.Id, domainEvent.Id);
+        Assert.Equal(bohemiaId, domainEvent.BohemiaId);
+    }
+
+    /// <summary>
+    /// Rebinding would silently reassign every character and balance behind the account, so it is
+    /// refused rather than treated as an idempotent no-op.
+    /// </summary>
+    [Fact]
+    public void BindBohemiaId_WhenAlreadyLinkedToAnother_Throws()
+    {
+        var account = CreateUnlinkedAccount();
+        account.BindBohemiaId(new GameId(Guid.NewGuid()));
+
+        Assert.Throws<AccountStatusException>(() => account.BindBohemiaId(new GameId(Guid.NewGuid())));
+    }
+
+    [Fact]
+    public void BindBohemiaId_WhenAlreadyLinkedToTheSameId_Throws()
+    {
+        var account = CreateUnlinkedAccount();
+        var bohemiaId = new GameId(Guid.NewGuid());
+        account.BindBohemiaId(bohemiaId);
+
+        Assert.Throws<AccountStatusException>(() => account.BindBohemiaId(bohemiaId));
+    }
+
+    /// <summary>
+    /// The projection is inline and replays from the event stream, so the binding has to survive a
+    /// replay — a BohemiaIdBound with no Apply would leave the account reading as unlinked forever.
+    /// </summary>
+    [Fact]
+    public void Apply_ReplayingCreatedUnlinkedThenBound_ResultsInALinkedAccount()
+    {
+        var accountId = new AccountId(Guid.NewGuid());
+        var bohemiaId = new GameId(Guid.NewGuid());
+
+        var account = Account.Create(new AccountCreated(accountId, null, new KeycloakUserId(Guid.NewGuid())));
+        account.Apply(new BohemiaIdBound(accountId, bohemiaId));
+
+        Assert.Equal(bohemiaId, account.BohemiaId);
+        Assert.True(account.IsLinked);
+    }
+
+    private static Account CreateUnlinkedAccount()
+        => Account.Create(new AccountCreated(new AccountId(Guid.NewGuid()), null, new KeycloakUserId(Guid.NewGuid())));
 }

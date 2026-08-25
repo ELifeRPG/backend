@@ -18,8 +18,6 @@ namespace ELifeRPG.Companies.IntegrationTests;
 public sealed class CompanyCommandTests : IAsyncLifetime
 {
     private ServiceProvider _provider = null!;
-    private readonly KeycloakTestClient _keycloak = new();
-    private readonly List<string> _createdUsernames = [];
 
     public Task InitializeAsync()
     {
@@ -29,11 +27,6 @@ public sealed class CompanyCommandTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        foreach (var username in _createdUsernames)
-        {
-            await _keycloak.DeleteUserAsync(username);
-        }
-
         await _provider.DisposeAsync();
     }
 
@@ -494,19 +487,17 @@ public sealed class CompanyCommandTests : IAsyncLifetime
         Assert.True(result is DenyApplicationResult.NotAuthorized, $"Expected NotAuthorized, got {result}");
     }
 
-    private async Task<AccountId> CreateActiveAccountAsync(IMediator mediator)
+    // Accounts come from portal signup now, not from joining the gameserver:
+    // CreateSessionCommand no longer creates one. See TestAccounts.
+    private async Task<AccountId> CreateActiveAccountAsync()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
-
-        _createdUsernames.Add(result.KeycloakUsername);
-
-        return result.AccountId;
+        using var scope = _provider.CreateScope();
+        return (await TestAccounts.CreateAsync(scope.ServiceProvider)).Id;
     }
 
     private async Task<CharacterId> CreateCharacterAsync(IMediator mediator)
     {
-        var accountId = await CreateActiveAccountAsync(mediator);
+        var accountId = await CreateActiveAccountAsync();
         var result = await mediator.Send(new CreateCharacterCommand(accountId, "Company Test Character"));
 
         Assert.True(result is CreateCharacterResult.Created, $"Expected Created, got {result}");

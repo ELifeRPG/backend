@@ -20,6 +20,15 @@ You do **not** need .NET installed on your host — the devcontainer provides th
 
 ### Start local infrastructure
 
+Keycloak runs a **custom image** carrying the `keycloak-spi-reforger` provider — the realm declares
+the `link-bohemia-gameaccount` required action and the backend calls this realm's
+`/bohemia-gameaccount/pin` endpoint, neither of which exists on stock Keycloak. Build it once from
+the sibling repo first:
+
+```sh
+(cd ../keycloak-spi-reforger && mvn -B clean package && docker build -t eliferpg/keycloak-spi-reforger:dev .)
+```
+
 ```sh
 docker compose up -d
 ```
@@ -153,7 +162,27 @@ Pure unit tests for the `Account` aggregate's invariants (`Lock`/`Unlock`, event
 dotnet test tests/Accounts.IntegrationTests/Accounts.IntegrationTests.csproj
 ```
 
-Exercises `CreateSessionCommand` against **live** Postgres and Keycloak (creates a real Keycloak user, cleans it up in teardown) — requires the local infra stack running and the devcontainer connected to its network, same as the manual steps above. Not yet wired into any CI, since none exists in this repo yet.
+Exercises `CreateSessionCommand` against **live** Postgres and Keycloak — requires the local infra
+stack running and the devcontainer connected to its network, same as the manual steps above. Not yet
+wired into any CI, since none exists in this repo yet.
+
+Most tests no longer touch Keycloak at all: accounts are created by portal signup, so
+`TestAccounts.CreateAsync` builds them straight from the aggregate. The exceptions are the ones that
+assert on Keycloak-side effects — lock/unlock disabling a user, realm-role assignment, and the
+unlinked-join case, which mints a real PIN through the linking SPI. Those create their Keycloak users
+through `KeycloakTestClient` and clean them up in teardown.
+
+To run these **from the host** instead of the devcontainer, point them at the mapped ports:
+
+```sh
+ELIFERPG_TEST_DB="Host=localhost;Port=5433;Database=postgres;Username=postgres;Password=supersecret" \
+ELIFERPG_TEST_KEYCLOAK_URL="http://localhost:8180/" \
+  dotnet test tests/Accounts.IntegrationTests/Accounts.IntegrationTests.csproj
+```
+
+Run the full solution's tests with `-m:1`. Every project shares one Postgres, and running the
+projects in parallel lets them interfere — a parallel run has been observed failing a handful of
+tests that pass individually.
 
 The `Characters` module has the same two-project split (`tests/Characters.Domain.UnitTests`, `tests/Characters.IntegrationTests`) — the latter also exercises the cross-module `AccountLookupQuery` call into `Accounts.Application`, so it needs both modules' infrastructure wired up, not just `Characters`'.
 

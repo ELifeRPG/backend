@@ -15,8 +15,16 @@ public sealed class MartenAccountRepository(IDocumentSession session) : IAccount
     public async ValueTask<Account?> FindByIdAsync(AccountId accountId, CancellationToken cancellationToken)
         => await session.LoadAsync<Account>(accountId, cancellationToken);
 
+    // BohemiaId is now nullable — an account created by portal signup has none until the player
+    // links. The null check is not redundant: without it every unlinked account would match a
+    // lookup for whichever Bohemia ID happened to be asked for once BohemiaId.Value defaulted.
     public async ValueTask<Account?> FindByBohemiaIdAsync(GameId bohemiaId, CancellationToken cancellationToken)
-        => await session.Query<Account>().SingleOrDefaultAsync(x => x.BohemiaId.Value == bohemiaId.Value, cancellationToken);
+        => await session.Query<Account>()
+            .SingleOrDefaultAsync(x => x.BohemiaId != null && x.BohemiaId.Value.Value == bohemiaId.Value, cancellationToken);
+
+    public async ValueTask<Account?> FindByKeycloakUserIdAsync(KeycloakUserId keycloakUserId, CancellationToken cancellationToken)
+        => await session.Query<Account>()
+            .SingleOrDefaultAsync(x => x.KeycloakUserId.Value == keycloakUserId.Value, cancellationToken);
 
     // In-memory filter, not a Marten LINQ-translated Where: BohemiaId is a Guid, and
     // .ToString().Contains() over the JSONB-stored document isn't a query Marten's LINQ
@@ -30,8 +38,9 @@ public sealed class MartenAccountRepository(IDocumentSession session) : IAccount
             return accounts;
         }
 
+        // Unlinked accounts have no Bohemia ID to match on, so a non-empty search never returns them.
         return accounts
-            .Where(a => a.BohemiaId.Value.ToString().Contains(search, StringComparison.OrdinalIgnoreCase))
+            .Where(a => a.BohemiaId is { } id && id.Value.ToString().Contains(search, StringComparison.OrdinalIgnoreCase))
             .ToList();
     }
 

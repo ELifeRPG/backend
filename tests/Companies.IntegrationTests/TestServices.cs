@@ -18,10 +18,10 @@ internal static class TestServices
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:AccountDatabase"] = "Host=postgres;Database=postgres;Username=postgres;Password=supersecret",
-                ["ConnectionStrings:CharacterDatabase"] = "Host=postgres;Database=postgres;Username=postgres;Password=supersecret",
-                ["ConnectionStrings:CompanyDatabase"] = "Host=postgres;Database=postgres;Username=postgres;Password=supersecret",
-                ["Keycloak:BaseUrl"] = "http://keycloak:8080/",
+                ["ConnectionStrings:AccountDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
+                ["ConnectionStrings:CharacterDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
+                ["ConnectionStrings:CompanyDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
+                ["Keycloak:BaseUrl"] = Env("ELIFERPG_TEST_KEYCLOAK_URL", "http://keycloak:8080/"),
                 ["Keycloak:Realm"] = "eliferpg",
                 ["Keycloak:ProvisioningClientId"] = "account-service",
                 ["Keycloak:ProvisioningClientSecret"] = "account-service-secret",
@@ -40,6 +40,9 @@ internal static class TestServices
             options.ServiceLifetime = ServiceLifetime.Transient;
         });
         services.AddAccountInfrastructure(configuration);
+        services.AddSingleton<TestCurrentKeycloakUser>();
+        services.AddSingleton<ELifeRPG.Accounts.Application.Common.ICurrentKeycloakUser>(
+            sp => sp.GetRequiredService<TestCurrentKeycloakUser>());
         services.AddCharacterInfrastructure(configuration);
         services.AddCompanyInfrastructure(configuration);
 
@@ -48,6 +51,12 @@ internal static class TestServices
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }
+
+    // The defaults are the devcontainer's view of the Compose stack (README.md). The env overrides
+    // exist so the same tests can run from the host, or against a stack on remapped ports, without
+    // editing this file.
+    private static string Env(string key, string fallback)
+        => Environment.GetEnvironmentVariable(key) is { Length: > 0 } value ? value : fallback;
 }
 
 // Companies no longer has its own ICurrentGameServer (deleted outright — see

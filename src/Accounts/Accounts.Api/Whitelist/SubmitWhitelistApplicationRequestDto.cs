@@ -2,10 +2,9 @@ namespace ELifeRPG.Accounts.Api.Whitelist;
 
 public sealed record SubmitWhitelistApplicationRequestDto
 {
-    public required Guid AccountId { get; init; }
-
+    // No AccountId: the account is derived from the caller's own token. Accepting one here is what
+    // previously let any holder of the gameserver whitelist scope apply on someone else's behalf.
     public required string ApplicationText { get; init; }
 
-    public SubmitWhitelistApplicationCommand ToCommand() =>
-        new(new AccountId(AccountId), ApplicationText);
+    public SubmitWhitelistApplicationCommand ToCommand() => new(ApplicationText);
 }

@@ -1,6 +1,7 @@
 using ELifeRPG.Accounts.Api.Common;
 using ELifeRPG.Accounts.Api.Sessions;
 using ELifeRPG.Accounts.Application.Accounts;
+using ELifeRPG.Accounts.Application.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -13,6 +14,8 @@ public static class AccountModule
 {
     public const string SessionCreateScope = "gameserver:session:create";
     public const string AccountsManageScope = "accounts:manage";
+    public const string SelfManageScope = "account:self:manage";
+    private const string SelfManagePolicy = "Accounts.SelfManage";
     private const string SessionCreatePolicy = "Accounts.SessionCreate";
     private const string AccountsManagePolicy = "Accounts.Manage";
 
@@ -25,6 +28,10 @@ public static class AccountModule
     public static IServiceCollection AddAccountModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddAccountInfrastructure(configuration);
+
+        // The HttpContext-reading half of ICurrentKeycloakUser, mirroring how the Characters and
+        // Shops modules resolve the calling gameserver.
+        services.AddScoped<ICurrentKeycloakUser, HttpContextCurrentKeycloakUser>();
 
         services.AddAuthorizationBuilder()
             .AddPolicy(SessionCreatePolicy, policy => policy.RequireAssertion(context =>
@@ -39,6 +46,10 @@ public static class AccountModule
                 (context.User.FindFirst("scope")?.Value ?? string.Empty)
                     .Split(' ', StringSplitOptions.RemoveEmptyEntries)
                     .Contains(SessionRevokeScope)))
+            .AddPolicy(SelfManagePolicy, policy => policy.RequireAssertion(context =>
+                (context.User.FindFirst("scope")?.Value ?? string.Empty)
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Contains(SelfManageScope)))
             .AddPolicy(RoleManagePolicy, policy => policy.RequireAssertion(context =>
                 RealmRoleAuthorization.HasRole(context.User, RoleManageRole)));
 
@@ -61,6 +72,28 @@ public static class AccountModule
             .Produces<SessionDto>()
             .WithName("BootstrapSession")
             .WithDescription("Bootstraps (or looks up) a session for a player's Bohemia ID, provisioning an account if needed. Always returns 200 — a blocked or not-whitelisted account is reported via the Status field, not an error.");
+
+        group.MapPost("me", async (
+                ICurrentKeycloakUser currentUser,
+                IMediator mediator,
+                CancellationToken cancellationToken) =>
+            {
+                var keycloakUserId = await currentUser.GetIdAsync(cancellationToken);
+                if (keycloakUserId is not { } subject)
+                {
+                    return Results.Problem(
+                        title: "Token carries no usable subject",
+                        statusCode: StatusCodes.Status400BadRequest);
+                }
+
+                var result = await mediator.Send(new EnsureAccountForKeycloakUserCommand(subject), cancellationToken);
+                return Results.Ok(new CurrentAccountDto { AccountId = result.AccountId.Value, Created = result.Created });
+            })
+            .RequireAuthorization(SelfManagePolicy)
+            .Produces<CurrentAccountDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .WithName("EnsureCurrentAccount")
+            .WithDescription("Creates (or returns) the account behind the calling Keycloak user. This is the portal-first entry point: the account exists from web signup onward, with no Bohemia ID until the player links their game identity. Idempotent.");
 
         group.MapPost("{accountId:guid}/lock", async (
                 Guid accountId,

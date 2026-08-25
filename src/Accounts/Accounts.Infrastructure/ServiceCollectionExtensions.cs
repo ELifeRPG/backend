@@ -31,6 +31,14 @@ public static class AccountInfrastructureExtensions
             client.BaseAddress = new Uri(options.BaseUrl);
         });
 
+        // Talks to the keycloak-spi-reforger endpoints in the realm, using the same
+        // service-account credentials as the provisioner above.
+        services.AddHttpClient<IBohemiaGameAccountLinker, KeycloakBohemiaGameAccountLinker>((serviceProvider, client) =>
+        {
+            var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<KeycloakOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+        });
+
         services.TryAddScoped<IAccountRepository, MartenAccountRepository>();
         services.TryAddSingleton<ITokenRevocationStore, InMemoryTokenRevocationStore>();
         services.TryAddScoped<IWhitelistApplicationRepository, MartenWhitelistApplicationRepository>();

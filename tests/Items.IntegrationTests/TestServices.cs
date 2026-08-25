@@ -19,7 +19,7 @@ internal static class TestServices
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:ItemDatabase"] = "Host=postgres;Database=postgres;Username=postgres;Password=supersecret",
+                ["ConnectionStrings:ItemDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
             })
             .Build();
 
@@ -33,4 +33,10 @@ internal static class TestServices
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }
+
+    // The defaults are the devcontainer's view of the Compose stack (README.md). The env overrides
+    // exist so the same tests can run from the host, or against a stack on remapped ports, without
+    // editing this file.
+    private static string Env(string key, string fallback)
+        => Environment.GetEnvironmentVariable(key) is { Length: > 0 } value ? value : fallback;
 }
