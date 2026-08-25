@@ -36,6 +36,7 @@ services:
       - "8180:8080" # host 8080 already in use on this machine
     volumes:
       - ./infra/keycloak:/opt/keycloak/data/import:ro
+      - ./infra/keycloak/providers:/opt/keycloak/providers:ro
     depends_on:
       - postgres
     networks:

@@ -69,6 +69,20 @@ curl -s "http://localhost:8180/admin/realms/eliferpg/partial-export?exportClient
 
 **Rollout note for existing local Keycloak volumes:** the `view-realm` grant on `account-service` and the `admin` realm role (added for account role management, see [docs/accounts.md](./docs/accounts.md#managing-an-accounts-roles)) are baked into `infra/keycloak/eliferpg-realm.json` and only take effect on a fresh `--import-realm` — i.e. a new or reset Keycloak container/volume. If you already have a running Keycloak container from before this change, its realm was imported once and won't pick these up automatically. Either wipe it (`docker compose down -v`, see "Resetting local data" below) so the next `docker compose up -d` re-imports the updated realm, or apply the grants manually via the Admin API against your existing container. Otherwise the new role-management endpoints will 403.
 
+### Keycloak theme
+
+The `eliferpg` realm is configured to use the [`eliferpg` Keycloak theme](https://github.com/ELifeRPG/keycloak-theme-eliferpg) (login, account, admin, and email) via `loginTheme`/`accountTheme`/`adminTheme`/`emailTheme` in `infra/keycloak/eliferpg-realm.json`. The theme itself isn't vendored into this repo — it's fetched as a prebuilt jar from that repo's GitHub Releases:
+
+```sh
+./infra/keycloak/fetch-theme.sh
+```
+
+This downloads `keycloak-theme-for-kc-all-other-versions.jar` (the variant matching this stack's Keycloak 26.0) into `infra/keycloak/providers/`, which `compose.yml` mounts read-only into the Keycloak container's `providers/` directory. Keycloak's `start-dev` mode auto-detects and rebuilds for new providers on container start, so a `docker compose up -d keycloak` (or restart) after fetching is enough — no manual `kc.sh build` needed. Re-run the script whenever you want to pick up a newer theme release, then restart the `keycloak` container.
+
+Requires the `gh` CLI, authenticated against GitHub.
+
+Same rollout caveat as above applies to the theme fields: they only take effect on a fresh realm import. Against an existing volume, either reset it (`docker compose down -v`) or set the four theme fields on the running realm via the Admin API/console (Realm Settings → Themes).
+
 ### Build
 
 ```sh
