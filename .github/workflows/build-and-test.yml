@@ -1,0 +1,37 @@
+name: Build and Domain Unit Tests
+
+# Scope: this workflow builds the whole solution and runs the *.Domain.UnitTests projects only.
+#
+# It deliberately does NOT run *.IntegrationTests — those need live Postgres/Keycloak
+# infrastructure that isn't wired into CI yet (see ARCHITECTURE.md's no-CI-yet note). That matters
+# here in particular: all of this branch's money-safety concurrency test evidence (the Banking and
+# Companies concurrency tests, and the cross-module Shops purchase tests) lives in the excluded
+# IntegrationTests tier. A green run of this workflow covers compilation and domain-level unit
+# tests only — it is not evidence that the concurrency-safety work is covered by CI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/devcontainers/dotnet:2.1.4-11.0-preview
+    env:
+      ASPNETCORE_ENVIRONMENT: Development
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore
+        run: dotnet restore ELifeRPG.Core.slnx
+
+      - name: Build
+        run: dotnet build ELifeRPG.Core.slnx --no-restore --configuration Release
+
+      - name: Unit tests
+        run: |
+          for proj in $(find tests -iname "*.Domain.UnitTests.csproj"); do
+            dotnet test "$proj" --no-build --configuration Release
+          done
