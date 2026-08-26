@@ -42,6 +42,12 @@
     <Project Path="src/Accounts/Accounts.Infrastructure/Accounts.Infrastructure.csproj" />
     <Project Path="src/Accounts/Accounts.Api/Accounts.Api.csproj" />
   </Folder>
+  <Folder Name="/src/Phone/">
+    <Project Path="src/Phone/Phone.Domain/Phone.Domain.csproj" />
+    <Project Path="src/Phone/Phone.Application/Phone.Application.csproj" />
+    <Project Path="src/Phone/Phone.Infrastructure/Phone.Infrastructure.csproj" />
+    <Project Path="src/Phone/Phone.Api/Phone.Api.csproj" />
+  </Folder>
   <Project Path="src/Api/Api.csproj" />
   <Folder Name="/tests/">
     <Project Path="tests/Accounts.Domain.UnitTests/Accounts.Domain.UnitTests.csproj" />
@@ -56,5 +62,7 @@
     <Project Path="tests/Items.IntegrationTests/Items.IntegrationTests.csproj" />
     <Project Path="tests/Shops.Domain.UnitTests/Shops.Domain.UnitTests.csproj" />
     <Project Path="tests/Shops.IntegrationTests/Shops.IntegrationTests.csproj" />
+    <Project Path="tests/Phone.Domain.UnitTests/Phone.Domain.UnitTests.csproj" />
+    <Project Path="tests/Phone.IntegrationTests/Phone.IntegrationTests.csproj" />
   </Folder>
 </Solution>

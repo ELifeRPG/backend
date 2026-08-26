@@ -58,6 +58,7 @@ builder.Services.AddMediator(options =>
         typeof(ELifeRPG.Companies.Application.AssemblyMarker),
         typeof(ELifeRPG.Items.Application.AssemblyMarker),
         typeof(ELifeRPG.Shops.Application.AssemblyMarker),
+        typeof(ELifeRPG.Phone.Application.AssemblyMarker),
     ];
     // Handlers depend on Marten's scoped IDocumentSession; Mediator's default handler lifetime is
     // Singleton, which WebApplicationBuilder.Build() correctly rejects as a captive-dependency error.
@@ -74,6 +75,7 @@ builder.Services.AddBankingModule(builder.Configuration);
 builder.Services.AddCompanyModule(builder.Configuration);
 builder.Services.AddItemModule(builder.Configuration);
 builder.Services.AddShopModule(builder.Configuration);
+builder.Services.AddPhoneModule(builder.Configuration);
 builder.Services.AddCrossModuleIntegration(builder.Configuration);
 
 builder.Services
@@ -115,5 +117,6 @@ app.MapBankingModule();
 app.MapCompanyModule();
 app.MapItemModule();
 app.MapShopModule();
+app.MapPhoneModule();
 
 app.Run();
