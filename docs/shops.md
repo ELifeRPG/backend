@@ -42,4 +42,4 @@ A purchase either fully succeeds or fully fails against the stock read at the mo
 
 `hubs/shops` is a SignalR hub pushing listing changes in real time — connect with a bearer token via the `access_token` query parameter (browsers can't set a custom header on a WebSocket upgrade), call `SubscribeToShop(shopId)`/`UnsubscribeFromShop(shopId)` to join/leave a shop's update group, and listen for `ListingChanged`/`ListingRemoved` messages. This is a delivery convenience, not the source of truth — after a disconnect, re-fetch `GET /api/shops/{shopId}` to resync rather than expecting to catch up over the hub.
 
-(These assume you're running `curl`/`dotnet run` from inside the devcontainer, connected to the Compose network — see the main [README](../README.md).)
+(These assume you're running `curl`/`dotnet run` from inside the devcontainer, which is on the Compose network — see the main [README](../README.md).)

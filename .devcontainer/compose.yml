@@ -1,7 +1,7 @@
 services:
   workspace:
     build:
-      context: .
+      context: ./.devcontainer
       dockerfile: Dockerfile
     command: "sleep infinity"
     # A devcontainer is Development by definition — this also makes `dotnet build` pick up
@@ -10,5 +10,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: "Development"
     volumes:
-      - "../:/workspace:cached"
+      - ".:/workspace:cached"
       - "${HOME}/.gitconfig:/home/vscode/.gitconfig:ro"
+    networks:
+      - core
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy

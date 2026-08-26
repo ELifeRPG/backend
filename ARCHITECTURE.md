@@ -194,7 +194,7 @@ For high event volume, partition the underlying event tables by time (e.g. `pg_p
 
 ## 9a. Deployment Topology
 
-- **Now:** everything runs locally via **Docker Compose** — Central API, Bridge (for local testing against a dev gameserver), Keycloak, PostgreSQL, and the observability stack (Grafana, Loki, Tempo, Prometheus). One `compose.yml` (plus per-component override files) is the single source of truth for local environments.
+- **Now:** everything runs locally via **Docker Compose** — Central API, Bridge (for local testing against a dev gameserver), Keycloak, PostgreSQL, and the observability stack (Grafana, Loki, Tempo, Prometheus). One `compose.yml` (plus per-component override files) is the single source of truth for local environments — the devcontainer consumes it directly rather than duplicating it, listing it first in `dockerComposeFile` so the workspace container joins the same `core` network as the infra services (see the README's "Open the devcontainer").
 - **Later:** **Kubernetes** is the anticipated next step once there's a real fleet of gameserver hosts and/or a need for independent scaling of the Central API, SignalR fan-out, and the observability stack. To keep that migration low-friction:
   - Components are configured entirely via environment variables / mounted config, never hardcoded host paths — this maps directly onto ConfigMaps/Secrets later.
   - Each component (Central API, Keycloak, Postgres, Grafana stack) is a separate container/service in Compose from day one, mirroring how they'd be separate Deployments/StatefulSets in k8s — avoid bundling multiple concerns into one container.

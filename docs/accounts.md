@@ -2,7 +2,7 @@
 
 Bootstraps (or looks up) an `Account` for a player's Bohemia ID, provisioning a Keycloak user if needed. See [MIGRATION.md §5](../MIGRATION.md#5-migration-plan-feature-1--accounts--sessions) for how this replaced legacy's unauthenticated `POST /v1/sessions`.
 
-Assumes `src/Api` is running (see the main [README](../README.md#run)) and you're calling from inside the devcontainer, connected to the Compose network — `keycloak` resolves by hostname there. From your host machine, use `http://localhost:8180` for Keycloak instead.
+Assumes `src/Api` is running (see the main [README](../README.md#run)) and you're calling from inside the devcontainer, which is on the Compose network — `keycloak` resolves by hostname there. From your host machine, use `http://localhost:8180` for Keycloak instead.
 
 `POST /api/accounts/session-bootstrap` requires a bearer token with the `gameserver:session:create` scope — get one from the pre-provisioned dev client:
 

@@ -18,7 +18,45 @@ You do **not** need .NET installed on your host — the devcontainer provides th
 - VS Code: **Reopen in Container**.
 - CLI: `devcontainer up --workspace-folder .`, then run commands with `devcontainer exec --workspace-folder . <command>`.
 
-### Start local infrastructure
+That also **starts the local infrastructure** — there is no separate `docker compose up -d` step.
+[`.devcontainer/devcontainer.json`](./.devcontainer/devcontainer.json) lists the repo-root
+[`compose.yml`](./compose.yml) *first* in its `dockerComposeFile`, so the workspace container is just
+another service in that stack: it comes up on the same `core` network as Postgres and Keycloak and
+resolves them by service name. That's what lets
+[`src/Api/appsettings.Development.json`](./src/Api/appsettings.Development.json) hardcode
+`Host=postgres` and `http://keycloak:8080/` with no host ports involved, and it replaces the manual
+`docker network connect` this used to need.
+
+`devcontainer up` doesn't return until both are genuinely **ready** — Postgres accepting connections
+and Keycloak finished importing the realm — because `compose.yml` gives them healthchecks and the
+workspace a `condition: service_healthy` dependency. Costs ~20s on a cold open and saves you a
+confusing first test run against half-started infrastructure.
+
+Only the two services the app cannot run without start by default — `postgres` and `keycloak` — via
+`runServices` in `devcontainer.json`. The whole observability chain is [opt-in](#observability); the
+API runs silently and correctly with no collector present. Closing the devcontainer stops everything
+(`shutdownAction: stopCompose`); the named volumes keep your data.
+
+**One Compose project owns everything**, named after the repo folder — `backend` for a checkout in
+`backend/`. Because that's also what a bare `docker compose` at the repo root derives, host-side
+commands need no `-p` and land on the same stack the devcontainer started:
+
+```sh
+docker compose ps
+docker compose logs -f keycloak
+```
+
+Two things to know about running Compose by hand there: `docker compose up -d` with no service
+argument starts the observability stack too (the devcontainer's `runServices` is what normally holds
+it back), and `docker compose down` removes the workspace container along with everything else — fine,
+but reopen the devcontainer afterwards rather than expecting it to still be there.
+
+> **Coming from an older checkout?** The stack used to run as its own project (`eliferpg-core`).
+> Bring that one down first so it releases ports 5433/8180 — `docker compose -f <old-checkout>/compose.yml down`
+> — and note the devcontainer starts from **fresh volumes**, so local accounts, characters and
+> Keycloak users do not carry over.
+
+### Keycloak's custom image
 
 Keycloak runs a **custom image** carrying two provider jars — the realm declares the
 `link-bohemia-gameaccount` required action and the backend calls this realm's
@@ -26,17 +64,19 @@ Keycloak runs a **custom image** carrying two provider jars — the realm declar
 theme styles the account/admin/email pages.
 [infra/keycloak/Dockerfile](./infra/keycloak/Dockerfile) composes it: a stock Keycloak server plus
 one `COPY` per provider jar, each lifted from that plugin's published image at a pinned version.
-Compose builds it for you — nothing to build by hand.
-
-```sh
-docker compose up -d
-```
+Compose builds it for you on the first devcontainer open — nothing to build by hand.
 
 Adding another provider is an `ARG`, a `FROM`, and a `COPY` in that Dockerfile; bumping one is a
-single version change there. Because Compose only builds when the image is missing, re-run with
-`docker compose up -d --build` after either.
+single version change there. Because Compose only builds when the image is missing, rebuild
+explicitly after either:
 
-This starts Postgres, Keycloak, and the observability stack (OpenTelemetry Collector, Tempo, Prometheus, Loki, Grafana). Host ports are intentionally **not** the defaults, since those are commonly already taken by other local services:
+```sh
+docker compose up -d --build keycloak
+```
+
+### Host ports
+
+Host ports are intentionally **not** the defaults, since those are commonly already taken by other local services:
 
 | Service | Container port | Host port | Notes |
 |---|---|---|---|
@@ -50,13 +90,7 @@ This starts Postgres, Keycloak, and the observability stack (OpenTelemetry Colle
 
 If you're running this on a machine with nothing else on those ports, feel free to adjust `compose.yml` back to the defaults — just keep it consistent for everyone working in the repo.
 
-**If you're working from inside the devcontainer** (which is where you'll actually run `dotnet build`/`dotnet run`), connect it to the same Docker network so it can resolve the other containers by service name instead of `localhost`:
-
-```sh
-docker network connect eliferpg-core_core <devcontainer-container-name>
-```
-
-Inside the devcontainer, Postgres is then reachable at `postgres:5432` and Keycloak at `keycloak:8080` — not via the host-mapped ports above, which are for tools running on your host machine (a browser, `psql`, etc.).
+These mappings are for tools running on your **host** machine — a browser, `psql`, `curl`. Inside the devcontainer you use the container ports instead: Postgres at `postgres:5432`, Keycloak at `keycloak:8080`, the collector at `otel-collector:4317`.
 
 ### Keycloak realm
 
@@ -89,9 +123,9 @@ curl -s "http://localhost:8180/admin/realms/eliferpg/partial-export?exportClient
 # then manually restore the "secret" field for gameserver-dev / account-service in the exported file
 ```
 
-**Rollout note for existing local Keycloak volumes:** the `view-realm` grant on `account-service` and the `admin` realm role (added for account role management, see [docs/accounts.md](./docs/accounts.md#managing-an-accounts-roles)) are baked into `infra/keycloak/eliferpg-realm.json` and only take effect on a fresh `--import-realm` — i.e. a new or reset Keycloak container/volume. If you already have a running Keycloak container from before this change, its realm was imported once and won't pick these up automatically. Either wipe it (`docker compose down -v`, see "Resetting local data" below) so the next `docker compose up -d` re-imports the updated realm, or apply the grants manually via the Admin API against your existing container. Otherwise the new role-management endpoints will 403.
+**Rollout note for existing local Keycloak volumes:** the `view-realm` grant on `account-service` and the `admin` realm role (added for account role management, see [docs/accounts.md](./docs/accounts.md#managing-an-accounts-roles)) are baked into `infra/keycloak/eliferpg-realm.json` and only take effect on a fresh `--import-realm` — i.e. a new or reset Keycloak container/volume. If you already have a running Keycloak container from before this change, its realm was imported once and won't pick these up automatically. Either wipe it (`docker compose down -v`, see "Resetting local data" below) so the next devcontainer open re-imports the updated realm, or apply the grants manually via the Admin API against your existing container. Otherwise the new role-management endpoints will 403.
 
-**Rollout note for existing local Postgres volumes (hive migration):** this change rebuilds five modules' doc-table primary keys and changes `mt_doc_gameserver`'s identity from `varchar(clientId)` to `uuid(Id)` — a table rebuild Marten cannot do in place against an existing schema. If you have a running Postgres volume from before this change, wipe it (`docker compose down -v`, see "Resetting local data" below) so the next `docker compose up -d` starts from a clean schema. Afterward, a gameserver must be registered via `POST /api/game-servers` (see [docs/accounts.md](./docs/accounts.md#game-server-registry)) before character or shop creation will work.
+**Rollout note for existing local Postgres volumes (hive migration):** this change rebuilds five modules' doc-table primary keys and changes `mt_doc_gameserver`'s identity from `varchar(clientId)` to `uuid(Id)` — a table rebuild Marten cannot do in place against an existing schema. If you have a running Postgres volume from before this change, wipe it (`docker compose down -v`, see "Resetting local data" below) so the next devcontainer open starts from a clean schema. Afterward, a gameserver must be registered via `POST /api/game-servers` (see [docs/accounts.md](./docs/accounts.md#game-server-registry)) before character or shop creation will work.
 
 ### Keycloak providers (theme + bohemia-gameaccount)
 
@@ -107,10 +141,10 @@ COPY --from=theme /opt/keycloak/providers/ /opt/keycloak/providers/
 COPY --from=bohemia /opt/keycloak/providers/ /opt/keycloak/providers/
 ```
 
-`docker compose up -d` (which builds the `keycloak` service by default) is all
-that's needed — there's nothing to fetch separately. To pick up a newer release
-of either one, bump that stage's version tag in `infra/keycloak/Dockerfile`, then
-`docker compose build keycloak` (or `docker compose up -d --build keycloak`).
+Opening the devcontainer builds the `keycloak` service for you — there's nothing
+to fetch separately. To pick up a newer release of either one, bump that stage's
+version tag in `infra/keycloak/Dockerfile`, then
+`docker compose up -d --build keycloak`.
 
 **[`eliferpg` theme](https://github.com/ELifeRPG/keycloak-theme-eliferpg)** —
 ships login, account, admin, and email variants, configured via
@@ -176,8 +210,8 @@ Pure unit tests for the `Account` aggregate's invariants (`Lock`/`Unlock`, event
 dotnet test tests/Accounts.IntegrationTests/Accounts.IntegrationTests.csproj
 ```
 
-Exercises `CreateSessionCommand` against **live** Postgres and Keycloak — requires the local infra
-stack running and the devcontainer connected to its network, same as the manual steps above. Not yet
+Exercises `CreateSessionCommand` against **live** Postgres and Keycloak — both of which the
+devcontainer already started and put on the same network, so there's nothing to set up. Not yet
 wired into any CI, since none exists in this repo yet.
 
 Most tests no longer touch Keycloak at all: accounts are created by portal signup, so
@@ -193,6 +227,12 @@ ELIFERPG_TEST_DB="Host=localhost;Port=5433;Database=postgres;Username=postgres;P
 ELIFERPG_TEST_KEYCLOAK_URL="http://localhost:8180/" \
   dotnet test tests/Accounts.IntegrationTests/Accounts.IntegrationTests.csproj
 ```
+
+**First run against a brand-new Postgres volume** (a fresh clone, or right after
+`docker compose down -v`) can fail one or two tests with
+`MartenSchemaException : DDL Execution for 'All Configured Changes' Failed!` — test collections race
+each other creating the schema that does not exist yet. Simply run it again: the schema is in place
+by then and the suite is green. Nothing to fix, but don't read that first run as a real failure.
 
 Run the full solution's tests with `-m:1`. Every project shares one Postgres, and running the
 projects in parallel lets them interfere — a parallel run has been observed failing a handful of
@@ -258,15 +298,34 @@ Wipe everything (Postgres data, including Keycloak's own tables — it's backed 
 docker compose down -v
 ```
 
+Reopen the devcontainer afterwards to bring the stack back up from a clean state.
+
 To reset just one module's event store without touching anything else, drop its schema directly:
 
 ```sh
-docker exec eliferpg-core-postgres-1 psql -U postgres -c "DROP SCHEMA IF EXISTS account CASCADE;"
+docker exec backend-postgres-1 psql -U postgres -c "DROP SCHEMA IF EXISTS account CASCADE;"
 ```
 
 The same works for any other module's schema — `characters`, `banking`, `companies` — if you only need to reset one.
 
 ### Observability
+
+The OpenTelemetry Collector, Tempo, Loki, Prometheus and Grafana are **not** part of the
+devcontainer's default service set. Start them together when you need them — they land in the same
+project, and therefore on the same `core` network:
+
+```sh
+docker compose up -d otel-collector tempo loki prometheus grafana
+```
+
+Start them **as a group**, collector included. The collector's `depends_on: [tempo, loki]` exists for
+a reason: started before those two, its DNS resolver wedges on `lookup tempo ... i/o timeout` and does
+not recover when they later appear — traces silently never arrive until you
+`docker compose restart otel-collector`. That's also why the collector isn't in `runServices`.
+
+`src/Api` exports to `otel-collector:4317` unconditionally. With no collector running that export
+just goes nowhere: the app logs nothing about it and serves requests normally, so there's nothing to
+change on the app side either way — bring the group up and traces start flowing.
 
 Grafana at [http://localhost:3000](http://localhost:3000) (anonymous admin access, local dev only) has Prometheus, Loki, and Tempo pre-provisioned as datasources — see [ARCHITECTURE.md §9d](./ARCHITECTURE.md#9d-observability).
 

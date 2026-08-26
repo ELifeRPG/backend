@@ -1,11 +1,13 @@
 {
   "name": "Workstation",
   "dockerComposeFile": [
+    "../compose.yml",
     "compose.yml",
     "compose.override.local.yml"
   ],
   "service": "workspace",
   "workspaceFolder": "/workspace",
+  "runServices": ["postgres", "keycloak"],
   "initializeCommand": "bash .devcontainer/initialize.sh",
   "shutdownAction": "stopCompose"
 }

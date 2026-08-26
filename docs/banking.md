@@ -47,4 +47,4 @@ curl -X PUT http://localhost:5100/api/bank-accounts/$BANK_ACCOUNT_ID/purchase-co
   -d '{"characterId":"<characterId>","companyId":"<companyId>","quantity":10,"pricePerShare":5.00}'
 ```
 
-(These assume you're running `curl`/`dotnet run` from inside the devcontainer, connected to the Compose network — see the main [README](../README.md).)
+(These assume you're running `curl`/`dotnet run` from inside the devcontainer, which is on the Compose network — see the main [README](../README.md).)

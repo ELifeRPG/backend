@@ -22,6 +22,11 @@ services:
       # initialisation of the volume — which is when it is needed, since Keycloak cannot create
       # its own schema and otherwise fails to start after `docker compose down -v`.
       - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
     networks:
       - core
 
@@ -46,8 +51,17 @@ services:
       - "8180:8080" # host 8080 already in use on this machine
     volumes:
       - ./infra/keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /realms/eliferpg HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - core
 
