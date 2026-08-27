@@ -6,10 +6,15 @@ using ELifeRPG.Banking.Domain;
 using ELifeRPG.Characters.Application.Characters;
 using ELifeRPG.Items.Application.Items;
 using ELifeRPG.Shared.Kernel;
+using ELifeRPG.Shops.Application.Common;
 using ELifeRPG.Shops.Application.Shops;
 using ELifeRPG.Shops.Domain;
+using ELifeRPG.Shops.Domain.Events;
+using ELifeRPG.World.Application.Common;
+using ELifeRPG.World.Domain.Items;
 using Mediator;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace ELifeRPG.Shops.IntegrationTests;
@@ -369,6 +374,265 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         Assert.Equal(1, succeeded);
     }
 
+    // Task 6: PurchaseListingHandler grants the purchased item into World atomically with the
+    // payment. These tests cover the grant itself; the tests above already cover the payment/stock
+    // legs in isolation.
+
+    [Fact]
+    public async Task PurchaseListing_GrantsAnItemInstanceToTheBuyer()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
+        var listingItemId = await GetListingItemIdAsync(mediator, shopId, listingId);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+
+        var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 1, buyerId, buyerAccountId));
+
+        if (result is not PurchaseListingResult.Purchased purchased)
+        {
+            throw new InvalidOperationException($"Expected Purchased, got {result}");
+        }
+
+        var granted = Assert.Single(purchased.GrantedInstances);
+        Assert.Equal(listingItemId, granted.ItemId);
+
+        var itemInstanceRepository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+        var stored = await itemInstanceRepository.FindByIdAsync(granted.InstanceId, CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.Equal(buyerId, stored.RootCharacterId);
+        Assert.Equal(listingItemId, stored.ItemId);
+    }
+
+    /// <summary>
+    /// Whole-branch review, I2. This test used to drive an <b>uncatalogued</b> listing, which
+    /// <c>PurchaseListingHandler</c> rejects at its catalog precheck — before
+    /// <c>transactionFactory.BeginAsync</c> is ever called. Nothing had been appended, so nothing rolled
+    /// back: it asserted an untouched balance against a code path that never touched one, duplicating
+    /// <see cref="PurchaseListing_ForAnUncataloguedListingItem_IsRejectedBeforeAnyPaymentMoves"/> below
+    /// while claiming to prove the opposite. Nothing tested that the handler's in-transaction sequencing
+    /// — which this branch changed — actually rolls back.
+    ///
+    /// So it now faults <i>inside</i> the open transaction, via a swapped-in
+    /// <see cref="IItemInstanceRepositoryFactory"/>, exactly the way
+    /// World.IntegrationTests/GatherTests.cs proves the gathering path's rollback. The fault sits in the
+    /// fake's <c>SaveChangesAsync</c>, not its <c>GrantAsync</c>: the handler defers every leg's flush
+    /// until all the in-memory work is queued, so a fault in <c>GrantAsync</c> would fire before the
+    /// listing and bank legs flush and prove only "nothing flushes at all". Throwing from the item leg's
+    /// flush means the listing's stock decrement and both bank legs have already durably written into
+    /// the still-open, uncommitted transaction — which is the scenario under review.
+    /// </summary>
+    [Fact]
+    public async Task PurchaseListing_WhenTheGrantFails_RollsBackThePayment()
+    {
+        await using var provider = TestServices.BuildProvider(configureServices: services =>
+            services.Replace(ServiceDescriptor.Scoped<IItemInstanceRepositoryFactory>(_ => new FaultyItemInstanceRepositoryFactory())));
+
+        await using var scope = provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        if (depositResult is not DepositResult.Deposited deposited)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        var balanceBeforePurchase = deposited.NewBalance;
+        var payoutAccountId = await GetShopPayoutAccountIdAsync(mediator, shopId);
+        var payoutBalanceBeforePurchase = await GetBalanceAsync(mediator, payoutAccountId);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            mediator.Send(new PurchaseListingCommand(shopId, listingId, 3, buyerId, buyerAccountId)).AsTask());
+
+        // Every leg was written into an uncommitted ICrossModuleTransaction; disposing it without
+        // committing rolls all of them back. Fresh reads, not the in-memory aggregates the handler
+        // mutated — this has to prove the rollback reached Postgres.
+        Assert.Equal(balanceBeforePurchase, await GetBalanceAsync(mediator, buyerAccountId));
+        Assert.Equal(payoutBalanceBeforePurchase, await GetBalanceAsync(mediator, payoutAccountId));
+
+        var shopQuery = await mediator.Send(new ShopQuery(shopId));
+        if (shopQuery is not ShopQueryResult.Found found)
+        {
+            throw new InvalidOperationException($"Expected Found, got {shopQuery}");
+        }
+
+        Assert.Equal(10, Assert.Single(found.Listings).Stock);
+    }
+
+    /// <summary>
+    /// The uncatalogued-listing case this file used to conflate with the rollback test above: a listing
+    /// whose <c>ItemId</c> no longer resolves is rejected at the precheck, <b>before</b> any transaction
+    /// opens — which is the point, since no payment may move for an order that cannot be fulfilled.
+    /// </summary>
+    [Fact]
+    public async Task PurchaseListing_ForAnUncataloguedListingItem_IsRejectedBeforeAnyPaymentMoves()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId) = await OpenShopWithUncatalogedListingAsync(scope.ServiceProvider, mediator, sellerId, price: 5m, stock: 10);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        if (depositResult is not DepositResult.Deposited deposited)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        var balanceBeforePurchase = deposited.NewBalance;
+
+        var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 3, buyerId, buyerAccountId));
+
+        Assert.True(result is PurchaseListingResult.ItemNotInCatalog, $"Expected ItemNotInCatalog, got {result}");
+
+        // No transaction was ever opened for this request, so nothing had to roll back — both the
+        // buyer's balance and the listing's stock are simply untouched.
+        var balanceAfterPurchase = await GetBalanceAsync(mediator, buyerAccountId);
+        Assert.Equal(balanceBeforePurchase, balanceAfterPurchase);
+
+        var shopQuery = await mediator.Send(new ShopQuery(shopId));
+        Assert.True(shopQuery is ShopQueryResult.Found, $"Expected Found, got {shopQuery}");
+        if (shopQuery is ShopQueryResult.Found found)
+        {
+            Assert.Equal(10, Assert.Single(found.Listings).Stock);
+        }
+    }
+
+    [Fact]
+    public async Task PurchaseListing_GrantsInstancesMarkedPendingSpawn()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+
+        var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 1, buyerId, buyerAccountId));
+
+        if (result is not PurchaseListingResult.Purchased purchased)
+        {
+            throw new InvalidOperationException($"Expected Purchased, got {result}");
+        }
+
+        var granted = Assert.Single(purchased.GrantedInstances);
+        var itemInstanceRepository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+        var stored = await itemInstanceRepository.FindByIdAsync(granted.InstanceId, CancellationToken.None);
+
+        Assert.NotNull(stored);
+        Assert.True(stored.PendingSpawn);
+        Assert.Null(stored.RootGameServerId);
+        Assert.Equal(0, stored.Revision);
+    }
+
+    [Fact]
+    public async Task PurchaseListing_ForQuantityOfTen_GrantsTenDiscreteInstances()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 20);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        await mediator.Send(new DepositCommand(buyerAccountId, 1000m));
+
+        var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 10, buyerId, buyerAccountId));
+
+        if (result is not PurchaseListingResult.Purchased purchased)
+        {
+            throw new InvalidOperationException($"Expected Purchased, got {result}");
+        }
+
+        // Ten discrete rows, never a stack of ten — see World.Domain.Items.ItemInstance's class summary.
+        Assert.Equal(10, purchased.GrantedInstances.Count);
+        Assert.Equal(10, purchased.GrantedInstances.Select(x => x.InstanceId).Distinct().Count());
+
+        var itemInstanceRepository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+        var stored = await itemInstanceRepository.LoadManyAsync(
+            purchased.GrantedInstances.Select(x => x.InstanceId).ToList(), CancellationToken.None);
+        Assert.Equal(10, stored.Count);
+        Assert.All(stored, x => Assert.Equal(buyerId, x.RootCharacterId));
+    }
+
+    [Fact]
+    public async Task PurchaseListing_ExceedingMaxInstancesPerGrant_IsRejectedBeforeAnyPaymentMoves()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var settings = await mediator.Send(new ELifeRPG.World.Application.Settings.WorldSettingsQuery());
+        var tooMany = settings.MaxInstancesPerGrant + 1;
+
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 1m, stock: tooMany + 10);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100_000m));
+        if (depositResult is not DepositResult.Deposited deposited)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        var balanceBeforePurchase = deposited.NewBalance;
+
+        var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, tooMany, buyerId, buyerAccountId));
+
+        if (result is not PurchaseListingResult.GrantTooLarge grantTooLarge)
+        {
+            throw new InvalidOperationException($"Expected GrantTooLarge, got {result}");
+        }
+
+        Assert.Equal(tooMany, grantTooLarge.Requested);
+        Assert.Equal(settings.MaxInstancesPerGrant, grantTooLarge.MaxInstancesPerGrant);
+
+        // The cap is checked at the precheck, before transactionFactory.BeginAsync — no transaction
+        // was ever opened for this request, so both the buyer's balance and the listing's stock must
+        // be completely untouched.
+        var balanceAfterPurchase = await GetBalanceAsync(mediator, buyerAccountId);
+        Assert.Equal(balanceBeforePurchase, balanceAfterPurchase);
+
+        var shopQuery = await mediator.Send(new ShopQuery(shopId));
+        if (shopQuery is not ShopQueryResult.Found found)
+        {
+            throw new InvalidOperationException($"Expected Found, got {shopQuery}");
+        }
+
+        Assert.Equal(tooMany + 10, Assert.Single(found.Listings).Stock);
+    }
+
+    [Fact]
+    public async Task PurchaseListing_GrantsInstancesCarryingTheOriginatingListingReference()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
+        var buyerId = await CreateCharacterAsync(mediator);
+        var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
+        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+
+        var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 1, buyerId, buyerAccountId));
+
+        if (result is not PurchaseListingResult.Purchased purchased)
+        {
+            throw new InvalidOperationException($"Expected Purchased, got {result}");
+        }
+
+        var granted = Assert.Single(purchased.GrantedInstances);
+        var itemInstanceRepository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+        var stored = await itemInstanceRepository.FindByIdAsync(granted.InstanceId, CancellationToken.None);
+
+        Assert.NotNull(stored);
+        Assert.Equal(ItemOrigin.ShopPurchase, stored.Origin);
+        Assert.Equal(new OriginRef("Shops", listingId.Value.ToString()), stored.OriginRef);
+    }
+
     // Accounts come from portal signup now, not from joining the gameserver:
     // CreateSessionCommand no longer creates one. See TestAccounts.
     private async Task<AccountId> CreateActiveAccountAsync()
@@ -413,7 +677,9 @@ public sealed class PurchaseListingTests : IAsyncLifetime
 
     private async Task<ItemId> CreateItemAsync(IMediator mediator)
     {
-        var result = await mediator.Send(new CreateItemCommand("9mm Ammo Box", "Ammo_9x19_Box"));
+        // Prefab class names are unique across the catalog, and these tests run repeatedly against a
+        // long-lived database, so mint a fresh one per call rather than colliding with the last run.
+        var result = await mediator.Send(new CreateItemCommand("9mm Ammo Box", $"ELRPG_Test_AmmoBox_{Guid.NewGuid():N}"));
 
         Assert.True(result is CreateItemResult.Created, $"Expected Created, got {result}");
         if (result is not CreateItemResult.Created created)
@@ -446,6 +712,48 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         return (opened.ShopId, added.ListingId, sellerId);
     }
 
+    private static async Task<ItemId> GetListingItemIdAsync(IMediator mediator, ShopId shopId, ShopListingId listingId)
+    {
+        var result = await mediator.Send(new ShopQuery(shopId));
+        if (result is not ShopQueryResult.Found found)
+        {
+            throw new InvalidOperationException($"Expected Found, got {result}");
+        }
+
+        return found.Listings.Single(x => x.Id == listingId).ItemId;
+    }
+
+    /// <summary>
+    /// Opens a shop and starts a listing stream directly through <see cref="IShopListingRepository"/>,
+    /// bypassing <c>AddListingCommand</c>'s <c>ItemLookupQuery</c> validation on purpose — the listing's
+    /// <c>ItemId</c> is never registered in the Items catalog at all. Stands in for "the catalog entry
+    /// a listing was created against no longer exists by purchase time" (task 6's
+    /// <c>ItemNotInCatalogException</c> path), since there is no item-deletion command to make a
+    /// previously-valid <c>ItemId</c> stop resolving after the fact. Same direct-repository pattern
+    /// <c>TestAccounts.CreateAsync</c> uses to mint an account without going through a command.
+    /// </summary>
+    private async Task<(ShopId ShopId, ShopListingId ListingId)> OpenShopWithUncatalogedListingAsync(
+        IServiceProvider services, IMediator mediator, CharacterId sellerId, decimal price, int stock)
+    {
+        var payoutAccountId = await OpenPersonalBankAccountAsync(mediator, sellerId);
+        var openResult = await mediator.Send(new OpenShopCommand(ShopOwnerType.Personal, sellerId, null, "Purchase Test Shop", payoutAccountId));
+        if (openResult is not OpenShopResult.Opened opened)
+        {
+            throw new InvalidOperationException($"Expected Opened, got {openResult}");
+        }
+
+        var uncatalogedItemId = new ItemId(Guid.NewGuid());
+        var listingId = new ShopListingId(Guid.NewGuid());
+        var domainEvent = new ListingCreated(listingId, opened.ShopId, uncatalogedItemId, price, stock);
+        var listing = ShopListing.Create(domainEvent);
+
+        var listingRepository = services.GetRequiredService<IShopListingRepository>();
+        listingRepository.StartStream(listing, domainEvent);
+        await listingRepository.SaveChangesAsync(CancellationToken.None);
+
+        return (opened.ShopId, listingId);
+    }
+
     private static async Task<BankAccountId> GetShopPayoutAccountIdAsync(IMediator mediator, ShopId shopId)
     {
         var result = await mediator.Send(new ShopQuery(shopId));
@@ -468,5 +776,86 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         }
 
         return found.BankAccount.Balance;
+    }
+
+    /// <summary>
+    /// Hand-written fake, ported from World.IntegrationTests/GatherTests.cs — no mocking library in this
+    /// repo (ARCHITECTURE.md §9e). Used only by
+    /// <see cref="PurchaseListing_WhenTheGrantFails_RollsBackThePayment"/>.
+    /// </summary>
+    private sealed class FaultyItemInstanceRepositoryFactory : IItemInstanceRepositoryFactory
+    {
+        public IItemInstanceRepository CreateFor(ELifeRPG.Shared.Integration.Abstractions.CrossModuleSessionHandle handle)
+            => new FaultyItemInstanceRepository();
+    }
+
+    /// <summary>
+    /// Every member <c>PurchaseListingHandler</c> doesn't touch throws, so an accidental new dependency
+    /// on this fake surfaces immediately rather than silently no-op'ing. See the covering test's doc
+    /// comment for why the fault sits in <see cref="SaveChangesAsync"/> rather than in the grant.
+    /// </summary>
+    private sealed class FaultyItemInstanceRepository : IItemInstanceRepository
+    {
+        public ValueTask<ItemInstance?> FindByIdAsync(ItemInstanceId id, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public ValueTask<IReadOnlyList<ItemInstance>> FindByRootCharacterAsync(CharacterId rootCharacterId, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public ValueTask<IReadOnlyList<ItemInstance>> FindCarriedByRootCharacterAsync(CharacterId rootCharacterId, DateTimeOffset now, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public ValueTask<IReadOnlyList<ItemInstance>> FindPendingByRootCharacterAsync(
+            CharacterId rootCharacterId, int limit, int maxDeliveryAttempts, DateTimeOffset now, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public ValueTask<IReadOnlyList<ItemInstance>> LoadManyAsync(IReadOnlyList<ItemInstanceId> ids, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public ValueTask<IReadOnlyList<ItemInstance>> FindChildrenAsync(ItemInstanceId containerInstanceId, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public ValueTask<IReadOnlyList<ItemInstance>> FindUndeliverableAsync(int maxDeliveryAttempts, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public void Store(ItemInstance instance)
+        {
+            // Unreachable — this fake's GrantAsync never queues anything — but a void method has no
+            // meaningful "not supported" signal, so it is a no-op rather than a throw.
+        }
+
+        public void RecordDeliveryAttempt(ItemInstance instance, DateTimeOffset now)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public void RecordSpawnFailure(ItemInstance instance, SpawnFailureReason reason, DateTimeOffset now)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public void Eject(ItemInstance instance)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public void SoftDelete(ItemInstance instance)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        // The fault: fires only once the listing leg and both bank legs have already flushed into the
+        // open, uncommitted cross-module transaction.
+        public ValueTask SaveChangesAsync(CancellationToken cancellationToken)
+            => throw new InvalidOperationException(
+                "Simulated failure in the item-grant leg's flush, after the listing and bank legs' own SaveChangesAsync already ran.");
+
+        public ValueTask<IReadOnlyList<GrantedInstance>> GrantAsync(
+            ItemId itemId, int quantity, CharacterId ownerCharacterId, ItemOrigin origin, OriginRef? originRef, CancellationToken cancellationToken)
+            => throw new NotSupportedException("PurchaseListingHandler only ever uses the prefab-taking overload below.");
+
+        // The prefab-taking overload PurchaseListingHandler actually calls — succeeds (pure in-memory,
+        // matching the real repository's own "no I/O here" contract) so the handler proceeds to every
+        // leg's SaveChangesAsync, where the fault above actually fires.
+        public ValueTask<IReadOnlyList<GrantedInstance>> GrantAsync(
+            ItemId itemId, string? prefabClassName, int quantity, CharacterId ownerCharacterId, ItemOrigin origin, OriginRef? originRef, CancellationToken cancellationToken)
+        {
+            IReadOnlyList<GrantedInstance> granted = Enumerable.Range(0, quantity)
+                .Select(_ => new GrantedInstance(new ItemInstanceId(Guid.NewGuid()), itemId, prefabClassName ?? "Test_Faulty"))
+                .ToList();
+            return ValueTask.FromResult(granted);
+        }
     }
 }

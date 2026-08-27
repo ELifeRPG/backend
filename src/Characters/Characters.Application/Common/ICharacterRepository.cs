@@ -8,6 +8,12 @@ public interface ICharacterRepository
 
     ValueTask<IReadOnlyList<Character>> FindByAccountIdAsync(AccountId accountId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Resolves many characters in one round trip. Read-only: used by CharactersOnServerQuery on the
+    /// World module's snapshot write path, where a per-character lookup would not be affordable.
+    /// </summary>
+    ValueTask<IReadOnlyList<Character>> FindByIdsAsync(IReadOnlyList<CharacterId> characterIds, CancellationToken cancellationToken);
+
     void StartStream(Character character, CharacterCreated domainEvent);
 
     /// <summary>

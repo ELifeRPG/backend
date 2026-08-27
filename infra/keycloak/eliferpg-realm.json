@@ -1038,6 +1038,8 @@
         "gameserver:shops:manage",
         "gameserver:shops:write",
         "gameserver:skills:write",
+        "gameserver:inventory:read",
+        "gameserver:inventory:write",
         "profile",
         "roles",
         "gameserver:session:revoke",
@@ -1252,6 +1254,7 @@
         "acr",
         "accounts:manage",
         "gameserver:skills:manage",
+        "inventory:manage",
         "profile",
         "roles",
         "basic",
@@ -1889,6 +1892,33 @@
     {
       "id": "706a40b1-2aef-48c0-948e-a8fcc9eaa85a",
       "name": "gameserver:skills:manage",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "b0a5f9a5-59ef-497e-baa3-e058818029a3",
+      "name": "gameserver:inventory:read",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "5546eaf0-003e-4e80-abb3-d5fde68fb56c",
+      "name": "gameserver:inventory:write",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "62ed0ef2-37da-497b-9de2-4ef7f1bb924f",
+      "name": "inventory:manage",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",

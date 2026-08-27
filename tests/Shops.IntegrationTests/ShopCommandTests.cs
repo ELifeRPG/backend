@@ -384,7 +384,9 @@ public sealed class ShopCommandTests : IAsyncLifetime
 
     private async Task<ItemId> CreateItemAsync(IMediator mediator)
     {
-        var result = await mediator.Send(new CreateItemCommand("9mm Ammo Box", "Ammo_9x19_Box"));
+        // Prefab class names are unique across the catalog, and these tests run repeatedly against a
+        // long-lived database, so mint a fresh one per call rather than colliding with the last run.
+        var result = await mediator.Send(new CreateItemCommand("9mm Ammo Box", $"ELRPG_Test_AmmoBox_{Guid.NewGuid():N}"));
 
         Assert.True(result is CreateItemResult.Created, $"Expected Created, got {result}");
         if (result is not CreateItemResult.Created created)
@@ -411,7 +413,7 @@ public sealed class ShopCommandTests : IAsyncLifetime
 
     private static async Task<ShopListingId> AddListingAsync(IMediator mediator, ShopId shopId, CharacterId actingCharacterId)
     {
-        var itemResult = await mediator.Send(new CreateItemCommand("9mm Ammo Box", "Ammo_9x19_Box"));
+        var itemResult = await mediator.Send(new CreateItemCommand("9mm Ammo Box", $"ELRPG_Test_AmmoBox_{Guid.NewGuid():N}"));
         Assert.True(itemResult is CreateItemResult.Created, $"Expected Created, got {itemResult}");
         if (itemResult is not CreateItemResult.Created createdItem)
         {

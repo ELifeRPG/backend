@@ -3,9 +3,14 @@ using ELifeRPG.Banking.Application.Common;
 using ELifeRPG.Banking.Domain;
 using ELifeRPG.Banking.Domain.Events;
 using ELifeRPG.Banking.Domain.Exceptions;
+using ELifeRPG.Items.Application.Items;
 using ELifeRPG.Shared.Integration.Abstractions;
 using ELifeRPG.Shops.Application.Common;
 using ELifeRPG.Shops.Domain.Exceptions;
+using ELifeRPG.World.Application.Common;
+using ELifeRPG.World.Application.Settings;
+using ELifeRPG.World.Domain.Exceptions;
+using ELifeRPG.World.Domain.Items;
 
 namespace ELifeRPG.Shops.Application.Shops;
 
@@ -17,9 +22,11 @@ public union PurchaseListingResult(
     PurchaseListingResult.ListingChangedConcurrently,
     PurchaseListingResult.BuyerAccountNotFound,
     PurchaseListingResult.NotAuthorized,
-    PurchaseListingResult.InsufficientBalance)
+    PurchaseListingResult.InsufficientBalance,
+    PurchaseListingResult.GrantTooLarge,
+    PurchaseListingResult.ItemNotInCatalog)
 {
-    public record Purchased(decimal TotalPaid, int NewStock);
+    public record Purchased(decimal TotalPaid, int NewStock, IReadOnlyList<GrantedInstance> GrantedInstances);
 
     public record ShopNotFound;
 
@@ -44,6 +51,29 @@ public union PurchaseListingResult(
     public record NotAuthorized;
 
     public record InsufficientBalance;
+
+    /// <summary>
+    /// The purchased quantity would mint more item instances than
+    /// <c>WorldSettings.MaxInstancesPerGrant</c> allows. Evaluated at the precheck, before
+    /// <c>transactionFactory.BeginAsync</c> — no payment is ever taken for an order that cannot be
+    /// fulfilled.
+    /// </summary>
+    public record GrantTooLarge(int Requested, int MaxInstancesPerGrant);
+
+    /// <summary>
+    /// The listing's <c>ItemId</c> no longer resolves to a catalog entry. A listing's <c>ItemId</c> is
+    /// only validated when the listing is created (see <c>AddListingHandler</c>) — nothing guarantees
+    /// the catalog entry still exists later. Normally returned from the precheck (a batched
+    /// <c>ItemCatalogEntriesQuery</c> dispatch, before <c>transactionFactory.BeginAsync</c>), same as
+    /// <see cref="GrantTooLarge"/> — no payment is ever taken for an order that cannot be fulfilled.
+    /// Can still, in principle, be produced from a caught <see cref="ItemNotInCatalogException"/> if
+    /// the in-transaction grant's defense-in-depth check ever fires (see
+    /// <c>IItemInstanceRepository.GrantAsync</c>'s prefab-taking overload) — in that case both bank
+    /// legs have already been appended, but neither leg nor the grant has been saved, and the
+    /// transaction is never committed, so disposing the uncommitted
+    /// <see cref="ICrossModuleTransaction"/> still rolls back and no payment moves.
+    /// </summary>
+    public record ItemNotInCatalog(ItemId ItemId);
 }
 
 public sealed record PurchaseListingCommand(
@@ -59,6 +89,7 @@ public sealed class PurchaseListingHandler(
     ICrossModuleTransactionFactory transactionFactory,
     IShopListingRepositoryFactory listingRepositoryFactory,
     IBankAccountRepositoryFactory bankAccountRepositoryFactory,
+    IItemInstanceRepositoryFactory itemInstanceRepositoryFactory,
     IMediator mediator)
     : IRequestHandler<PurchaseListingCommand, PurchaseListingResult>
 {
@@ -77,6 +108,32 @@ public sealed class PurchaseListingHandler(
         if (precheck is null || precheck.ShopId != request.ShopId || !precheck.IsActive)
         {
             return new PurchaseListingResult.ListingNotFound();
+        }
+
+        // Catalog-resolution precheck — dispatches Items.Application's public, batched
+        // ItemCatalogEntriesQuery via IMediator (the same public-contract exception §9e sanctions
+        // everywhere else in this handler), not World's own IItemCatalogResolver. Resolving here,
+        // before any transaction opens and before any lock is taken, means the in-transaction grant
+        // below can receive an already-resolved prefab and do pure inserts with no external dispatch
+        // while it holds the listing lock and both bank-account locks (see the review that added this
+        // precheck — a second pooled connection opened mid-transaction is a resource-starvation risk
+        // under pool saturation, even though it adds no lock-ordering edge).
+        var catalogEntries = await mediator.Send(new ItemCatalogEntriesQuery([precheck.ItemId]), cancellationToken);
+        if (!catalogEntries.TryGetValue(precheck.ItemId, out var catalogEntry))
+        {
+            return new PurchaseListingResult.ItemNotInCatalog(precheck.ItemId);
+        }
+
+        var prefabClassName = catalogEntry.PrefabClassName;
+
+        // Grant-size precheck — dispatches World.Application's own public WorldSettingsQuery via
+        // IMediator, the sanctioned Application->Application borrow (a plain scoped repository
+        // injection is not). Must happen before transactionFactory.BeginAsync: never take payment for
+        // an order that cannot be fulfilled.
+        var worldSettings = await mediator.Send(new WorldSettingsQuery(), cancellationToken);
+        if (request.Quantity > worldSettings.MaxInstancesPerGrant)
+        {
+            return new PurchaseListingResult.GrantTooLarge(request.Quantity, worldSettings.MaxInstancesPerGrant);
         }
 
         await using var transaction = await transactionFactory.BeginAsync(cancellationToken);
@@ -170,6 +227,32 @@ public sealed class PurchaseListingHandler(
         bankAccountRepository.Append(request.BuyerBankAccountId, outEvent);
         bankAccountRepository.Append(shop.PayoutBankAccountId, inEvent);
 
+        // Repositories obtained from a cross-module transaction handle are intentionally never
+        // disposed here — only `transaction` owns the underlying connection/transaction.
+        var itemInstanceRepository = itemInstanceRepositoryFactory.CreateFor(transaction.Handle);
+
+        IReadOnlyList<GrantedInstance> grantedInstances;
+        try
+        {
+            // The prefab-taking overload: it does pure in-memory inserts with no external dispatch,
+            // since prefabClassName was already resolved at the precheck above, before any lock was
+            // taken. GrantAsync itself still takes no row lock and adds no new edge to the sorted
+            // bank-account lock ordering above. The catch below is defense in depth, not the normal
+            // path — the precheck already turned a missing catalog entry into a pre-payment rejection.
+            grantedInstances = await itemInstanceRepository.GrantAsync(
+                listing.ItemId,
+                prefabClassName,
+                request.Quantity,
+                request.BuyerCharacterId,
+                ItemOrigin.ShopPurchase,
+                new OriginRef("Shops", request.ListingId.Value.ToString()),
+                cancellationToken);
+        }
+        catch (ItemNotInCatalogException)
+        {
+            return new PurchaseListingResult.ItemNotInCatalog(listing.ItemId);
+        }
+
         try
         {
             await crossModuleListingRepository.SaveChangesAsync(cancellationToken);
@@ -180,8 +263,9 @@ public sealed class PurchaseListingHandler(
         }
 
         await bankAccountRepository.SaveChangesAsync(cancellationToken);
+        await itemInstanceRepository.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new PurchaseListingResult.Purchased(totalPrice, listing.Stock);
+        return new PurchaseListingResult.Purchased(totalPrice, listing.Stock, grantedInstances);
     }
 }

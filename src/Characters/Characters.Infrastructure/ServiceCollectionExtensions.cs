@@ -26,6 +26,7 @@ public static class CharacterInfrastructureExtensions
 
         services.TryAddScoped<ICharacterRepository, MartenCharacterRepository>();
         services.TryAddScoped<ICharacterSkillsRepository, MartenCharacterSkillsRepository>();
+        services.TryAddScoped<ICharacterSkillsRepositoryFactory, MartenCharacterSkillsRepositoryFactory>();
 
         return services;
     }

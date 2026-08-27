@@ -1,4 +1,5 @@
 using ELifeRPG.Items.Application.Items;
+using ELifeRPG.Items.Domain;
 using ELifeRPG.Shared.Kernel;
 using Mediator;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,6 +10,10 @@ namespace ELifeRPG.Items.IntegrationTests;
 /// <summary>
 /// Requires the local infra stack (`docker compose up -d`) and the devcontainer connected to its
 /// network — see README.md. Not run as part of a normal `dotnet test` against an empty environment.
+///
+/// Prefab class names are unique across the catalog, and these tests run repeatedly against a
+/// long-lived database, so every test mints its own prefab name via <see cref="Prefab"/> rather than
+/// hardcoding one that would collide with the previous run.
 /// </summary>
 public sealed class ItemCommandTests : IAsyncLifetime
 {
@@ -22,13 +27,16 @@ public sealed class ItemCommandTests : IAsyncLifetime
 
     public async Task DisposeAsync() => await _provider.DisposeAsync();
 
+    private static string Prefab(string label) => $"ELRPG_Test_{label}_{Guid.NewGuid():N}";
+
     [Fact]
     public async Task CreateItem_ThenLookup_ReturnsTheSameItem()
     {
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var prefab = Prefab("AmmoBox");
 
-        var result = await mediator.Send(new CreateItemCommand("9mm Ammo Box", "Ammo_9x19_Box"));
+        var result = await mediator.Send(new CreateItemCommand("9mm Ammo Box", prefab, ItemPersistence.Despawns));
 
         Assert.True(result is CreateItemResult.Created, $"Expected Created, got {result}");
         if (result is not CreateItemResult.Created created)
@@ -41,7 +49,31 @@ public sealed class ItemCommandTests : IAsyncLifetime
         if (lookup is ItemLookupResult.Found found)
         {
             Assert.Equal("9mm Ammo Box", found.Item.DisplayName);
-            Assert.Equal("Ammo_9x19_Box", found.Item.PrefabClassName);
+            Assert.Equal(prefab, found.Item.PrefabClassName);
+            Assert.Equal(ItemPersistence.Despawns, found.Item.Persistence);
+        }
+    }
+
+    [Fact]
+    public async Task CreateItem_WithADuplicatePrefabClassName_IsRejected()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var prefab = Prefab("Duplicate");
+
+        var first = await mediator.Send(new CreateItemCommand("First", prefab));
+        Assert.True(first is CreateItemResult.Created, $"Expected Created, got {first}");
+        if (first is not CreateItemResult.Created created)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        var second = await mediator.Send(new CreateItemCommand("Second", prefab));
+
+        Assert.True(second is CreateItemResult.DuplicatePrefabClassName, $"Expected DuplicatePrefabClassName, got {second}");
+        if (second is CreateItemResult.DuplicatePrefabClassName duplicate)
+        {
+            Assert.Equal(created.ItemId, duplicate.ExistingItemId);
         }
     }
 
@@ -57,20 +89,56 @@ public sealed class ItemCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ItemsQuery_ReturnsCreatedItems()
+    public async Task ItemsQuery_ReturnsCreatedItemsAndACatalogVersion()
     {
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var result = await mediator.Send(new CreateItemCommand("Bandage", "Medical_Bandage"));
+        var result = await mediator.Send(new CreateItemCommand("Bandage", Prefab("Bandage")));
         Assert.True(result is CreateItemResult.Created, $"Expected Created, got {result}");
         if (result is not CreateItemResult.Created created)
         {
             throw new InvalidOperationException("Unreachable.");
         }
 
-        var items = await mediator.Send(new ItemsQuery());
+        var catalog = await mediator.Send(new ItemsQuery());
 
-        Assert.Contains(items, x => x.Id == created.ItemId);
+        Assert.Contains(catalog.Items, x => x.Id == created.ItemId);
+        Assert.True(catalog.CatalogVersion > 0, "Expected a non-zero catalog version.");
+    }
+
+    [Fact]
+    public async Task ItemsQuery_AfterAnotherItemIsCreated_ReportsAHigherCatalogVersion()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        var before = await mediator.Send(new ItemsQuery());
+        await mediator.Send(new CreateItemCommand("Version Bump", Prefab("VersionBump")));
+        var after = await mediator.Send(new ItemsQuery());
+
+        Assert.True(
+            after.CatalogVersion > before.CatalogVersion,
+            $"Expected the catalog version to advance, got {before.CatalogVersion} then {after.CatalogVersion}.");
+    }
+
+    [Fact]
+    public async Task ItemCatalogEntriesQuery_ReturnsOnlyCataloguedIds()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var result = await mediator.Send(new CreateItemCommand("Pickup Truck", Prefab("Truck"), ItemPersistence.Persistent));
+        if (result is not CreateItemResult.Created created)
+        {
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        var unknown = new ItemId(Guid.NewGuid());
+        var entries = await mediator.Send(new ItemCatalogEntriesQuery([created.ItemId, unknown]));
+
+        // Absence is how "uncatalogued prefabs are not persisted" is enforced on the write path.
+        Assert.True(entries.ContainsKey(created.ItemId));
+        Assert.False(entries.ContainsKey(unknown));
+        Assert.Equal(ItemPersistence.Persistent, entries[created.ItemId].Persistence);
     }
 
     [Fact]
@@ -78,12 +146,12 @@ public sealed class ItemCommandTests : IAsyncLifetime
     {
         // Hive model: the item catalog is a set of definitions (display name + prefab class), so the
         // same prefab means the same thing on every map. This asserts the opposite of the pre-hive
-        // behaviour — see docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+        // behaviour.
         ItemId itemId;
         await using (var scope = _provider.CreateAsyncScope())
         {
             var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-            var result = await mediator.Send(new CreateItemCommand("Bandage", "ELRPG_Bandage"), CancellationToken.None);
+            var result = await mediator.Send(new CreateItemCommand("Bandage", Prefab("HiveWide")), CancellationToken.None);
             Assert.True(result is CreateItemResult.Created, $"Expected Created, got {result}");
             if (result is not CreateItemResult.Created created)
             {

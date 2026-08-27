@@ -1,6 +1,9 @@
+using System.Globalization;
+using System.Threading.RateLimiting;
 using ELifeRPG.Accounts.Application.Common;
 using ELifeRPG.Api.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -59,12 +62,33 @@ builder.Services.AddMediator(options =>
         typeof(ELifeRPG.Items.Application.AssemblyMarker),
         typeof(ELifeRPG.Shops.Application.AssemblyMarker),
         typeof(ELifeRPG.Phone.Application.AssemblyMarker),
+        typeof(ELifeRPG.World.Application.AssemblyMarker),
     ];
     // Handlers depend on Marten's scoped IDocumentSession; Mediator's default handler lifetime is
     // Singleton, which WebApplicationBuilder.Build() correctly rejects as a captive-dependency error.
     options.ServiceLifetime = Microsoft.Extensions.DependencyInjection.ServiceLifetime.Transient;
 });
 builder.Services.AddSingleton(typeof(Mediator.IPipelineBehavior<,>), typeof(RequestMetricsBehaviour<,>));
+
+// Host-level rate limiting. Individual modules register their own named policies (the same way
+// they register their own authorization policies) and opt endpoints in with RequireRateLimiting;
+// nothing is limited by default. What lives here is the shared rejection behaviour: the Bridge
+// buffers to SQLite and retries, so a 429 has to be distinguishable from a permanent rejection and
+// has to say how long to wait — see ARCHITECTURE.md §5.1 and docs/bridge.md.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = (context, _) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(NumberFormatInfo.InvariantInfo);
+        }
+
+        return ValueTask.CompletedTask;
+    };
+});
 
 builder.Services.AddAccountModule(builder.Configuration);
 builder.Services.AddWhitelistModule(builder.Configuration);
@@ -76,6 +100,7 @@ builder.Services.AddCompanyModule(builder.Configuration);
 builder.Services.AddItemModule(builder.Configuration);
 builder.Services.AddShopModule(builder.Configuration);
 builder.Services.AddPhoneModule(builder.Configuration);
+builder.Services.AddWorldModule(builder.Configuration);
 builder.Services.AddCrossModuleIntegration(builder.Configuration);
 
 builder.Services
@@ -108,6 +133,10 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 
+// After authentication: gameserver limits partition on the client_id claim, which does not exist
+// until the token has been validated.
+app.UseRateLimiter();
+
 app.MapAccountModule();
 app.MapWhitelistModule();
 app.MapGameServerModule();
@@ -118,5 +147,6 @@ app.MapCompanyModule();
 app.MapItemModule();
 app.MapShopModule();
 app.MapPhoneModule();
+app.MapWorldModule();
 
 app.Run();

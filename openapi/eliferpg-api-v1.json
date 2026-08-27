@@ -2129,7 +2129,7 @@
         "tags": [
           "Items"
         ],
-        "description": "Adds an item to the catalog.",
+        "description": "Adds an item to the catalog. Prefab class names are unique.",
         "operationId": "CreateItem",
         "requestBody": {
           "content": {
@@ -2151,6 +2151,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       },
@@ -2158,7 +2168,7 @@
         "tags": [
           "Items"
         ],
-        "description": "Lists the item catalog.",
+        "description": "Lists the item catalog with a version stamp. The Bridge fetches this at boot and re-fetches when catalogVersion changes.",
         "operationId": "GetItems",
         "responses": {
           "200": {
@@ -2166,10 +2176,48 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ItemDto"
-                  }
+                  "$ref": "#/components/schemas/ItemCatalogDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/items/bulk": {
+      "post": {
+        "tags": [
+          "Items"
+        ],
+        "description": "Registers many prefabs at once. Idempotent on prefab class name: prefabs already in the catalog are returned untouched. Only catalogued prefabs are persisted by the World module, so this is how a world is made to persist anything at all.",
+        "operationId": "BulkImportItems",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkImportItemsRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkImportItemsResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -2530,7 +2578,7 @@
         "tags": [
           "Shops"
         ],
-        "description": "Purchases a quantity of a shop listing, settling payment via Banking.",
+        "description": "Purchases a quantity of a shop listing, settling payment via Banking and granting the item into World.",
         "operationId": "PurchaseShopListing",
         "parameters": [
           {
@@ -2563,8 +2611,1346 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseListingResultDto"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phone-models": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Defines a handset model. Tier fields decide what devices of this model can do.",
+        "operationId": "CreatePhoneModel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePhoneModelRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lists the handset model catalog.",
+        "operationId": "ListPhoneModels",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PhoneModelDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Provisions a handset biolocked to a character. Ships powered off, with the model's apps installed.",
+        "operationId": "ProvisionPhone",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionPhoneRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/characters/{characterId}/phones": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lists the handsets biolocked to a character.",
+        "operationId": "ListCharacterPhones",
+        "parameters": [
+          {
+            "name": "characterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PhoneDeviceDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Gets a handset.",
+        "operationId": "GetPhone",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneDeviceDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/power": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Powers a handset on or off. Powering on delivers anything queued for its SIMs.",
+        "operationId": "SetPhonePower",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPhonePowerRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/apps": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lists the apps installed on a handset.",
+        "operationId": "ListPhoneApps",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/apps/{appKey}": {
+      "put": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Installs an app on a handset. Idempotent.",
+        "operationId": "InstallPhoneApp",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "appKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActingCharacterRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Uninstalls an app from a handset. Idempotent; nothing is lost.",
+        "operationId": "UninstallPhoneApp",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "appKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "characterId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/sim-cards": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Issues a SIM card with a fresh number, registered to a character.",
+        "operationId": "ProvisionSimCard",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionSimRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisionSimResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/characters/{characterId}/sim-cards": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lists the SIM cards registered to a character.",
+        "operationId": "ListCharacterSimCards",
+        "parameters": [
+          {
+            "name": "characterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SimCardDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Gets a SIM card, including its number, status and blocklist.",
+        "operationId": "GetSimCard",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimCardDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/sims/{simCardId}": {
+      "put": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Seats a SIM in a handset. Contacts and message history travel with it, and anything queued is delivered.",
+        "operationId": "InstallSimCard",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActingCharacterRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Removes a SIM from a handset. The handset keeps nothing.",
+        "operationId": "EjectSimCard",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "characterId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/blocks": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Blocks a number. Blocked senders still see their messages as sent.",
+        "operationId": "BlockNumber",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockNumberRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/blocks/{number}": {
+      "delete": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Removes a number from a SIM's blocklist.",
+        "operationId": "UnblockNumber",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "characterId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/suspend": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Locks a number from outside its owner's control. Messages to it are dropped, not queued; nothing stored is lost.",
+        "operationId": "SuspendSimCard",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendSimRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/restore": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lifts a suspension, returning the number with its contacts, threads and blocklist intact.",
+        "operationId": "RestoreSimCard",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/contacts": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lists a SIM's saved contacts.",
+        "operationId": "ListContacts",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "characterId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ContactDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Saves a number to a SIM's address book.",
+        "operationId": "SaveContact",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveContactRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/contacts/{contactId}": {
+      "patch": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Renames a saved contact.",
+        "operationId": "RenameContact",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameContactRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Removes a saved contact.",
+        "operationId": "DeleteContact",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "characterId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/threads": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lists a SIM's conversations, newest first. Bodies are omitted; open a thread for those.",
+        "operationId": "ListThreads",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "characterId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MessageThreadSummaryDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/threads/{threadId}": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Gets one conversation with its retained messages.",
+        "operationId": "GetThread",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "characterId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageThreadDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/messages": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Sends a message to one or more numbers. Unknown, suspended and retired numbers are reported back; blocked ones are not.",
+        "operationId": "SendMessage",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendMessageResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sim-cards/{simCardId}/threads/{threadId}/read": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Clears a conversation's unread count.",
+        "operationId": "MarkThreadRead",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActingCharacterRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/admin/sim-cards": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Staff: searches SIM cards by number fragment.",
+        "operationId": "AdminSearchSimCards",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SimCardDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/phones": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Staff: lists handsets.",
+        "operationId": "AdminListPhones",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PhoneDeviceDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/sim-cards/{simCardId}/threads": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Staff: reads a SIM's conversations.",
+        "operationId": "AdminListSimThreads",
+        "parameters": [
+          {
+            "name": "simCardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MessageThreadDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/limits": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "Reports the operationally tunable grant/delivery settings alongside the structural domain constants (container depth, attribute limits), so the Bridge hardcodes nothing.",
+        "operationId": "GetInventoryLimits",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorldLimitsDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/characters/{characterId}/items": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "What this character actually HOLDS: the flat set of live instances rooted at it, with soft-deleted, staff-removed, expired and still-pending (not yet spawned/acked) rows excluded. A row owed but never delivered belongs only on GET .../pending, never here — spawn everything this endpoint returns, and separately spawn+ack everything GET .../pending returns; the two lists never overlap. Deliberately unpaginated — Reforger's own volume system bounds what a character can carry, so the payload is self-limiting. Each row carries its revision so the mod can seed its counters; the client rebuilds the container tree from containerInstanceId.",
+        "operationId": "GetCarriedInventory",
+        "parameters": [
+          {
+            "name": "characterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemInstanceDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/characters/{characterId}/pending": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "What this character is still OWED: instances not yet spawned, oldest-first and bounded by WorldSettings.MaxPendingPageSize (limit is clamped down to it, never up). Excludes rows already at MaxDeliveryAttempts. Disjoint from GET .../items — a row surfaced here has never been spawned, so it will not also appear there; do not spawn it twice. Not a side-effect-free peek: every row returned here has its DeliveryAttempts incremented, since being served in this payload is what an attempt means. The mod spawns what it can, acks, and asks again.",
+        "operationId": "GetPendingDeliveries",
+        "parameters": [
+          {
+            "name": "characterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemInstanceDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/acks": {
+      "post": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "Batched confirmation that one or more backend-granted instances were spawned, clearing pendingSpawn on each. Adoption is mandatory: an id the backend never granted, or one granted to a character not currently on the calling gameserver, is NotFound — never a create. Idempotent: a replayed ack for an already-cleared instance returns AlreadyCleared. Also mints any declared children (an engine-spawned magazine, SIM, etc.), keyed by slot — a replay returns the same child ids rather than minting a second set. A child naming an uncatalogued itemId is reported per-child, not a 500. Bounded by count, not body size: more than maxAcksPerBatch entries, or more than maxChildrenPerAck children on any one entry, is rejected whole as batch_too_large (400, not retryable) — both caps are published on GET /api/inventory/limits.",
+        "operationId": "AcknowledgeInventorySpawns",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcknowledgeSpawnsRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InstanceAckResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/instances/{instanceId}/spawn-failed": {
+      "post": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "The negative ack: reports that a granted instance could not be spawned (inventory full, missing prefab, missing container, or an entity type that can't adopt a backend id). Ships in phase 1 because a portal purchase is delivered at join with no pre-flight check possible. Never mutates pendingSpawn or deliveryAttempts — both are owned by the pending-delivery read (GET .../pending) — this only reports which side of maxDeliveryAttempts the instance already landed on.",
+        "operationId": "ReportInventorySpawnFailed",
+        "parameters": [
+          {
+            "name": "instanceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpawnFailedRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpawnFailedResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/undeliverable": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "The staff queue: instances that reached WorldSettings.MaxDeliveryAttempts without ever being acked. Each row carries its origin/originRef so a human can redeliver or refund — there is no automatic refund.",
+        "operationId": "GetUndeliverableInventoryInstances",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemInstanceDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gathering/actions": {
+      "post": {
+        "tags": [
+          "Gathering"
+        ],
+        "description": "Records a gathering action for a character, granting the item and its skill XP atomically in one commit so the two can never diverge. Returns the same grantedInstances shape a shop purchase returns, so the mod's adopt-and-ack path is written once and reused for both. Server-guarded like the ack path: a gather for a character whose CurrentServerId is a different gameserver is 409, never a mint.",
+        "operationId": "GatherItem",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GatherActionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatherActionResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2658,6 +4044,70 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AccountDto"
+            }
+          }
+        }
+      },
+      "AckChildRequestDto": {
+        "required": [
+          "itemId",
+          "slot"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slot": {
+            "type": "string"
+          }
+        }
+      },
+      "AckedChildDto": {
+        "required": [
+          "itemId",
+          "slot",
+          "outcome"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "existingItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "AcknowledgeSpawnsRequestDto": {
+        "required": [
+          "acks"
+        ],
+        "type": "object",
+        "properties": {
+          "acks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceAckRequestDto"
             }
           }
         }
@@ -2855,6 +4305,111 @@
           }
         }
       },
+      "BlockNumberRequestDto": {
+        "required": [
+          "characterId",
+          "number"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "string"
+          }
+        }
+      },
+      "BulkImportItemDto": {
+        "required": [
+          "prefabClassName"
+        ],
+        "type": "object",
+        "properties": {
+          "prefabClassName": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "persistence": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "BulkImportItemResultDto": {
+        "required": [
+          "prefabClassName",
+          "itemId",
+          "created"
+        ],
+        "type": "object",
+        "properties": {
+          "prefabClassName": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BulkImportItemsRequestDto": {
+        "required": [
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkImportItemDto"
+            }
+          }
+        }
+      },
+      "BulkImportItemsResponseDto": {
+        "required": [
+          "created",
+          "alreadyPresent",
+          "results"
+        ],
+        "type": "object",
+        "properties": {
+          "created": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "alreadyPresent": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkImportItemResultDto"
+            }
+          }
+        }
+      },
       "CharacterDto": {
         "required": [
           "characterId",
@@ -3025,6 +4580,26 @@
           }
         }
       },
+      "ContactDto": {
+        "required": [
+          "id",
+          "number",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
       "CreateCharacterRequestDto": {
         "required": [
           "accountId",
@@ -3069,6 +4644,83 @@
           },
           "prefabClassName": {
             "type": "string"
+          },
+          "persistence": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CreatePhoneModelRequestDto": {
+        "required": [
+          "displayName",
+          "tier",
+          "itemId",
+          "simSlots",
+          "supportedApps",
+          "contactLimit",
+          "threadMessageLimit",
+          "maxGroupParticipants"
+        ],
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "tier": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "itemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "simSlots": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "supportedApps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contactLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "threadMessageLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxGroupParticipants": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -3140,6 +4792,78 @@
           }
         }
       },
+      "GatherActionRequestDto": {
+        "required": [
+          "characterId",
+          "action",
+          "itemId",
+          "quantity"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "GatherActionResultDto": {
+        "required": [
+          "gains",
+          "grantedInstances"
+        ],
+        "type": "object",
+        "properties": {
+          "gains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillXpGrantDto"
+            }
+          },
+          "grantedInstances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GrantedInstanceDto"
+            }
+          }
+        }
+      },
+      "GrantedInstanceDto": {
+        "required": [
+          "instanceId",
+          "itemId",
+          "prefabClassName"
+        ],
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "prefabClassName": {
+            "type": "string"
+          }
+        }
+      },
       "GrantSkillXpRequestDto": {
         "required": [
           "skill",
@@ -3187,12 +4911,93 @@
       },
       "HiveSettingsDto": {
         "required": [
-          "whitelistEnabled"
+          "whitelistEnabled",
+          "smsPerMinutePerSim",
+          "smsMaxBodyLength"
         ],
         "type": "object",
         "properties": {
           "whitelistEnabled": {
             "type": "boolean"
+          },
+          "smsPerMinutePerSim": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "smsMaxBodyLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "InstanceAckRequestDto": {
+        "required": [
+          "instanceId"
+        ],
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AckChildRequestDto"
+            }
+          }
+        }
+      },
+      "InstanceAckResponseDto": {
+        "required": [
+          "instanceId",
+          "outcome"
+        ],
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AckedChildDto"
+            }
+          }
+        }
+      },
+      "ItemCatalogDto": {
+        "required": [
+          "catalogVersion",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "catalogVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemDto"
+            }
           }
         }
       },
@@ -3200,7 +5005,8 @@
         "required": [
           "itemId",
           "displayName",
-          "prefabClassName"
+          "prefabClassName",
+          "persistence"
         ],
         "type": "object",
         "properties": {
@@ -3213,6 +5019,274 @@
           },
           "prefabClassName": {
             "type": "string"
+          },
+          "persistence": {
+            "type": "string"
+          }
+        }
+      },
+      "ItemInstanceDto": {
+        "required": [
+          "instanceId",
+          "itemId",
+          "revision",
+          "parent",
+          "attributes",
+          "origin",
+          "pendingSpawn",
+          "deliveryAttempts",
+          "spawnFailureCount",
+          "registeredAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "displayNameOverride": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parent": {
+            "$ref": "#/components/schemas/ItemParentDto"
+          },
+          "durability": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "ammo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "origin": {
+            "type": "string"
+          },
+          "originRefModule": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originRefId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pendingSpawn": {
+            "type": "boolean"
+          },
+          "deliveryAttempts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lastSpawnFailureReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastSpawnFailureAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "spawnFailureCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "registeredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ItemParentDto": {
+        "required": [
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "characterId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "containerInstanceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "slot": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "transform": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorldTransformDto"
+              }
+            ]
+          }
+        }
+      },
+      "MessageDto": {
+        "required": [
+          "id",
+          "from",
+          "body",
+          "sentAt",
+          "isOutbound"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "isOutbound": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MessageThreadDto": {
+        "required": [
+          "id",
+          "participants",
+          "unreadCount",
+          "lastMessageAt",
+          "messages"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unreadCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lastMessageAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageDto"
+            }
+          }
+        }
+      },
+      "MessageThreadSummaryDto": {
+        "required": [
+          "id",
+          "participants",
+          "unreadCount",
+          "lastMessageAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unreadCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lastMessageAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -3298,6 +5372,123 @@
           }
         }
       },
+      "PhoneDeviceDto": {
+        "required": [
+          "id",
+          "modelId",
+          "boundCharacterId",
+          "isPoweredOn",
+          "installedSimCardIds",
+          "installedApps"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "modelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "boundCharacterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "isPoweredOn": {
+            "type": "boolean"
+          },
+          "installedSimCardIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "installedApps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PhoneModelDto": {
+        "required": [
+          "id",
+          "displayName",
+          "tier",
+          "itemId",
+          "simSlots",
+          "supportedApps",
+          "contactLimit",
+          "threadMessageLimit",
+          "maxGroupParticipants"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "tier": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "itemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "simSlots": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "supportedApps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contactLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "threadMessageLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxGroupParticipants": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "ProblemDetails": {
         "type": "object",
         "properties": {
@@ -3333,6 +5524,51 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "ProvisionPhoneRequestDto": {
+        "required": [
+          "characterId",
+          "modelId"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "modelId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ProvisionSimRequestDto": {
+        "required": [
+          "characterId"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ProvisionSimResponseDto": {
+        "required": [
+          "simCardId",
+          "number"
+        ],
+        "type": "object",
+        "properties": {
+          "simCardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "string"
           }
         }
       },
@@ -3397,6 +5633,38 @@
           }
         }
       },
+      "PurchaseListingResultDto": {
+        "required": [
+          "totalPaid",
+          "newStock",
+          "grantedInstances"
+        ],
+        "type": "object",
+        "properties": {
+          "totalPaid": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "newStock": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "grantedInstances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GrantedInstanceDto"
+            }
+          }
+        }
+      },
       "RecordSkillActionRequestDto": {
         "required": [
           "action"
@@ -3457,6 +5725,22 @@
           }
         }
       },
+      "RenameContactRequestDto": {
+        "required": [
+          "characterId",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
       "RevokeTokenRequestDto": {
         "required": [
           "jti",
@@ -3490,6 +5774,73 @@
           }
         }
       },
+      "SaveContactRequestDto": {
+        "required": [
+          "characterId",
+          "number",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "SendMessageRequestDto": {
+        "required": [
+          "characterId",
+          "to",
+          "body"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      },
+      "SendMessageResponseDto": {
+        "required": [
+          "threadId",
+          "messageId",
+          "undeliverableRecipients"
+        ],
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messageId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "undeliverableRecipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "SessionDto": {
         "required": [
           "status"
@@ -3518,6 +5869,22 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "SetPhonePowerRequestDto": {
+        "required": [
+          "characterId",
+          "isPoweredOn"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "isPoweredOn": {
+            "type": "boolean"
           }
         }
       },
@@ -3618,6 +5985,46 @@
           }
         }
       },
+      "SimCardDto": {
+        "required": [
+          "id",
+          "number",
+          "registeredTo",
+          "installedInDeviceId",
+          "status",
+          "blockedNumbers"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "string"
+          },
+          "registeredTo": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installedInDeviceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "blockedNumbers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "SkillCatalogEntryDto": {
         "required": [
           "skill",
@@ -3679,6 +6086,28 @@
           }
         }
       },
+      "SpawnFailedRequestDto": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "SpawnFailedResponseDto": {
+        "required": [
+          "outcome"
+        ],
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
       "SubmitApplicationRequestDto": {
         "required": [
           "characterId",
@@ -3702,6 +6131,17 @@
         "type": "object",
         "properties": {
           "applicationText": {
+            "type": "string"
+          }
+        }
+      },
+      "SuspendSimRequestDto": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
             "type": "string"
           }
         }
@@ -3785,7 +6225,9 @@
       },
       "UpdateHiveSettingsRequestDto": {
         "required": [
-          "whitelistEnabled"
+          "whitelistEnabled",
+          "smsPerMinutePerSim",
+          "smsMaxBodyLength"
         ],
         "type": "object",
         "properties": {
@@ -3794,6 +6236,24 @@
               "null",
               "boolean"
             ]
+          },
+          "smsPerMinutePerSim": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "smsMaxBodyLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -3891,6 +6351,143 @@
             "format": "double"
           }
         }
+      },
+      "WorldLimitsDto": {
+        "required": [
+          "maxInstancesPerGrant",
+          "maxContainerDepth",
+          "maxAttributeKeys",
+          "maxAttributeValueLength",
+          "groundItemTtlSeconds",
+          "maxPendingPageSize",
+          "maxDeliveryAttempts",
+          "maxAcksPerBatch",
+          "maxChildrenPerAck"
+        ],
+        "type": "object",
+        "properties": {
+          "maxInstancesPerGrant": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxContainerDepth": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxAttributeKeys": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxAttributeValueLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "groundItemTtlSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxPendingPageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxDeliveryAttempts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxAcksPerBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxChildrenPerAck": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "WorldTransformDto": {
+        "required": [
+          "position",
+          "rotation"
+        ],
+        "type": "object",
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/WorldVector3Dto"
+          },
+          "rotation": {
+            "$ref": "#/components/schemas/WorldVector3Dto"
+          }
+        }
+      },
+      "WorldVector3Dto": {
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "type": "object",
+        "properties": {
+          "x": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "y": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "z": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          }
+        }
       }
     }
   },
@@ -3921,6 +6518,15 @@
     },
     {
       "name": "Shops"
+    },
+    {
+      "name": "Phone"
+    },
+    {
+      "name": "Inventory"
+    },
+    {
+      "name": "Gathering"
     }
   ]
 }

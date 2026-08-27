@@ -10,10 +10,19 @@ namespace ELifeRPG.Shops.IntegrationTests;
 /// different calling servers — Shop/ShopListing data is hive-wide (no longer tenanted), so this now
 /// exists to prove cross-server *visibility*, not isolation. Matches
 /// Banking.IntegrationTests/Companies.IntegrationTests' TestServices.cs.
+///
+/// The optional <paramref name="configureServices"/> hook is applied last, after every
+/// AddXInfrastructure call, so a caller's override always wins over the real registration rather than
+/// being clobbered by it. Ported from World.IntegrationTests' TestServices.cs for the same reason it
+/// exists there: one test (PurchaseListing_WhenTheGrantFails_RollsBackThePayment) swaps in a faulty
+/// IItemInstanceRepositoryFactory to fault *inside* PurchaseListingHandler's open cross-module
+/// transaction. Every other call site passes null and gets the same provider as before.
 /// </summary>
 internal static class TestServices
 {
-    public static ServiceProvider BuildProvider(string gameServerClientId = "gameserver-dev")
+    public static ServiceProvider BuildProvider(
+        string gameServerClientId = "gameserver-dev",
+        Action<IServiceCollection>? configureServices = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -24,6 +33,7 @@ internal static class TestServices
                 ["ConnectionStrings:CompanyDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
                 ["ConnectionStrings:ItemDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
                 ["ConnectionStrings:ShopDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
+                ["ConnectionStrings:WorldDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
                 ["ConnectionStrings:SharedDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
                 ["Keycloak:BaseUrl"] = Env("ELIFERPG_TEST_KEYCLOAK_URL", "http://keycloak:8080/"),
                 ["Keycloak:Realm"] = "eliferpg",
@@ -43,6 +53,15 @@ internal static class TestServices
                 typeof(ELifeRPG.Companies.Application.AssemblyMarker),
                 typeof(ELifeRPG.Items.Application.AssemblyMarker),
                 typeof(ELifeRPG.Shops.Application.AssemblyMarker),
+                // Task 6: PurchaseListingHandler grants into World atomically with the payment via
+                // IItemInstanceRepositoryFactory (a plain DI service, not a Mediator dispatch), but it
+                // also dispatches World.Application's own public WorldSettingsQuery via IMediator for
+                // its pre-transaction grant-size cap check — the sanctioned Application->Application
+                // borrow (a direct IWorldSettingsRepository injection is not, per review). This
+                // AssemblyMarker is required today, not just future-proofing: this project's own
+                // PurchaseListing_ExceedingMaxInstancesPerGrant_IsRejectedBeforeAnyPaymentMoves test
+                // also dispatches WorldSettingsQuery directly through the same IMediator.
+                typeof(ELifeRPG.World.Application.AssemblyMarker),
             ];
             options.ServiceLifetime = ServiceLifetime.Transient;
         });
@@ -55,11 +74,15 @@ internal static class TestServices
         services.AddCompanyInfrastructure(configuration);
         services.AddItemInfrastructure(configuration);
         services.AddShopInfrastructure(configuration);
+        services.AddWorldInfrastructure(configuration);
         services.AddCrossModuleIntegration(configuration);
 
         var fake = new FixedCurrentGameServer(gameServerClientId);
         services.AddScoped<ELifeRPG.Characters.Application.Common.ICurrentGameServer>(_ => fake);
         services.AddScoped<ELifeRPG.Shops.Application.Common.ICurrentGameServer>(_ => fake);
+
+        // Applied last, after every AddXInfrastructure call above — see this class's doc comment.
+        configureServices?.Invoke(services);
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }

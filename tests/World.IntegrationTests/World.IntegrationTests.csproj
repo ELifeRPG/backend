@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- This test project is its own composition root, so it needs Mediator.SourceGenerator itself. See ARCHITECTURE.md §9e. -->
+    <PackageReference Include="Mediator.SourceGenerator">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\World\World.Application\World.Application.csproj" />
+    <ProjectReference Include="..\..\src\World\World.Infrastructure\World.Infrastructure.csproj" />
+    <!-- Needed to seed a catalog entry for the grant path (GrantAsync resolves PrefabClassName through it). -->
+    <ProjectReference Include="..\..\src\Items\Items.Application\Items.Application.csproj" />
+    <ProjectReference Include="..\..\src\Items\Items.Infrastructure\Items.Infrastructure.csproj" />
+    <!-- Task 5's ack/spawn-failed server guard dispatches Characters.Application's batched
+         CharactersOnServerQuery, which needs real characters (with a real CurrentServerId) to test
+         against. -->
+    <ProjectReference Include="..\..\src\Characters\Characters.Application\Characters.Application.csproj" />
+    <ProjectReference Include="..\..\src\Characters\Characters.Infrastructure\Characters.Infrastructure.csproj" />
+    <!-- CreateCharacterCommand dispatches Accounts.Application's AccountLookupQuery, so a test that
+         creates a character needs a real account to look up. -->
+    <ProjectReference Include="..\..\src\Accounts\Accounts.Application\Accounts.Application.csproj" />
+    <ProjectReference Include="..\..\src\Accounts\Accounts.Infrastructure\Accounts.Infrastructure.csproj" />
+    <!-- Task 7's GatherCommand orchestrates one ICrossModuleTransaction across Characters and World,
+         so tests need the real ICrossModuleTransactionFactory/AddCrossModuleIntegration wiring, same
+         as Shops.IntegrationTests' PurchaseListingCommand tests. -->
+    <ProjectReference Include="..\..\src\Shared\Shared.Integration\Shared.Integration.csproj" />
+  </ItemGroup>
+
+</Project>

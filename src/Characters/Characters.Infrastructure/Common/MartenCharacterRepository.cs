@@ -28,6 +28,19 @@ public sealed class MartenCharacterRepository : ICharacterRepository, IAsyncDisp
     public async ValueTask<IReadOnlyList<Character>> FindByAccountIdAsync(AccountId accountId, CancellationToken cancellationToken)
         => await _session.Query<Character>().Where(x => x.AccountId.Value == accountId.Value).ToListAsync(cancellationToken);
 
+    // IsOneOf on the strongly-typed id, never `x.Id.Value`: Marten's LINQ provider rejects the
+    // latter outright ("Marten can not (yet) deal with x.Id.Value"). See §9e gotcha 4.
+    public async ValueTask<IReadOnlyList<Character>> FindByIdsAsync(IReadOnlyList<CharacterId> characterIds, CancellationToken cancellationToken)
+    {
+        if (characterIds.Count == 0)
+        {
+            return [];
+        }
+
+        var ids = characterIds.ToArray();
+        return await _session.Query<Character>().Where(x => x.Id.IsOneOf(ids)).ToListAsync(cancellationToken);
+    }
+
     public void StartStream(Character character, CharacterCreated domainEvent)
         => _session.Events.StartStream<Character>(character.Id.Value, domainEvent);
 

@@ -265,7 +265,10 @@ public static class ShopModule
 
                 return result switch
                 {
-                    PurchaseListingResult.Purchased purchased => Results.Ok(new { purchased.TotalPaid, purchased.NewStock }),
+                    // Mapped outside the notifier's try block above: that block swallows every
+                    // exception so a failed push can never turn a committed write into a 500, but the
+                    // DTO mapping below must never be caught by that same net.
+                    PurchaseListingResult.Purchased purchased => Results.Ok(PurchaseListingResultDto.Create(purchased)),
                     PurchaseListingResult.ShopNotFound => Results.Problem(title: "Shop not found", statusCode: StatusCodes.Status404NotFound),
                     PurchaseListingResult.ListingNotFound => Results.Problem(title: "Listing not found", statusCode: StatusCodes.Status404NotFound),
                     PurchaseListingResult.BuyerAccountNotFound => Results.Problem(title: "Buyer bank account not found", statusCode: StatusCodes.Status404NotFound),
@@ -275,14 +278,20 @@ public static class ShopModule
                         title: "Listing changed concurrently, try again", statusCode: StatusCodes.Status409Conflict),
                     PurchaseListingResult.NotAuthorized => Results.Problem(
                         title: "Buyer is not authorized on the given bank account", statusCode: StatusCodes.Status403Forbidden),
+                    PurchaseListingResult.GrantTooLarge grantTooLarge => Results.Problem(
+                        title: $"Requested quantity {grantTooLarge.Requested} exceeds the maximum of {grantTooLarge.MaxInstancesPerGrant} instances per grant",
+                        statusCode: StatusCodes.Status409Conflict),
+                    PurchaseListingResult.ItemNotInCatalog => Results.Problem(
+                        title: "The listing's item no longer has a catalog entry to grant from", statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(ShopsWritePolicy)
+            .Produces<PurchaseListingResultDto>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("PurchaseShopListing")
-            .WithDescription("Purchases a quantity of a shop listing, settling payment via Banking.");
+            .WithDescription("Purchases a quantity of a shop listing, settling payment via Banking and granting the item into World.");
 
         return app;
     }

@@ -33,6 +33,7 @@
     <ProjectReference Include="..\Items\Items.Api\Items.Api.csproj" />
     <ProjectReference Include="..\Phone\Phone.Api\Phone.Api.csproj" />
     <ProjectReference Include="..\Shops\Shops.Api\Shops.Api.csproj" />
+    <ProjectReference Include="..\World\World.Api\World.Api.csproj" />
   </ItemGroup>
 
   <!-- The build-time generator writes "$(MSBuildProjectName).json" (Api.json) with no way to

@@ -36,7 +36,30 @@ curl -X POST http://localhost:5100/api/shops/$SHOP_ID/listings/$LISTING_ID/purch
   -d "{\"quantity\":2,\"buyerCharacterId\":\"$BUYER_CHARACTER_ID\",\"buyerBankAccountId\":\"$BUYER_BANK_ACCOUNT_ID\"}"
 ```
 
-A purchase either fully succeeds or fully fails against the stock read at the moment it's processed — no reservation/holding across separate requests. `409` covers not-enough-stock, not-enough-balance, and the rare case where two purchases raced for the same listing (retry the request). `403` means `buyerCharacterId` doesn't own (or, for a Corporate account, doesn't hold `ManageFinances` on) `buyerBankAccountId`.
+```jsonc
+{
+  "totalPaid": 10,
+  "newStock": 8,
+  "grantedInstances": [                             // one entry per discrete item — Reforger has no stacking
+    { "instanceId": "…", "itemId": "…", "prefabClassName": "ELRPG_AmmoBox_9mm" },
+    { "instanceId": "…", "itemId": "…", "prefabClassName": "ELRPG_AmmoBox_9mm" }
+  ]
+}
+```
+
+**The purchase grants the items, not just the money movement.** Each entry in `grantedInstances` is a
+row the backend minted in [World](./world.md) — in the *same* transaction that moved the payment, so a
+purchase can never take money without owing an item, or owe an item without taking money. Buying a
+quantity of ten mints ten rows, one per entity.
+
+Every granted row starts `pendingSpawn: true` and belongs to the delivery loop from there on: the mod
+seeds each `instanceId` into the spawned entity and calls `POST /api/inventory/acks`; a purchase made
+from the portal, with no game session to spawn into, is delivered at the player's next join via
+`GET /api/inventory/characters/{characterId}/pending`. **The response body is an optimisation, not the
+source of truth** — losing it loses nothing, because the pending read is authoritative for what is
+still owed. See [World](./world.md) for the whole loop.
+
+A purchase either fully succeeds or fully fails against the stock read at the moment it's processed — no reservation/holding across separate requests. `409` covers not-enough-stock, not-enough-balance, the rare case where two purchases raced for the same listing (retry the request), a `quantity` above `maxInstancesPerGrant` (`GET /api/inventory/limits`, since every unit mints its own row), and a listing whose `itemId` no longer has a catalog entry — the last two are both checked *before* any payment moves, so nothing is taken for an order that cannot be fulfilled. `403` means `buyerCharacterId` doesn't own (or, for a Corporate account, doesn't hold `ManageFinances` on) `buyerBankAccountId`.
 
 ## Live updates
 

@@ -206,7 +206,7 @@ public sealed class CrossModuleRowLockSpikeTests : IAsyncLifetime
             throw new InvalidOperationException("Unreachable.");
         }
 
-        var itemResult = await mediator.Send(new CreateItemCommand("Spike Item", "Spike_Item"));
+        var itemResult = await mediator.Send(new CreateItemCommand("Spike Item", $"ELRPG_Test_Spike_{Guid.NewGuid():N}"));
         Assert.True(itemResult is CreateItemResult.Created, $"Expected Created, got {itemResult}");
         if (itemResult is not CreateItemResult.Created item)
         {

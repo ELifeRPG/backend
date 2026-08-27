@@ -24,6 +24,17 @@
     <!-- For IShopListingRepositoryFactory's CrossModuleSessionHandle parameter and
          PurchaseListingHandler's ICrossModuleTransactionFactory usage. -->
     <ProjectReference Include="..\..\Shared\Shared.Integration.Abstractions\Shared.Integration.Abstractions.csproj" />
+    <!-- Application->Application exception (ARCHITECTURE.md §9e): for
+         IItemInstanceRepositoryFactory (the grant path's cross-module contract), the public
+         WorldSettingsQuery/WorldSettings contract (dispatched via IMediator, never a direct repository
+         injection), and the GrantedInstance/ItemOrigin/OriginRef shapes the grant path returns — used
+         directly by PurchaseListingHandler, which grants the purchased item atomically with the
+         payment, before committing the shared ICrossModuleTransaction. This project also transitively
+         consumes World.Domain types through this same reference (ItemOrigin, OriginRef,
+         ItemNotInCatalogException) — same as this file's existing Banking.Application reference giving
+         access to Banking.Domain's BankAccount/events/exceptions — never a direct
+         World.Domain/Infrastructure/Api reference. -->
+    <ProjectReference Include="..\..\World\World.Application\World.Application.csproj" />
   </ItemGroup>
 
 </Project>

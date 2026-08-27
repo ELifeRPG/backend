@@ -21,6 +21,19 @@ public sealed class MartenCharacterSkillsRepository : ICharacterSkillsRepository
         _session = store.LightweightSession();
     }
 
+    /// <summary>
+    /// Used only by <c>MartenCharacterSkillsRepositoryFactory</c> for cross-module atomic writes — the
+    /// session is already bound to a shared transaction the caller owns. Unlike
+    /// <c>MartenBankAccountRepository</c>'s cross-module constructor, this needs no raw transaction of
+    /// its own: <see cref="Append{TEvent}"/> is already a plain, unversioned
+    /// <c>_session.Events.Append</c> with no <c>FetchForWriting</c>/row-lock involved on either path,
+    /// so there is nothing here that needs it.
+    /// </summary>
+    internal MartenCharacterSkillsRepository(IDocumentSession session)
+    {
+        _session = session;
+    }
+
     public async ValueTask<CharacterSkills?> FindByCharacterIdAsync(CharacterId characterId, CancellationToken cancellationToken)
         => await _session.Query<CharacterSkills>().Where(x => x.CharacterId.Value == characterId.Value).FirstOrDefaultAsync(cancellationToken);
 

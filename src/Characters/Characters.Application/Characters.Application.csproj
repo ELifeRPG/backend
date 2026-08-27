@@ -9,6 +9,8 @@
     <ProjectReference Include="..\Characters.Domain\Characters.Domain.csproj" />
     <!-- Only for Accounts.Application's public AccountLookupQuery contract — never Accounts.Domain/Infrastructure. See ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Accounts\Accounts.Application\Accounts.Application.csproj" />
+    <!-- For ICharacterSkillsRepositoryFactory's CrossModuleSessionHandle parameter — see ARCHITECTURE.md §9e. -->
+    <ProjectReference Include="..\..\Shared\Shared.Integration.Abstractions\Shared.Integration.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>
