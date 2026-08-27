@@ -94,9 +94,8 @@ internal static class TestServices
         => Environment.GetEnvironmentVariable(key) is { Length: > 0 } value ? value : fallback;
 }
 
-// Banking and Companies no longer have their own ICurrentGameServer (deleted outright — see
-// docs/superpowers/specs/2026-08-22-hive-tenancy-design.md); Characters' and Shops' both survive,
-// reshaped to resolve a durable GameServerId instead of keying tenancy.
+// Banking and Companies no longer have their own ICurrentGameServer (deleted outright); Characters'
+// and Shops' both survive, reshaped to resolve a durable GameServerId instead of keying tenancy.
 internal sealed class FixedCurrentGameServer(string clientId) :
     ELifeRPG.Characters.Application.Common.ICurrentGameServer,
     ELifeRPG.Shops.Application.Common.ICurrentGameServer

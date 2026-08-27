@@ -61,8 +61,7 @@ public sealed class PurchaseCompanySharesHandler(
         await using var transaction = await transactionFactory.BeginAsync(cancellationToken);
 
         // Repositories obtained from a cross-module transaction handle are intentionally never
-        // disposed here — only `transaction` owns the underlying connection/transaction. See Global
-        // Constraints in docs/superpowers/plans/2026-08-15-cross-module-atomic-writes.md.
+        // disposed here — only `transaction` owns the underlying connection/transaction.
         var bankAccountRepository = bankAccountRepositoryFactory.CreateFor(transaction.Handle);
         var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.PayerBankAccountId, cancellationToken);
         if (bankAccount is null)

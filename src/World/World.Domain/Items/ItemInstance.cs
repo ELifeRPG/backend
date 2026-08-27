@@ -8,8 +8,7 @@ namespace ELifeRPG.World.Domain.Items;
 /// no <c>Quantity</c> here, and there must never be one. A magazine's round count is the one quantity
 /// the engine tracks, and it lives in <see cref="Ammo"/> as a plain integer on this same row.
 ///
-/// A plain Marten document, never a projection — see Global Constraint 1 of
-/// docs/superpowers/plans/2026-08-26-world-inventory-phase-1.md. Under a snapshot/last-write-wins
+/// A plain Marten document, never a projection. Under a snapshot/last-write-wins
 /// model the game sends a full set rather than a delta, and full-world persistence eventually
 /// requires pruning, which would permanently break projection rebuild if this were event-sourced.
 ///

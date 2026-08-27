@@ -218,7 +218,7 @@ public sealed class CompanyCommandTests : IAsyncLifetime
     {
         // Hive model: companies operate across the whole hive, so a company created via one
         // gameserver must be reachable from another. Asserts the opposite of the pre-hive
-        // behaviour — see docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+        // behaviour.
         await using var providerB = TestServices.BuildProvider("gameserver-two");
 
         await using var scopeA = _provider.CreateAsyncScope();

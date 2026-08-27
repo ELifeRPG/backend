@@ -264,8 +264,7 @@ public sealed class ShopCommandTests : IAsyncLifetime
     public async Task Shop_OpenedOnOneServer_IsVisibleFromAnotherServer()
     {
         // Hive model: shops are hive-wide, so a shop opened via one gameserver must be reachable
-        // from another. Asserts the opposite of the pre-hive behaviour — see
-        // docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+        // from another. Asserts the opposite of the pre-hive behaviour.
         await using var providerB = TestServices.BuildProvider("gameserver-two");
 
         await using var scopeA = _provider.CreateAsyncScope();

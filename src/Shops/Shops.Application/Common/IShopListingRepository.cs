@@ -20,8 +20,7 @@ public interface IShopListingRepository
     /// concurrency (fetch and append against the same tracked stream version) so two concurrent
     /// purchases can never both succeed. On the cross-module repository (obtained via
     /// IShopListingRepositoryFactory), Marten's version-checked append machinery does not work on a
-    /// SessionOptions.ForTransaction-bound session (verified against live Postgres — see
-    /// docs/superpowers/specs/2026-08-16-purchase-listing-cross-module-migration.md) — that
+    /// SessionOptions.ForTransaction-bound session (verified against live Postgres) — that
     /// implementation instead acquires a Postgres row lock (`SELECT ... FOR UPDATE` on the listing's
     /// doc-table row) before loading/mutating, then appends a plain, unversioned event; the lock
     /// held for the rest of the transaction gives the same "two concurrent purchases can never both

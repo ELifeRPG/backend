@@ -25,8 +25,7 @@ public sealed class WorldStoreTests : IAsyncLifetime
     // This is Global Constraint 1's enforcement, and the most important test in the module:
     // ItemInstance is a plain Marten document, never a projection. Under a snapshot/last-write-wins
     // model the game sends a full set rather than a delta, and full-world persistence eventually
-    // requires pruning, which would permanently break projection rebuild — see
-    // docs/superpowers/plans/2026-08-26-world-inventory-phase-1.md. A future change that registers
+    // requires pruning, which would permanently break projection rebuild. A future change that registers
     // ItemInstance as a projection (Snapshot<ItemInstance>, a SingleStreamProjection, etc.) must fail
     // this test.
     [Fact]

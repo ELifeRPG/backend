@@ -13,7 +13,7 @@ public class Character
     /// <summary>
     /// Which server (map) this character is currently on. Set at creation and changed only by
     /// travel — a rare, auditable transition, unlike position, which is volatile and lives on
-    /// CharacterPresence instead. See docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+    /// CharacterPresence instead.
     ///
     /// This field was added to <c>CharacterCreated</c> on 2026-08-22. Events written before that
     /// date have no corresponding JSON property. The steady-state read path (Marten

@@ -15,10 +15,9 @@ public static class WorldInfrastructureExtensions
 {
     /// <summary>
     /// Registers World's own Marten store on the `world` schema. Deliberately registers <b>zero</b>
-    /// projections — see Global Constraint 1 in
-    /// docs/superpowers/plans/2026-08-26-world-inventory-phase-1.md: `ItemInstance` is a plain Marten
-    /// document, not an event-sourced aggregate. Under a snapshot/last-write-wins model the game
-    /// sends a full set rather than a delta, and full-world persistence eventually requires pruning,
+    /// projections: `ItemInstance` is a plain Marten document, not an event-sourced aggregate.
+    /// Under a snapshot/last-write-wins model the game sends a full set rather than a delta, and
+    /// full-world persistence eventually requires pruning,
     /// which would permanently break projection rebuild. The corresponding guard test
     /// (`ItemInstance_IsNotRegisteredAsAProjection`) fails the build the day someone "fixes" this by
     /// adding one.

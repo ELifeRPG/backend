@@ -6,7 +6,6 @@ namespace ELifeRPG.Shops.Application.Common;
 /// Builds a Shops listing repository bound to a shared cross-module transaction's session instead of
 /// this module's normal per-request session — used only by orchestrating commands (e.g.
 /// Shops.Application.Shops.PurchaseListingCommand) that write to Shops and another module atomically.
-/// See docs/superpowers/specs/2026-08-15-cross-module-atomic-writes-design.md.
 /// </summary>
 public interface IShopListingRepositoryFactory
 {

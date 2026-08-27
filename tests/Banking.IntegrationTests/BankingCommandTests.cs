@@ -226,8 +226,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
     public async Task OpenBankAccount_ForBankOpenedOnAnotherServer_Succeeds()
     {
         // Hive model: banks are hive-wide, so a bank opened via one gameserver must be usable from
-        // another. Asserts the opposite of the pre-hive behaviour — see
-        // docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+        // another. Asserts the opposite of the pre-hive behaviour.
         await using var providerB = TestServices.BuildProvider("gameserver-two");
 
         await using var scopeA = _provider.CreateAsyncScope();
@@ -247,8 +246,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
     public async Task BankAccount_OpenedOnOneServer_IsVisibleFromAnotherServer()
     {
         // Hive model: money follows the player across maps, so an account opened via one gameserver
-        // must be reachable from another. Asserts the opposite of the pre-hive behaviour — see
-        // docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+        // must be reachable from another. Asserts the opposite of the pre-hive behaviour.
         await using var providerB = TestServices.BuildProvider("gameserver-two");
 
         await using var scopeA = _provider.CreateAsyncScope();

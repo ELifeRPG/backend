@@ -99,7 +99,7 @@ public sealed class CreateCharacterCommandTests : IAsyncLifetime
     {
         // Hive model: servers are maps in one shared world, so a character created via one
         // gameserver must be reachable from another. This asserts the exact opposite of the
-        // pre-hive behaviour — see docs/superpowers/specs/2026-08-22-hive-tenancy-design.md.
+        // pre-hive behaviour.
         var accountId = await CreateAccountAsync();
 
         CharacterId characterId;

@@ -19,8 +19,7 @@ namespace ELifeRPG.Banking.IntegrationTests;
 /// Requires the local infra stack (`docker compose up -d`) and the devcontainer connected to its
 /// network — see README.md. Proves PurchaseCompanySharesCommand's cross-module atomicity: each
 /// non-happy-path test reloads state from Postgres afterward to confirm nothing was partially
-/// persisted, not just that an error was returned. See
-/// docs/superpowers/specs/2026-08-15-cross-module-atomic-writes-design.md.
+/// persisted, not just that an error was returned.
 /// </summary>
 public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
 {

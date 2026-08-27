@@ -73,9 +73,8 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
     {
         // Documents a verified Keycloak behavior, not the desired one: disabling a user does NOT stop
         // Keycloak's classic impersonation-based token-exchange grant (requested_subject) from minting it
-        // a valid token — unlike normal login grants, which do honor `enabled`. See the "Post-implementation
-        // correction" section of docs/superpowers/specs/2026-08-14-account-blocking-login-flow-design.md and
-        // ARCHITECTURE.md §4.3 for the full investigation. The real enforcement boundary is application-layer:
+        // a valid token — unlike normal login grants, which do honor `enabled`. See ARCHITECTURE.md §4.3
+        // for the full investigation. The real enforcement boundary is application-layer:
         // player-connected checks AccountStatus before ever attempting this exchange (see
         // SessionLocalEndpoints.cs). This test exists so a future Keycloak upgrade or config change that
         // starts enforcing `enabled` here gets noticed (it'll start failing) rather than silently assumed.

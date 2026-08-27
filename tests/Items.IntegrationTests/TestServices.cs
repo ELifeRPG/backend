@@ -4,9 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace ELifeRPG.Items.IntegrationTests;
 
 /// <summary>
-/// Hive model: the item catalog has no per-gameserver scoping, so there is nothing left to fix here —
-/// see docs/superpowers/specs/2026-08-22-hive-tenancy-design.md. BuildProvider still accepts a
-/// gameServerClientId parameter (unused) so
+/// Hive model: the item catalog has no per-gameserver scoping, so there is nothing left to fix here.
+/// BuildProvider still accepts a gameServerClientId parameter (unused) so
 /// Handle_ItemCreatedUnderOneServer_IsVisibleFromAnotherServer can build a second, independent
 /// provider without needing a real reason to vary it.
 /// </summary>

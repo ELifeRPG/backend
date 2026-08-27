@@ -32,8 +32,7 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
     /// raw transaction, needed by FetchForUpdateAsync to take a Postgres row lock (Marten's
     /// FetchForWriting doesn't work on a ForTransaction-bound session — see ARCHITECTURE.md §9e
     /// gotcha 9, and MartenShopListingRepository.ReserveStockAsync for the identical pattern already
-    /// proven for ShopListing). Intentionally never disposed by this class in that path; see the
-    /// Global Constraints section of docs/superpowers/plans/2026-08-15-cross-module-atomic-writes.md.
+    /// proven for ShopListing). Intentionally never disposed by this class in that path.
     /// </summary>
     internal MartenBankAccountRepository(IDocumentSession session, NpgsqlTransaction crossModuleTransaction)
     {

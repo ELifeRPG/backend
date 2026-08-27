@@ -6,7 +6,7 @@ namespace ELifeRPG.Companies.Application.Common;
 /// Builds a Companies repository bound to a shared cross-module transaction's session instead of
 /// this module's normal per-request session — used only by orchestrating commands elsewhere (e.g.
 /// Banking.Application.Companies.PurchaseCompanySharesCommand) that write to Companies and another
-/// module atomically. See docs/superpowers/specs/2026-08-15-cross-module-atomic-writes-design.md.
+/// module atomically.
 /// </summary>
 public interface ICompanyRepositoryFactory
 {
