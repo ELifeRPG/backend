@@ -6,6 +6,6 @@ namespace ELifeRPG.Phone.Domain.Apps;
 /// </summary>
 public enum AppKey
 {
-    Messages,
-    Contacts,
+    Messages = 0,
+    Contacts = 1,
 }
