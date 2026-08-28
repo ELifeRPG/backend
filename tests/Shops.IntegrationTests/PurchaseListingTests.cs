@@ -16,6 +16,7 @@ using Mediator;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
+using ELifeRPG.Shared.Integration.Abstractions;
 
 namespace ELifeRPG.Shops.IntegrationTests;
 
@@ -417,7 +418,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
     /// — which this branch changed — actually rolls back.
     ///
     /// So it now faults <i>inside</i> the open transaction, via a swapped-in
-    /// <see cref="IItemInstanceRepositoryFactory"/>, exactly the way
+    /// <see cref="ITransactionParticipant{TRepository}"/>, exactly the way
     /// World.IntegrationTests/GatherTests.cs proves the gathering path's rollback. The fault sits in the
     /// fake's <c>SaveChangesAsync</c>, not its <c>GrantAsync</c>: the handler defers every leg's flush
     /// until all the in-memory work is queued, so a fault in <c>GrantAsync</c> would fire before the
@@ -429,7 +430,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
     public async Task PurchaseListing_WhenTheGrantFails_RollsBackThePayment()
     {
         await using var provider = TestServices.BuildProvider(configureServices: services =>
-            services.Replace(ServiceDescriptor.Scoped<IItemInstanceRepositoryFactory>(_ => new FaultyItemInstanceRepositoryFactory())));
+            services.Replace(ServiceDescriptor.Scoped<ITransactionParticipant<IItemInstanceRepository>>(_ => new FaultyItemInstanceParticipant())));
 
         await using var scope = provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
@@ -783,9 +784,9 @@ public sealed class PurchaseListingTests : IAsyncLifetime
     /// repo (ARCHITECTURE.md §9e). Used only by
     /// <see cref="PurchaseListing_WhenTheGrantFails_RollsBackThePayment"/>.
     /// </summary>
-    private sealed class FaultyItemInstanceRepositoryFactory : IItemInstanceRepositoryFactory
+    private sealed class FaultyItemInstanceParticipant : ITransactionParticipant<IItemInstanceRepository>
     {
-        public IItemInstanceRepository CreateFor(ELifeRPG.Shared.Integration.Abstractions.CrossModuleSessionHandle handle)
+        public IItemInstanceRepository EnlistIn(CrossModuleSessionHandle handle)
             => new FaultyItemInstanceRepository();
     }
 

@@ -1,9 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- Abstractions only (IRequest/IRequestHandler) — the actual generated dispatcher is owned
-         centrally by src/Api; see ARCHITECTURE.md §9e. Referencing Mediator.SourceGenerator here
-         too would generate a second, competing AddMediator()/IMediator implementation. -->
     <PackageReference Include="Mediator.Abstractions" />
   </ItemGroup>
 

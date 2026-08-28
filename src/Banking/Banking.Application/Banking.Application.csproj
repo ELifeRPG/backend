@@ -1,17 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- Only the host references Mediator.SourceGenerator — see ARCHITECTURE.md §9e. -->
     <PackageReference Include="Mediator.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Banking.Domain\Banking.Domain.csproj" />
-    <!-- Only for Characters.Application's public CharacterLookupQuery contract — never Characters.Domain/Infrastructure. See ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Characters\Characters.Application\Characters.Application.csproj" />
-    <!-- Only for Companies.Application's public CompanyLookupQuery/CompanyMemberPermissionsQuery contracts — never Companies.Domain/Infrastructure directly. See ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Companies\Companies.Application\Companies.Application.csproj" />
-    <!-- For IBankAccountRepositoryFactory's CrossModuleSessionHandle parameter — see ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Shared\Shared.Integration.Abstractions\Shared.Integration.Abstractions.csproj" />
   </ItemGroup>
 

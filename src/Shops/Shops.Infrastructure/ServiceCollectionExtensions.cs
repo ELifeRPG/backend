@@ -1,5 +1,6 @@
 using ELifeRPG.Shops.Application.Common;
 using ELifeRPG.Shops.Infrastructure.Common;
+using ELifeRPG.Shared.Integration.Abstractions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -22,7 +23,7 @@ public static class ShopInfrastructureExtensions
 
         services.TryAddScoped<IShopRepository, MartenShopRepository>();
         services.TryAddScoped<IShopListingRepository, MartenShopListingRepository>();
-        services.TryAddScoped<IShopListingRepositoryFactory, MartenShopListingRepositoryFactory>();
+        services.TryAddScoped<ITransactionParticipant<IShopListingRepository>, MartenShopListingParticipant>();
 
         return services;
     }

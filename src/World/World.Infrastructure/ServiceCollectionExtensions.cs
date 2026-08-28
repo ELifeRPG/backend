@@ -6,6 +6,7 @@ using ELifeRPG.World.Domain.Inventory;
 using ELifeRPG.World.Domain.Items;
 using ELifeRPG.World.Domain.Snapshots;
 using ELifeRPG.World.Infrastructure.Common;
+using ELifeRPG.Shared.Integration.Abstractions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -132,7 +133,7 @@ public static class WorldInfrastructureExtensions
         // Shared unit of work for the whole scope — see WorldSession for why this module needs one.
         services.TryAddScoped<IWorldSession, WorldSession>();
         services.TryAddScoped<IItemInstanceRepository, MartenItemInstanceRepository>();
-        services.TryAddScoped<IItemInstanceRepositoryFactory, MartenItemInstanceRepositoryFactory>();
+        services.TryAddScoped<ITransactionParticipant<IItemInstanceRepository>, MartenItemInstanceParticipant>();
         services.TryAddScoped<IWorldSettingsRepository, MartenWorldSettingsRepository>();
         // Task 3: batch-level idempotency (AppliedBatch) and the Full-mode sequence gate (ScopeCursor).
         // Both are plain documents, not projections — see WorldStoreTests' guard test.

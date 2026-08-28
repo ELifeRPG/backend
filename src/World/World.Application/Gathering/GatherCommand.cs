@@ -111,12 +111,10 @@ public sealed record GatherCommand(
 /// that already has both sides' contracts in scope is the one that orchestrates. Structurally this
 /// mirrors Shops.Application's <c>PurchaseListingHandler</c> exactly: one <see cref="ICrossModuleTransaction"/>,
 /// a fully resolved precheck before opening it, then a strictly in-memory-insert path through both
-/// participating modules' cross-module repository factories before one commit.
+/// participating modules' cross-module transaction participants before one commit.
 /// </summary>
 public sealed class GatherHandler(
     ICrossModuleTransactionFactory transactionFactory,
-    ICharacterSkillsRepositoryFactory characterSkillsRepositoryFactory,
-    IItemInstanceRepositoryFactory itemInstanceRepositoryFactory,
     IMediator mediator)
     : IRequestHandler<GatherCommand, GatherResult>
 {
@@ -182,9 +180,9 @@ public sealed class GatherHandler(
 
         await using var transaction = await transactionFactory.BeginAsync(cancellationToken);
 
-        // Repositories obtained from a cross-module transaction handle are intentionally never
-        // disposed here — only `transaction` owns the underlying connection/transaction.
-        var characterSkillsRepository = characterSkillsRepositoryFactory.CreateFor(transaction.Handle);
+        // Repositories enlisted in a cross-module transaction are intentionally never disposed here —
+        // only `transaction` owns the underlying connection/transaction.
+        var characterSkillsRepository = transaction.Enlist<ICharacterSkillsRepository>();
 
         // Same "find-or-initialize" shape as RecordSkillActionHandler — a character's first gather (or
         // first skill action of any kind) has no CharacterSkills stream yet.
@@ -207,9 +205,9 @@ public sealed class GatherHandler(
             gains.Add(new SkillXpGrant(reward.Skill, domainEvent.Amount, domainEvent.NewTotalXp, levelAfter, levelAfter > levelBefore));
         }
 
-        // Repositories obtained from a cross-module transaction handle are intentionally never
-        // disposed here — only `transaction` owns the underlying connection/transaction.
-        var itemInstanceRepository = itemInstanceRepositoryFactory.CreateFor(transaction.Handle);
+        // Repositories enlisted in a cross-module transaction are intentionally never disposed here —
+        // only `transaction` owns the underlying connection/transaction.
+        var itemInstanceRepository = transaction.Enlist<IItemInstanceRepository>();
 
         IReadOnlyList<GrantedInstance> grantedInstances;
         try

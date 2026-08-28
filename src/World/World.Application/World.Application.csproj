@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- Only the host references Mediator.SourceGenerator — see ARCHITECTURE.md §9e. -->
     <PackageReference Include="Mediator.Abstractions" />
   </ItemGroup>
 
@@ -16,13 +15,8 @@
       are the contract's, never a reach into Items' internals; World.Domain still depends on nothing.
     -->
     <ProjectReference Include="..\..\Items\Items.Application\Items.Application.csproj" />
-    <!-- Only for Accounts.Application's public GameServerIdByClientIdQuery contract, used by
-         RegistryCurrentGameServer — never Accounts.Domain/Infrastructure. See ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Accounts\Accounts.Application\Accounts.Application.csproj" />
-    <!-- Only for Characters.Application's public CharactersOnServerQuery contract — the ack path's
-         server guard. Never Characters.Domain/Infrastructure. See ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Characters\Characters.Application\Characters.Application.csproj" />
-    <!-- For IItemInstanceRepositoryFactory's CrossModuleSessionHandle parameter — see ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Shared\Shared.Integration.Abstractions\Shared.Integration.Abstractions.csproj" />
   </ItemGroup>
 

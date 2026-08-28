@@ -19,7 +19,7 @@ public sealed class MartenShopListingRepository : IShopListingRepository, IAsync
     }
 
     /// <summary>
-    /// Used only by MartenShopListingRepositoryFactory for cross-module atomic writes — the session
+    /// Used only by MartenShopListingParticipant for cross-module atomic writes — the session
     /// is already bound to a shared transaction the caller owns; `crossModuleTransaction` is the
     /// same raw transaction, needed by ReserveStockAsync to take a Postgres row lock (Marten's own
     /// version-checked append machinery does not work on a ForTransaction-bound session). Intentionally

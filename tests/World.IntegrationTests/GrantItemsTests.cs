@@ -128,7 +128,7 @@ public sealed class GrantItemsTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Task 6/7 call <c>GrantAsync</c> directly through <c>IItemInstanceRepositoryFactory</c>, bypassing
+    /// Task 6/7 call <c>GrantAsync</c> directly through <c>ITransactionParticipant{IItemInstanceRepository}</c>, bypassing
     /// <c>GrantItemsHandler</c> entirely — this covers that they get a named, catchable exception rather
     /// than a bare <see cref="InvalidOperationException"/>, per the phase 1 review's fix-round finding.
     /// </summary>

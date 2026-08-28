@@ -19,7 +19,7 @@ public interface IShopListingRepository
     /// (non-cross-module) repository, this uses Marten's FetchForWriting-based optimistic
     /// concurrency (fetch and append against the same tracked stream version) so two concurrent
     /// purchases can never both succeed. On the cross-module repository (obtained via
-    /// IShopListingRepositoryFactory), Marten's version-checked append machinery does not work on a
+    /// ITransactionParticipant{IShopListingRepository}), Marten's version-checked append machinery does not work on a
     /// SessionOptions.ForTransaction-bound session (verified against live Postgres) — that
     /// implementation instead acquires a Postgres row lock (`SELECT ... FOR UPDATE` on the listing's
     /// doc-table row) before loading/mutating, then appends a plain, unversioned event; the lock
@@ -31,7 +31,7 @@ public interface IShopListingRepository
     /// As of the PurchaseListingCommand migration onto ICrossModuleTransaction, the cross-module
     /// (row-lock) branch above is the only branch a real purchase exercises in production —
     /// PurchaseListingHandler is the only caller of this method, and it always goes through
-    /// IShopListingRepositoryFactory. The FetchForWriting-based branch and its
+    /// ITransactionParticipant{IShopListingRepository}. The FetchForWriting-based branch and its
     /// ListingPurchaseConflictException translation (see SaveChangesAsync below) are retained as
     /// this interface's general-purpose optimistic-concurrency primitive, available to any future
     /// non-cross-module caller, but they are not currently exercised by the purchase flow.
@@ -46,7 +46,7 @@ public interface IShopListingRepository
     /// those handlers is a reasonable follow-up, deliberately left out of this fix.
     ///
     /// Deliberately does NOT call SaveChangesAsync — callers using a cross-module transaction (see
-    /// IShopListingRepositoryFactory) need to defer the actual database round-trip until every
+    /// ITransactionParticipant{IShopListingRepository}) need to defer the actual database round-trip until every
     /// participating repository is ready to flush together, right before one CommitAsync. Throws
     /// InsufficientStockException immediately (from ShopListing.Purchase) if the freshly-loaded
     /// stock can't cover `quantity`.

@@ -17,8 +17,6 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
-    <!-- The host is the single place that owns the generated Mediator dispatcher — every module's
-         Application project references only Mediator.Abstractions. See ARCHITECTURE.md §9e. -->
     <PackageReference Include="Mediator.SourceGenerator">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -36,9 +34,6 @@
     <ProjectReference Include="..\World\World.Api\World.Api.csproj" />
   </ItemGroup>
 
-  <!-- The build-time generator writes "$(MSBuildProjectName).json" (Api.json) with no way to
-       rename it via MSBuild properties — rename to the repo's established checked-in filename so
-       nothing else (README, ARCHITECTURE.md, downstream Kiota clients) needs to change. -->
   <Target Name="RenameOpenApiDocument" AfterTargets="GenerateOpenApiDocuments">
     <Copy SourceFiles="$(OpenApiDocumentsDirectory)/Api.json"
           DestinationFiles="$(OpenApiDocumentsDirectory)/eliferpg-api-v1.json"

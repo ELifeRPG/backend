@@ -41,8 +41,6 @@ public sealed record PurchaseCompanySharesCommand(
 
 public sealed class PurchaseCompanySharesHandler(
     ICrossModuleTransactionFactory transactionFactory,
-    IBankAccountRepositoryFactory bankAccountRepositoryFactory,
-    ICompanyRepositoryFactory companyRepositoryFactory,
     IMediator mediator)
     : IRequestHandler<PurchaseCompanySharesCommand, PurchaseCompanySharesResult>
 {
@@ -60,16 +58,14 @@ public sealed class PurchaseCompanySharesHandler(
 
         await using var transaction = await transactionFactory.BeginAsync(cancellationToken);
 
-        // Repositories obtained from a cross-module transaction handle are intentionally never
-        // disposed here — only `transaction` owns the underlying connection/transaction.
-        var bankAccountRepository = bankAccountRepositoryFactory.CreateFor(transaction.Handle);
+        var bankAccountRepository = transaction.Enlist<IBankAccountRepository>();
         var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.PayerBankAccountId, cancellationToken);
         if (bankAccount is null)
         {
             return new PurchaseCompanySharesResult.BankAccountNotFound();
         }
 
-        var companyRepository = companyRepositoryFactory.CreateFor(transaction.Handle);
+        var companyRepository = transaction.Enlist<ICompanyRepository>();
         var company = await companyRepository.FetchForUpdateAsync(request.CompanyId, cancellationToken);
         if (company is null)
         {

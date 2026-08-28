@@ -27,7 +27,7 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
     }
 
     /// <summary>
-    /// Used only by MartenBankAccountRepositoryFactory for cross-module atomic writes — the session
+    /// Used only by MartenBankAccountParticipant for cross-module atomic writes — the session
     /// is already bound to a shared transaction the caller owns. `crossModuleTransaction` is the same
     /// raw transaction, needed by FetchForUpdateAsync to take a Postgres row lock (Marten's
     /// FetchForWriting doesn't work on a ForTransaction-bound session — see ARCHITECTURE.md §9e

@@ -319,7 +319,7 @@ public sealed class GatherTests : IAsyncLifetime
     /// before <c>transactionFactory.BeginAsync</c> is ever reached, so none of them prove
     /// <c>GatherHandler</c>'s own cross-module rollback — the entire justification for routing gathering
     /// through <c>ICrossModuleTransaction</c> in the first place. This test drives a fault <i>inside</i>
-    /// the open transaction, via a swapped-in <see cref="IItemInstanceRepositoryFactory"/>, and
+    /// the open transaction, via a swapped-in <see cref="ITransactionParticipant{TRepository}"/>, and
     /// dispatches the real <c>GatherCommand</c> through <c>IMediator</c> — proving <c>GatherHandler</c>'s
     /// actual sequencing, not a hand-rolled reproduction of it (contrast
     /// Banking.IntegrationTests/PurchaseCompanySharesCommandTests.cs's
@@ -344,7 +344,7 @@ public sealed class GatherTests : IAsyncLifetime
     public async Task Gather_WhenTheItemGrantLegFailsAfterSkillXpFlushed_RollsBackTheSkillXp()
     {
         await using var provider = TestServices.BuildProvider(configureServices: services =>
-            services.Replace(ServiceDescriptor.Scoped<IItemInstanceRepositoryFactory>(_ => new FaultyItemInstanceRepositoryFactory())));
+            services.Replace(ServiceDescriptor.Scoped<ITransactionParticipant<IItemInstanceRepository>>(_ => new FaultyItemInstanceParticipant())));
 
         await using var scope = provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
@@ -369,9 +369,9 @@ public sealed class GatherTests : IAsyncLifetime
     /// mocking library in this repo (ARCHITECTURE.md §9e). Used only by
     /// <see cref="Gather_WhenTheItemGrantLegFailsAfterSkillXpFlushed_RollsBackTheSkillXp"/>.
     /// </summary>
-    private sealed class FaultyItemInstanceRepositoryFactory : IItemInstanceRepositoryFactory
+    private sealed class FaultyItemInstanceParticipant : ITransactionParticipant<IItemInstanceRepository>
     {
-        public IItemInstanceRepository CreateFor(CrossModuleSessionHandle handle) => new FaultyItemInstanceRepository();
+        public IItemInstanceRepository EnlistIn(CrossModuleSessionHandle handle) => new FaultyItemInstanceRepository();
     }
 
     /// <summary>

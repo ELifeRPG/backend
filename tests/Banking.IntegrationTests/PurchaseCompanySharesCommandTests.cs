@@ -145,7 +145,6 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
         await CreateCompanyAsync(mediator, buyerId);
 
         var transactionFactory = scope.ServiceProvider.GetRequiredService<ICrossModuleTransactionFactory>();
-        var bankAccountRepositoryFactory = scope.ServiceProvider.GetRequiredService<IBankAccountRepositoryFactory>();
 
         // Manually reproduce PurchaseCompanySharesCommand's handler up through the Banking-side
         // SaveChangesAsync, then deliberately stop — no company-side write, no CommitAsync. Disposing
@@ -154,7 +153,7 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
         // auto-committing on its own connection.
         await using (var transaction = await transactionFactory.BeginAsync(CancellationToken.None))
         {
-            var bankAccountRepository = bankAccountRepositoryFactory.CreateFor(transaction.Handle);
+            var bankAccountRepository = transaction.Enlist<IBankAccountRepository>();
             var bankAccount = await bankAccountRepository.FindByIdAsync(bankAccountId, CancellationToken.None);
             Assert.NotNull(bankAccount);
 

@@ -7,7 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Characters.Application\Characters.Application.csproj" />
     <ProjectReference Include="..\..\Shared\Shared.Infrastructure\Shared.Infrastructure.csproj" />
-    <!-- For MartenCharacterSkillsRepositoryFactory's SessionOptions.ForTransaction/CrossModuleSessionHandle.Unwrap usage — see ARCHITECTURE.md §9e. -->
     <ProjectReference Include="..\..\Shared\Shared.Integration\Shared.Integration.csproj" />
   </ItemGroup>
 

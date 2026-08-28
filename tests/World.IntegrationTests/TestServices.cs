@@ -27,7 +27,7 @@ namespace ELifeRPG.World.IntegrationTests;
 ///
 /// Task 7 review round 1 adds the optional <paramref name="configureServices"/> hook: one test
 /// (Gather_WhenTheItemGrantLegFailsAfterSkillXpFlushed_RollsBackTheSkillXp) needs to swap in a
-/// hand-written faulty IItemInstanceRepositoryFactory to prove GatherHandler's own cross-module
+/// hand-written faulty item-instance participant to prove GatherHandler's own cross-module
 /// rollback, without duplicating this whole method's wiring just for that one substitution. Every
 /// other call site passes null and gets the exact same provider as before this hook existed.
 /// </summary>
@@ -81,7 +81,7 @@ internal static class TestServices
         services.AddScoped<ELifeRPG.World.Application.Common.ICurrentGameServer>(_ => fake);
 
         // Applied last, after every AddXInfrastructure call above, so a caller's override (e.g.
-        // replacing IItemInstanceRepositoryFactory with a faulty fake) always wins over the real
+        // replacing ITransactionParticipant<IItemInstanceRepository> with a faulty fake) always wins over the real
         // registration rather than being clobbered by it.
         configureServices?.Invoke(services);
 

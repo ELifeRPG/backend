@@ -22,3 +22,8 @@ Thumbs.db
 .superpowers/
 .worktrees/
 .serena/
+
+# .NET 10+ file-based-app runfile discovery cache. Written into the repo root by the SDK on
+# `dotnet run <file.cs>`; pure machine-local build state, and its churn has already caused one
+# provenance investigation in this repo.
+/dotnet/

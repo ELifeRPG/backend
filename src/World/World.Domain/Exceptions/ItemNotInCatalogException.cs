@@ -9,7 +9,7 @@ namespace ELifeRPG.World.Domain.Exceptions;
 /// caught by an Application handler and mapped onto a result union case rather than propagate as a
 /// 500 (unlike a plain <see cref="InvalidOperationException"/>, which this repo's convention reserves
 /// for genuine bugs). <c>GrantAsync</c> is a cross-module contract — Task 6 (Shops) and Task 7
-/// (Gathering) call it directly through <c>IItemInstanceRepositoryFactory</c> rather than through
+/// (Gathering) call it directly through <c>ITransactionParticipant{IItemInstanceRepository}</c> rather than through
 /// <c>GrantItemsHandler</c>, so they must catch this themselves; they do not inherit that handler's
 /// mapping.
 /// </summary>

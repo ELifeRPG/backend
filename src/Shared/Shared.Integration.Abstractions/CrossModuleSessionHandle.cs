@@ -8,7 +8,7 @@ namespace ELifeRPG.Shared.Integration.Abstractions;
 /// Opaque handle to a shared cross-module database transaction. Application-layer code only ever
 /// passes this through — the underlying transaction is reachable only via Shared.Integration's
 /// public CrossModuleSessionHandleExtensions.Unwrap(), used exclusively by each participating
-/// module's Infrastructure-layer repository factory.
+/// module's Infrastructure-layer <see cref="ITransactionParticipant{TRepository}"/>.
 /// </summary>
 public sealed class CrossModuleSessionHandle
 {

@@ -6,10 +6,9 @@ using Marten.Services;
 
 namespace ELifeRPG.Characters.Infrastructure.Skills;
 
-/// <summary>Mirrors <c>Banking.Infrastructure.Common.MartenBankAccountRepositoryFactory</c> exactly.</summary>
-public sealed class MartenCharacterSkillsRepositoryFactory(ICharactersStore store) : ICharacterSkillsRepositoryFactory
+public sealed class MartenCharacterSkillsParticipant(ICharactersStore store) : ITransactionParticipant<ICharacterSkillsRepository>
 {
-    public ICharacterSkillsRepository CreateFor(CrossModuleSessionHandle handle)
+    public ICharacterSkillsRepository EnlistIn(CrossModuleSessionHandle handle)
     {
         var transaction = handle.Unwrap();
         var options = SessionOptions.ForTransaction(transaction, shouldAutoCommit: false);

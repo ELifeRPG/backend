@@ -87,9 +87,6 @@ public sealed class PurchaseListingHandler(
     IShopRepository shopRepository,
     IShopListingRepository listingRepository,
     ICrossModuleTransactionFactory transactionFactory,
-    IShopListingRepositoryFactory listingRepositoryFactory,
-    IBankAccountRepositoryFactory bankAccountRepositoryFactory,
-    IItemInstanceRepositoryFactory itemInstanceRepositoryFactory,
     IMediator mediator)
     : IRequestHandler<PurchaseListingCommand, PurchaseListingResult>
 {
@@ -138,9 +135,9 @@ public sealed class PurchaseListingHandler(
 
         await using var transaction = await transactionFactory.BeginAsync(cancellationToken);
 
-        // Repositories obtained from a cross-module transaction handle are intentionally never
-        // disposed here — only `transaction` owns the underlying connection/transaction.
-        var crossModuleListingRepository = listingRepositoryFactory.CreateFor(transaction.Handle);
+        // Repositories enlisted in a cross-module transaction are intentionally never disposed here —
+        // only `transaction` owns the underlying connection/transaction.
+        var crossModuleListingRepository = transaction.Enlist<IShopListingRepository>();
 
         ShopListing listing;
         try
@@ -154,7 +151,7 @@ public sealed class PurchaseListingHandler(
 
         var totalPrice = listing.Price * request.Quantity;
 
-        var bankAccountRepository = bankAccountRepositoryFactory.CreateFor(transaction.Handle);
+        var bankAccountRepository = transaction.Enlist<IBankAccountRepository>();
 
         // Lock acquisition order must not depend on buyer/payout role: which account is "buyer" and
         // which is "payout" varies per request, so locking in request order (buyer, then payout) can
@@ -227,9 +224,9 @@ public sealed class PurchaseListingHandler(
         bankAccountRepository.Append(request.BuyerBankAccountId, outEvent);
         bankAccountRepository.Append(shop.PayoutBankAccountId, inEvent);
 
-        // Repositories obtained from a cross-module transaction handle are intentionally never
-        // disposed here — only `transaction` owns the underlying connection/transaction.
-        var itemInstanceRepository = itemInstanceRepositoryFactory.CreateFor(transaction.Handle);
+        // Repositories enlisted in a cross-module transaction are intentionally never disposed here —
+        // only `transaction` owns the underlying connection/transaction.
+        var itemInstanceRepository = transaction.Enlist<IItemInstanceRepository>();
 
         IReadOnlyList<GrantedInstance> grantedInstances;
         try

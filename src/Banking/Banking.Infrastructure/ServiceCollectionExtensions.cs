@@ -2,6 +2,7 @@ using ELifeRPG.Banking.Application.Common;
 using ELifeRPG.Banking.Domain;
 using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Shared.Infrastructure;
+using ELifeRPG.Shared.Integration.Abstractions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -37,7 +38,7 @@ public static class BankingInfrastructureExtensions
 
         services.TryAddScoped<IBankRepository, MartenBankRepository>();
         services.TryAddScoped<IBankAccountRepository, MartenBankAccountRepository>();
-        services.TryAddScoped<IBankAccountRepositoryFactory, MartenBankAccountRepositoryFactory>();
+        services.TryAddScoped<ITransactionParticipant<IBankAccountRepository>, MartenBankAccountParticipant>();
 
         return services;
     }

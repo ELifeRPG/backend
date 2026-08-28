@@ -4,7 +4,7 @@ namespace ELifeRPG.World.Application.Common;
 
 /// <summary>
 /// The read/write surface task 2 owns, plus task 3's <see cref="GrantAsync"/> for the cross-module
-/// grant path (see the phase 1 plan's Controller rulings and <c>IItemInstanceRepositoryFactory</c>).
+/// grant path (see the phase 1 plan's Controller rulings and <c>ITransactionParticipant{IItemInstanceRepository}</c>).
 /// </summary>
 public interface IItemInstanceRepository
 {

@@ -22,7 +22,7 @@ public sealed class MartenCharacterSkillsRepository : ICharacterSkillsRepository
     }
 
     /// <summary>
-    /// Used only by <c>MartenCharacterSkillsRepositoryFactory</c> for cross-module atomic writes — the
+    /// Used only by <c>MartenCharacterSkillsParticipant</c> for cross-module atomic writes — the
     /// session is already bound to a shared transaction the caller owns. Unlike
     /// <c>MartenBankAccountRepository</c>'s cross-module constructor, this needs no raw transaction of
     /// its own: <see cref="Append{TEvent}"/> is already a plain, unversioned

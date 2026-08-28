@@ -15,7 +15,7 @@ namespace ELifeRPG.Shops.IntegrationTests;
 /// AddXInfrastructure call, so a caller's override always wins over the real registration rather than
 /// being clobbered by it. Ported from World.IntegrationTests' TestServices.cs for the same reason it
 /// exists there: one test (PurchaseListing_WhenTheGrantFails_RollsBackThePayment) swaps in a faulty
-/// IItemInstanceRepositoryFactory to fault *inside* PurchaseListingHandler's open cross-module
+/// ITransactionParticipant{IItemInstanceRepository} to fault *inside* PurchaseListingHandler's open cross-module
 /// transaction. Every other call site passes null and gets the same provider as before.
 /// </summary>
 internal static class TestServices
@@ -54,7 +54,7 @@ internal static class TestServices
                 typeof(ELifeRPG.Items.Application.AssemblyMarker),
                 typeof(ELifeRPG.Shops.Application.AssemblyMarker),
                 // Task 6: PurchaseListingHandler grants into World atomically with the payment via
-                // IItemInstanceRepositoryFactory (a plain DI service, not a Mediator dispatch), but it
+                // ITransactionParticipant<IItemInstanceRepository> (a plain DI service, not a Mediator dispatch), but it
                 // also dispatches World.Application's own public WorldSettingsQuery via IMediator for
                 // its pre-transaction grant-size cap check — the sanctioned Application->Application
                 // borrow (a direct IWorldSettingsRepository injection is not, per review). This

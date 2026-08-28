@@ -5,7 +5,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- This test project is its own composition root, so it needs Mediator.SourceGenerator itself. See ARCHITECTURE.md §9e. -->
     <PackageReference Include="Mediator.SourceGenerator">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -24,8 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The send path reads the hive's SMS limits through Accounts, so this composition root needs
-         that module's handlers and store as well. -->
     <ProjectReference Include="..\..\src\Accounts\Accounts.Infrastructure\Accounts.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Phone\Phone.Application\Phone.Application.csproj" />
     <ProjectReference Include="..\..\src\Phone\Phone.Infrastructure\Phone.Infrastructure.csproj" />

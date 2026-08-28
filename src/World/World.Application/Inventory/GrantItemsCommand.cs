@@ -8,7 +8,7 @@ namespace ELifeRPG.World.Application.Inventory;
 /// for a caller that isn't already inside a cross-module transaction — e.g. a staff
 /// <c>ItemOrigin.AdminGrant</c>, or an integration test exercising the grant mechanism directly. Task
 /// 6 (Shops) and task 7 (Gathering) do not go through this command: they already hold a
-/// cross-module transaction and call <c>IItemInstanceRepositoryFactory.CreateFor(handle).GrantAsync</c>
+/// cross-module transaction and call <c>transaction.Enlist{IItemInstanceRepository}().GrantAsync</c>
 /// directly, since dispatching this command would open a second, unrelated database session.
 /// </summary>
 public union GrantItemsResult(GrantItemsResult.Granted, GrantItemsResult.QuantityExceedsCap, GrantItemsResult.ItemNotInCatalog)
@@ -21,7 +21,7 @@ public union GrantItemsResult(GrantItemsResult.Granted, GrantItemsResult.Quantit
     /// <summary>
     /// Maps <see cref="ItemNotInCatalogException"/> — thrown by <c>GrantAsync</c> when
     /// <see cref="ItemId"/> has no catalog entry to resolve a <c>PrefabClassName</c> from. A caller
-    /// reaching <c>GrantAsync</c> directly through <c>IItemInstanceRepositoryFactory</c> (task 6, task
+    /// reaching <c>GrantAsync</c> directly through <c>ITransactionParticipant{IItemInstanceRepository}</c> (task 6, task
     /// 7) bypasses this handler and must catch that exception itself.
     /// </summary>
     public record ItemNotInCatalog(ItemId ItemId);

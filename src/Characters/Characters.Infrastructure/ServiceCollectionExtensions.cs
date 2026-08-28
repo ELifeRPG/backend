@@ -3,6 +3,7 @@ using ELifeRPG.Characters.Domain;
 using ELifeRPG.Characters.Infrastructure.Common;
 using ELifeRPG.Characters.Infrastructure.Skills;
 using ELifeRPG.Shared.Infrastructure;
+using ELifeRPG.Shared.Integration.Abstractions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -26,7 +27,7 @@ public static class CharacterInfrastructureExtensions
 
         services.TryAddScoped<ICharacterRepository, MartenCharacterRepository>();
         services.TryAddScoped<ICharacterSkillsRepository, MartenCharacterSkillsRepository>();
-        services.TryAddScoped<ICharacterSkillsRepositoryFactory, MartenCharacterSkillsRepositoryFactory>();
+        services.TryAddScoped<ITransactionParticipant<ICharacterSkillsRepository>, MartenCharacterSkillsParticipant>();
 
         return services;
     }

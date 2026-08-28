@@ -2,6 +2,7 @@ using ELifeRPG.Companies.Application.Common;
 using ELifeRPG.Companies.Domain;
 using ELifeRPG.Companies.Infrastructure.Common;
 using ELifeRPG.Shared.Infrastructure;
+using ELifeRPG.Shared.Integration.Abstractions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -36,7 +37,7 @@ public static class CompanyInfrastructureExtensions
         });
 
         services.TryAddScoped<ICompanyRepository, MartenCompanyRepository>();
-        services.TryAddScoped<ICompanyRepositoryFactory, MartenCompanyRepositoryFactory>();
+        services.TryAddScoped<ITransactionParticipant<ICompanyRepository>, MartenCompanyParticipant>();
 
         return services;
     }

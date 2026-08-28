@@ -26,7 +26,7 @@ public sealed class MartenCompanyRepository : ICompanyRepository, IAsyncDisposab
     }
 
     /// <summary>
-    /// Used only by MartenCompanyRepositoryFactory for cross-module atomic writes — same pattern as
+    /// Used only by MartenCompanyParticipant for cross-module atomic writes — same pattern as
     /// MartenBankAccountRepository's cross-module constructor (see Task 1 of this plan). Intentionally
     /// never disposed by this class in that path.
     /// </summary>

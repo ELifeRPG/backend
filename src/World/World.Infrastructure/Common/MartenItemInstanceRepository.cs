@@ -41,7 +41,7 @@ public sealed class MartenItemInstanceRepository : IItemInstanceRepository
     }
 
     /// <summary>
-    /// Used only by <c>MartenItemInstanceRepositoryFactory</c> for cross-module atomic writes — the
+    /// Used only by <c>MartenItemInstanceParticipant</c> for cross-module atomic writes — the
     /// session is already bound to a shared transaction the caller owns. Mirrors
     /// <c>MartenBankAccountRepository</c>'s internal constructor exactly, except this module never
     /// needs the raw transaction itself: grants take no row lock (see <see cref="GrantAsync"/>), so

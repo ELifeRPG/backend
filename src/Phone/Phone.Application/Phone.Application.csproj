@@ -1,14 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- Only the host references Mediator.SourceGenerator — see ARCHITECTURE.md §9e. -->
     <PackageReference Include="Mediator.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Cross-module reads go through Mediator, so the contract assembly is referenced but the
-         other module's Domain/Infrastructure never is — see ARCHITECTURE.md §9e. Phone needs the
-         hive's SMS limits. -->
     <ProjectReference Include="..\..\Accounts\Accounts.Application\Accounts.Application.csproj" />
     <ProjectReference Include="..\Phone.Domain\Phone.Domain.csproj" />
   </ItemGroup>

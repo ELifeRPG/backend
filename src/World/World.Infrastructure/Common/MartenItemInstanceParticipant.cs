@@ -7,11 +7,10 @@ using Marten.Services;
 
 namespace ELifeRPG.World.Infrastructure.Common;
 
-/// <summary>Mirrors <c>Banking.Infrastructure.Common.MartenBankAccountRepositoryFactory</c> exactly.</summary>
-public sealed class MartenItemInstanceRepositoryFactory(IWorldStore store, TimeProvider timeProvider, IItemCatalogResolver catalogResolver)
-    : IItemInstanceRepositoryFactory
+public sealed class MartenItemInstanceParticipant(IWorldStore store, TimeProvider timeProvider, IItemCatalogResolver catalogResolver)
+    : ITransactionParticipant<IItemInstanceRepository>
 {
-    public IItemInstanceRepository CreateFor(CrossModuleSessionHandle handle)
+    public IItemInstanceRepository EnlistIn(CrossModuleSessionHandle handle)
     {
         var transaction = handle.Unwrap();
         var options = SessionOptions.ForTransaction(transaction, shouldAutoCommit: false);

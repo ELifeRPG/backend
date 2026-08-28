@@ -6,9 +6,9 @@ using Marten.Services;
 
 namespace ELifeRPG.Banking.Infrastructure.Common;
 
-public sealed class MartenBankAccountRepositoryFactory(IBankingStore store) : IBankAccountRepositoryFactory
+public sealed class MartenBankAccountParticipant(IBankingStore store) : ITransactionParticipant<IBankAccountRepository>
 {
-    public IBankAccountRepository CreateFor(CrossModuleSessionHandle handle)
+    public IBankAccountRepository EnlistIn(CrossModuleSessionHandle handle)
     {
         var transaction = handle.Unwrap();
         var options = SessionOptions.ForTransaction(transaction, shouldAutoCommit: false);

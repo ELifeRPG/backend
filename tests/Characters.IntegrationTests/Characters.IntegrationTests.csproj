@@ -5,8 +5,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- This test project is its own composition root, so — unlike the modules it references —
-         it does need Mediator.SourceGenerator to get a working IMediator. See ARCHITECTURE.md §9e. -->
     <PackageReference Include="Mediator.SourceGenerator">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
