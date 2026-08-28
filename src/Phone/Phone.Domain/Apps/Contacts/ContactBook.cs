@@ -1,5 +1,4 @@
 using ELifeRPG.Phone.Domain.Apps.Contacts.Events;
-using System.Text.Json.Serialization;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Domain.Exceptions;
 
@@ -16,13 +15,10 @@ namespace ELifeRPG.Phone.Domain.Apps.Contacts;
 /// </summary>
 public class ContactBook
 {
-    [JsonInclude]
     public ContactBookId Id { get; private set; }
 
-    [JsonInclude]
     public PhoneDeviceId PhoneId { get; private set; }
 
-    [JsonInclude]
     public List<Contact> Contacts { get; private set; } = [];
 
     public static ContactBook Create(ContactBookOpened domainEvent)

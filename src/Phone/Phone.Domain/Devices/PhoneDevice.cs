@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using ELifeRPG.Phone.Domain.Apps;
 using ELifeRPG.Phone.Domain.Devices.Events;
 using ELifeRPG.Phone.Domain.Exceptions;
@@ -33,10 +32,8 @@ public class PhoneDevice
     public const int MinPinLength = 4;
     public const int MaxPinLength = 8;
 
-    [JsonInclude]
     public PhoneDeviceId Id { get; private set; }
 
-    [JsonInclude]
     public PhoneNumber Number { get; private set; }
 
     /// <summary>
@@ -45,25 +42,18 @@ public class PhoneDevice
     /// struct is neither. Written once by <see cref="Apply(PhoneDeviceProvisioned)"/>; a number
     /// never changes after provisioning, so the two can not drift.
     /// </summary>
-    [JsonInclude]
     public string NumberValue { get; private set; } = string.Empty;
 
-    [JsonInclude]
     public string Pin { get; private set; } = string.Empty;
 
-    [JsonInclude]
     public CharacterId RegisteredTo { get; private set; }
 
-    [JsonInclude]
     public PhoneStatus Status { get; private set; }
 
-    [JsonInclude]
     public bool IsPoweredOn { get; private set; }
 
-    [JsonInclude]
     public List<PhoneNumber> BlockedNumbers { get; private set; } = [];
 
-    [JsonInclude]
     public List<InstalledApp> InstalledApps { get; private set; } = [];
 
     public static PhoneDevice Create(PhoneDeviceProvisioned domainEvent)

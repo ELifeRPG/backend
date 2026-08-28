@@ -1,6 +1,7 @@
 using ELifeRPG.Shops.Application.Common;
 using ELifeRPG.Shops.Infrastructure.Common;
 using ELifeRPG.Shared.Integration.Abstractions;
+using ELifeRPG.Shared.Infrastructure;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,6 +15,8 @@ public static class ShopInfrastructureExtensions
     {
         services.AddMartenStore<IShopsStore>(options =>
         {
+            options.UseSystemTextJsonWithPrivateSetters();
+
             options.Connection(configuration.GetConnectionString("ShopDatabase")!);
             options.Events.DatabaseSchemaName = "shops";
             options.DatabaseSchemaName = "shops";

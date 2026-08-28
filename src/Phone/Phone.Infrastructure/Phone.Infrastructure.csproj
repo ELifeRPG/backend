@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Phone.Application\Phone.Application.csproj" />
+    <ProjectReference Include="..\..\Shared\Shared.Infrastructure\Shared.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

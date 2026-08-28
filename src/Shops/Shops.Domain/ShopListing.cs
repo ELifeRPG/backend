@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using ELifeRPG.Shops.Domain.Events;
 using ELifeRPG.Shops.Domain.Exceptions;
 
@@ -6,22 +5,16 @@ namespace ELifeRPG.Shops.Domain;
 
 public class ShopListing
 {
-    [JsonInclude]
     public ShopListingId Id { get; private set; }
 
-    [JsonInclude]
     public ShopId ShopId { get; private set; }
 
-    [JsonInclude]
     public ItemId ItemId { get; private set; }
 
-    [JsonInclude]
     public decimal Price { get; private set; }
 
-    [JsonInclude]
     public int Stock { get; private set; }
 
-    [JsonInclude]
     public bool IsActive { get; private set; }
 
     public static ShopListing Create(ListingCreated domainEvent)

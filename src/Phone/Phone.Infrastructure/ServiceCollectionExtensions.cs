@@ -3,6 +3,7 @@ using ELifeRPG.Phone.Domain.Apps.Contacts;
 using ELifeRPG.Phone.Domain.Apps.Messages;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Infrastructure.Common;
+using ELifeRPG.Shared.Infrastructure;
 using JasperFx.Events.Projections;
 using Marten;
 using Microsoft.Extensions.Configuration;
@@ -17,6 +18,8 @@ public static class PhoneInfrastructureExtensions
     {
         services.AddMartenStore<IPhoneStore>(options =>
         {
+            options.UseSystemTextJsonWithPrivateSetters(new PhoneNumberJsonConverter());
+
             options.Connection(configuration.GetConnectionString("PhoneDatabase")!);
             options.Events.DatabaseSchemaName = "phone";
             options.DatabaseSchemaName = "phone";

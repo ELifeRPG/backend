@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
 using ELifeRPG.Phone.Domain.Devices;
 
@@ -13,30 +12,25 @@ namespace ELifeRPG.Phone.Domain.Apps.Messages;
 /// </summary>
 public class MessageThread
 {
-    [JsonInclude]
     public MessageThreadId Id { get; private set; }
 
-    [JsonInclude]
     public PhoneDeviceId OwnerPhoneId { get; private set; }
 
     /// <summary>Sorted and deduplicated, and never includes the owner's own number.</summary>
-    [JsonInclude]
     public List<PhoneNumber> Participants { get; private set; } = [];
 
     /// <summary>
-    /// Canonical rendering of <see cref="Participants"/>, carried as a plain string so Marten can put
-    /// a unique index on (OwnerPhoneId, ThreadKey) and the send path can look a thread up in one hit.
+    /// Canonical rendering of <see cref="Participants"/>, carried as a plain string because Marten
+    /// can neither index nor translate a predicate against a <see cref="PhoneNumber"/> — so the send
+    /// path can look a thread up in one hit. Backed by a plain index on ThreadKey alone; the lookup
+    /// filters (OwnerPhoneId, ThreadKey) but nothing enforces that pair.
     /// </summary>
-    [JsonInclude]
     public string ThreadKey { get; private set; } = string.Empty;
 
-    [JsonInclude]
     public List<Message> Messages { get; private set; } = [];
 
-    [JsonInclude]
     public int UnreadCount { get; private set; }
 
-    [JsonInclude]
     public DateTimeOffset LastMessageAt { get; private set; }
 
     /// <summary>

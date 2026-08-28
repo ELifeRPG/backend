@@ -1,26 +1,19 @@
-using System.Text.Json.Serialization;
 using ELifeRPG.Shops.Domain.Events;
 
 namespace ELifeRPG.Shops.Domain;
 
 public class Shop
 {
-    [JsonInclude]
     public ShopId Id { get; private set; }
 
-    [JsonInclude]
     public ShopOwnerType OwnerType { get; private set; }
 
-    [JsonInclude]
     public CharacterId? OwnerCharacterId { get; private set; }
 
-    [JsonInclude]
     public CompanyId? OwnerCompanyId { get; private set; }
 
-    [JsonInclude]
     public string DisplayName { get; private set; } = string.Empty;
 
-    [JsonInclude]
     public BankAccountId PayoutBankAccountId { get; private set; }
 
     /// <summary>
@@ -37,7 +30,6 @@ public class Shop
     /// <c>default(GameServerId)</c> (<c>Guid.Empty</c>) for it — no exception, no warning. Treat
     /// <c>ServerId</c> on any shop replayed from pre-2026-08-22 events as unset, not trustworthy.
     /// </summary>
-    [JsonInclude]
     public GameServerId ServerId { get; private set; }
 
     public static Shop Create(ShopOpened domainEvent)

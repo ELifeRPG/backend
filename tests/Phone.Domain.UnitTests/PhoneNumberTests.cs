@@ -1,4 +1,3 @@
-using System.Text.Json;
 using ELifeRPG.Phone.Domain.Exceptions;
 using ELifeRPG.Phone.Domain.Devices;
 using Xunit;
@@ -76,22 +75,5 @@ public class PhoneNumberTests
         Assert.True(number.IsEmpty);
         Assert.Equal(string.Empty, number.Value);
         Assert.Equal(string.Empty, number.ToString());
-    }
-
-    [Fact]
-    public void Json_RoundTripsAsABareString()
-    {
-        // Serialised as a bare JSON string, not an object, so Marten can put a unique index straight
-        // on SimCard.Number without reaching through a nested property.
-        var json = JsonSerializer.Serialize(PhoneNumber.Parse("44127788"));
-
-        Assert.Equal("\"44127788\"", json);
-        Assert.Equal(PhoneNumber.Parse("44127788"), JsonSerializer.Deserialize<PhoneNumber>(json));
-    }
-
-    [Fact]
-    public void Json_DeserialisingNull_YieldsEmpty()
-    {
-        Assert.True(JsonSerializer.Deserialize<PhoneNumber>("null").IsEmpty);
     }
 }

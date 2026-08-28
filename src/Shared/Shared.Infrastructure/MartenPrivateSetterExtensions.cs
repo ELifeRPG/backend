@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Marten;
 
@@ -13,11 +14,25 @@ public static class MartenPrivateSetterExtensions
     /// NonPublicMembersStorage setting looks purpose-built for this but is dead code as of Marten
     /// 9.23.0 (verified by decompiling Marten.dll — the property is stored but never read by
     /// SerializerFactory), hence doing it directly via a JsonTypeInfo modifier.
+    ///
+    /// <paramref name="converters"/> is how a module keeps a converter for one of its own value
+    /// types out of its Domain project: the type stays attribute-free and the module's
+    /// Infrastructure passes the converter here instead. Marten applies the callback to each of its
+    /// four internal JsonSerializerOptions, so one instance is shared across all of them — which is
+    /// what Marten itself does for the converters it registers.
     /// </summary>
-    public static void UseSystemTextJsonWithPrivateSetters(this StoreOptions options)
-        => options.UseSystemTextJsonForSerialization(configure: o => o.TypeInfoResolver = new DefaultJsonTypeInfoResolver
+    public static void UseSystemTextJsonWithPrivateSetters(this StoreOptions options, params JsonConverter[] converters)
+        => options.UseSystemTextJsonForSerialization(configure: o =>
         {
-            Modifiers = { AllowPrivateSetters },
+            o.TypeInfoResolver = new DefaultJsonTypeInfoResolver
+            {
+                Modifiers = { AllowPrivateSetters },
+            };
+
+            foreach (var converter in converters)
+            {
+                o.Converters.Add(converter);
+            }
         });
 
     private static void AllowPrivateSetters(JsonTypeInfo typeInfo)

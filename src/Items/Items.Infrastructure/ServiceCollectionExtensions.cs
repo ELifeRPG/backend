@@ -1,6 +1,7 @@
 using ELifeRPG.Items.Application.Common;
 using ELifeRPG.Items.Domain;
 using ELifeRPG.Items.Infrastructure.Common;
+using ELifeRPG.Shared.Infrastructure;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,6 +15,8 @@ public static class ItemInfrastructureExtensions
     {
         services.AddMartenStore<IItemsStore>(options =>
         {
+            options.UseSystemTextJsonWithPrivateSetters();
+
             options.Connection(configuration.GetConnectionString("ItemDatabase")!);
             options.Events.DatabaseSchemaName = "items";
             options.DatabaseSchemaName = "items";
