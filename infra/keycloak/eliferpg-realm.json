@@ -1265,7 +1265,8 @@
         "phone",
         "organization",
         "offline_access",
-        "microprofile-jwt"
+        "microprofile-jwt",
+        "account:self:manage"
       ]
     }
   ],

@@ -3707,6 +3707,45 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "Partially updates this deployment's tunable inventory settings; omitted fields are left unchanged. Only the tunable half of GET /api/inventory/limits is writable — the structural domain constants and the rate-limit figures are not. Every value is range-checked rather than clamped: an out-of-range knob is `setting_out_of_range` (400, not retryable) naming the knob and its allowed range, and nothing is written. Requires the staff `inventory:manage` scope, like the other staff-facing reads here.",
+        "operationId": "UpdateInventoryLimits",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorldLimitsRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorldLimitsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/inventory/characters/{characterId}/items": {
@@ -3835,6 +3874,86 @@
         }
       }
     },
+    "/api/inventory/snapshots": {
+      "post": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "The Bridge write path: the mod reports the current state of one or more item instances, applied under revision last-write-wins in a single transaction. The backend is the sole minter of an instanceId — an upsert naming an id it never issued is rejected UnknownInstance and creates nothing, for every parent kind, with no exception. A higher revision wins; a lower one is counted in `skippedNoOp`; an equal revision carrying different content is an IdentityConflict rather than a silent overwrite. Reporting a still-pending instance is treated as proof the mod adopted it and clears pendingSpawn, which is how a lost ack recovers — but only from a Character-scoped batch naming the character that instance is owed to, since an undelivered grant has no delivery server of its own for the usual guard to check. Moving a container rewrites the denormalised root fields of everything nested inside it, and deleting one soft-deletes its contents with it — those cascaded rows are reported in `cascadeDeleted` rather than added to `deleted`, which counts only the deletes that were asked for, so both numbers stay meaningful. Per-instance problems (an uncatalogued itemId, an out-of-range revision/durability/ammo, an instance on another gameserver, a container cycle or excessive nesting, an oversized attribute bag, a staff-removed row, an unknown id) are reported in `rejected` and never fail the batch. Only a duplicate instanceId within the batch, an over-sized upserts/deletes array, an out-of-range `sequence`, or the batch's own scope not being reachable from the calling gameserver fail the whole batch with `retryable: false` in the problem detail. Replaying an already-applied `batchId` within `batchIdRetentionSeconds` (see GET .../limits) returns the exact original response with `replayOfPriorBatch: true` rather than re-applying anything — scoped to the calling gameserver, so a batchId recorded under a different one is never returned here. `mode: Full` additionally requires `sequence` (capped at a sanity ceiling well above any realistic scheme) and is gated by a per-scope cursor, so an out-of-order reconcile is rejected `stale_sequence` (409, not retryable); a `mode: Partial` batch needs neither. `mode: Full` also MEANS 'this is everything in this scope': every live row the scope holds that the payload does not mention is soft-deleted and counted in `swept`, separately from `deleted` and `cascadeDeleted`. A `Full` must enumerate the contents of any container it mentions; contents of a container it does NOT mention are left alone, because silence about a container you never looked in is not evidence of absence. Nor is anything swept that this same batch moved out of the scope: report a backpack as dropped and its unreported contents go with it rather than being deleted underneath it. Three further kinds of row are never swept — a still-`pendingSpawn` instance (the game has not spawned it yet, so its absence from a report of what the game can see means nothing), a staff-removed tombstone, and any container a surviving row is still nested inside. Its scope must be a single character or container: `mode: Full` with anything else is `unsupported_full_scope` (400, not retryable), because a server-wide reconcile is a separate staff operation with a dry run. Whichever kind `scope.kind` names, send ONLY that kind's companion id — a scope carrying both `scope.characterId` and `scope.containerInstanceId` names two anchors at once and is rejected 400 (not retryable), for either mode; drop the one the declared kind does not use. And a `Full` batch is refused when its scope HOLDS more than `suspiciousReconcileScopeRowsThreshold` sweep-eligible rows (live, not pendingSpawn, not staff-removed — this is a test of how much was at stake, NOT of how many rows the batch would delete) AND it offers too little evidence for that: either fewer than `suspiciousReconcileUpsertsThreshold` upserts, or a sweep covering at least `suspiciousReconcileSweptPercentThreshold` percent of those same eligible rows (all three on GET .../limits). Such a batch is refused whole as `suspicious_reconcile` (422, not retryable), recorded for staff, and leaves the scope's cursor unadvanced so a corrected reconcile is still accepted at the same `sequence` — a server that booted with a failed mod load will happily report an empty world, and soft delete is the only undo this design has. The one exception to every rejection above being non-retryable: two `Full` batches racing the same scope's cursor produce `concurrent_reconcile` (409, `retryable: true`) for whichever commits second — an unmodified resend is correct. Task 6 bounds the path: a token bucket partitioned on the caller's client_id, so each gameserver gets its own burst allowance and its own sustained rate (both published on GET /api/inventory/limits). Exceeding it is 429 with a Retry-After header and `retryable: true` — the second retryable outcome this endpoint has, and the only one that is about the caller's pace rather than its content.",
+        "operationId": "ApplyInventorySnapshot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplySnapshotRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplySnapshotResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before resending this request unmodified.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/inventory/instances/{instanceId}/spawn-failed": {
       "post": {
         "tags": [
@@ -3870,6 +3989,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SpawnFailedResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -3913,6 +4042,127 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/ItemInstanceDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/unknown-prefabs": {
+      "post": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "The mod's batched report of prefab class names it saw or picked up that have no catalog entry — the only signal staff have that the catalog needs to grow. Upserts one UnknownPrefabSighting per distinct prefabClassName, keyed on a deterministic id derived from the name so the same prefab reported from any gameserver in the hive accumulates onto one row: count is incremented by this report's count (never replaced), lastSeenAt advances to the time this report was received, and firstSeenAt/sampleContext are captured once, on the very first report, and never overwritten afterward. prefabClassName and sampleContext are bounded strings and count/firstSeenAt are bounded to a plausible range (see GET .../limits) — every sighting in the batch is checked before any row is touched, and one out-of-bounds entry fails the whole batch 400 (not retryable), same as an over-sized sightings array. Task 6 attaches the aggressive rate-limiting policy task 5 asked for: a token bucket partitioned on the caller's client_id, deliberately two orders of magnitude tighter than the snapshot path's, because the thing it guards against is a mod bug reporting the same missing prefab on every entity spawn — a loop that produces well-formed, authorised, individually-cheap requests indefinitely, which nothing else on this path would stop. Over it, 429 with Retry-After and `retryable: true`; both the burst and the sustained rate are published on GET /api/inventory/limits.",
+        "operationId": "RecordUnknownPrefabSightings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordUnknownPrefabSightingsRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before resending this request unmodified.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "description": "The staff promotion queue: every reported prefab with no catalog entry, sorted by count descending (ties broken by lastSeenAt descending, then id, for a stable total order) so the ones worth cataloguing first sort to the top. Unlike phase 1's GET .../undeliverable, this is genuinely paginated — limit is clamped to [1, WorldSettings.MaxUnknownPrefabQueryPageSize] (published on GET .../limits), same clamping shape as GET .../pending, and offset (default 0, floored at 0 and clamped to WorldSettings.MaxUnknownPrefabQueryOffset — also on GET .../limits) moves through the rest of the queue past the first page. minCount filters out noise below a chosen threshold; since filters on lastSeenAt (not firstSeenAt), so a prefab last reported long ago — its mod bug may since have been fixed — drops out even if it was first seen recently.",
+        "operationId": "GetUnknownPrefabSightings",
+        "parameters": [
+          {
+            "name": "minCount",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UnknownPrefabSightingDto"
                   }
                 }
               }
@@ -4168,6 +4418,124 @@
           "characterId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "ApplySnapshotRequestDto": {
+        "required": [
+          "batchId",
+          "scope",
+          "mode"
+        ],
+        "type": "object",
+        "properties": {
+          "batchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SnapshotScopeRequestDto"
+          },
+          "sequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "upserts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotUpsertRequestDto"
+            }
+          },
+          "deletes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotDeleteRequestDto"
+            }
+          }
+        }
+      },
+      "ApplySnapshotResponseDto": {
+        "required": [
+          "batchId",
+          "applied",
+          "skippedNoOp",
+          "deleted",
+          "cascadeDeleted",
+          "swept",
+          "rejected",
+          "replayOfPriorBatch"
+        ],
+        "type": "object",
+        "properties": {
+          "batchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "applied": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "skippedNoOp": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "deleted": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cascadeDeleted": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "swept": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rejected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotRejectionDto"
+            }
+          },
+          "replayOfPriorBatch": {
+            "type": "boolean"
           }
         }
       },
@@ -5524,8 +5892,16 @@
               "null",
               "string"
             ]
+          },
+          "retryable": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Whether resending this exact request unmodified can succeed. Present on every problem the World module returns; absent elsewhere, and an absent value means false. See docs/bridge.md."
           }
-        }
+        },
+        "additionalProperties": { }
       },
       "ProvisionPhoneRequestDto": {
         "required": [
@@ -5702,6 +6078,20 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CharacterSkillDto"
+            }
+          }
+        }
+      },
+      "RecordUnknownPrefabSightingsRequestDto": {
+        "required": [
+          "sightings"
+        ],
+        "type": "object",
+        "properties": {
+          "sightings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnknownPrefabSightingRequestDto"
             }
           }
         }
@@ -6086,6 +6476,167 @@
           }
         }
       },
+      "SnapshotDeleteRequestDto": {
+        "required": [
+          "instanceId",
+          "revision",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "SnapshotParentRequestDto": {
+        "required": [
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "characterId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "slot": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "containerInstanceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "transform": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorldTransformDto"
+              }
+            ]
+          }
+        }
+      },
+      "SnapshotRejectionDto": {
+        "required": [
+          "instanceId",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "SnapshotScopeRequestDto": {
+        "required": [
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "characterId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "containerInstanceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "SnapshotUpsertRequestDto": {
+        "required": [
+          "instanceId",
+          "revision",
+          "itemId",
+          "parent"
+        ],
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parent": {
+            "$ref": "#/components/schemas/SnapshotParentRequestDto"
+          },
+          "durability": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "ammo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "SpawnFailedRequestDto": {
         "required": [
           "reason"
@@ -6206,6 +6757,73 @@
           }
         }
       },
+      "UnknownPrefabSightingDto": {
+        "required": [
+          "prefabClassName",
+          "count",
+          "firstSeenAt",
+          "lastSeenAt"
+        ],
+        "type": "object",
+        "properties": {
+          "prefabClassName": {
+            "type": "string"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "firstSeenAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sampleContext": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UnknownPrefabSightingRequestDto": {
+        "required": [
+          "prefabClassName",
+          "count",
+          "firstSeenAt"
+        ],
+        "type": "object",
+        "properties": {
+          "prefabClassName": {
+            "type": "string"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "firstSeenAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sampleContext": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "UpdateGameServerSettingsRequestDto": {
         "type": "object",
         "properties": {
@@ -6287,6 +6905,146 @@
           }
         }
       },
+      "UpdateWorldLimitsRequestDto": {
+        "type": "object",
+        "properties": {
+          "maxInstancesPerGrant": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "groundItemTtlSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxPendingPageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxDeliveryAttempts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxAcksPerBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxChildrenPerAck": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUpsertsPerBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxDeletesPerBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "batchIdRetentionSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "suspiciousReconcileScopeRowsThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "suspiciousReconcileUpsertsThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "suspiciousReconcileSweptPercentThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUnknownPrefabSightingsPerBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUnknownPrefabQueryPageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUnknownPrefabQueryOffset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "WhitelistApplicationDto": {
         "required": [
           "whitelistApplicationId",
@@ -6357,12 +7115,30 @@
           "maxInstancesPerGrant",
           "maxContainerDepth",
           "maxAttributeKeys",
+          "maxAttributeKeyLength",
           "maxAttributeValueLength",
           "groundItemTtlSeconds",
           "maxPendingPageSize",
           "maxDeliveryAttempts",
           "maxAcksPerBatch",
-          "maxChildrenPerAck"
+          "maxChildrenPerAck",
+          "maxUpsertsPerBatch",
+          "maxDeletesPerBatch",
+          "batchIdRetentionSeconds",
+          "suspiciousReconcileScopeRowsThreshold",
+          "suspiciousReconcileUpsertsThreshold",
+          "suspiciousReconcileSweptPercentThreshold",
+          "maxUnknownPrefabSightingsPerBatch",
+          "maxPrefabClassNameLength",
+          "maxSampleContextLength",
+          "maxCountPerSighting",
+          "maxUnknownPrefabQueryPageSize",
+          "maxUnknownPrefabQueryOffset",
+          "maxSequence",
+          "snapshotRequestBurst",
+          "snapshotRequestsPerMinute",
+          "unknownPrefabRequestBurst",
+          "unknownPrefabRequestsPerMinute"
         ],
         "type": "object",
         "properties": {
@@ -6383,6 +7159,14 @@
             "format": "int32"
           },
           "maxAttributeKeys": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxAttributeKeyLength": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -6431,6 +7215,142 @@
             "format": "int32"
           },
           "maxChildrenPerAck": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUpsertsPerBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxDeletesPerBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "batchIdRetentionSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "suspiciousReconcileScopeRowsThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "suspiciousReconcileUpsertsThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "suspiciousReconcileSweptPercentThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUnknownPrefabSightingsPerBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxPrefabClassNameLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxSampleContextLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxCountPerSighting": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUnknownPrefabQueryPageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUnknownPrefabQueryOffset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxSequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "snapshotRequestBurst": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "snapshotRequestsPerMinute": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unknownPrefabRequestBurst": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unknownPrefabRequestsPerMinute": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",

@@ -4,14 +4,14 @@ Creating and listing characters, plus per-character session tracking (`SessionAc
 
 Character data is hive-wide — a character created via one gameserver's Bridge token is visible from every other gameserver in the same deployment, the same way accounts (see [Accounts](./accounts.md)) already are. One deployment is one hive of servers, one server is one map, and `Character.CurrentServerId` records which server a character is currently on.
 
-Needs `$BRIDGE_TOKEN` (see [Accounts](./accounts.md)) and an `accountId` from a session-bootstrap call. The calling gameserver must also already be registered — see [Game server registry](./accounts.md#game-server-registry) — since `POST /api/characters` resolves `ICurrentGameServer` and 500s for an unregistered `client_id`.
+Needs `$BRIDGE_TOKEN` and an `$ACCOUNT_ID` — see [Getting an `accountId`](./accounts.md#getting-an-accountid). Note that `session-bootstrap` is *not* where an `accountId` comes from: identity is portal-first, so it returns `accountId: null` and a link PIN for a Bohemia ID nobody has linked yet. The calling gameserver must also already be registered — see [Game server registry](./accounts.md#game-server-registry) — since `POST /api/characters` resolves `ICurrentGameServer` and 500s for an unregistered `client_id`.
 
 `POST /api/characters` (and `GET /api/accounts/{accountId}/characters`) require the `gameserver:characters:write` scope (also granted to `gameserver-dev`):
 
 ```sh
 curl -X POST http://localhost:5100/api/characters \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"accountId":"<accountId from the session-bootstrap response>","name":"Alice"}'
+  -d "{\"accountId\":\"$ACCOUNT_ID\",\"name\":\"Alice\"}"
 ```
 
 ## Sessions

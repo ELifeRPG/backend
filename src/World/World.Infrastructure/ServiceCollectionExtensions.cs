@@ -1,7 +1,10 @@
 using ELifeRPG.Shared.Infrastructure;
 using ELifeRPG.World.Application.Common;
 using ELifeRPG.World.Application.Inventory;
+using ELifeRPG.World.Domain;
+using ELifeRPG.World.Domain.Inventory;
 using ELifeRPG.World.Domain.Items;
+using ELifeRPG.World.Domain.Snapshots;
 using ELifeRPG.World.Infrastructure.Common;
 using Marten;
 using Microsoft.Extensions.Configuration;
@@ -94,6 +97,32 @@ public static class WorldInfrastructureExtensions
                             + " and mt_deleted = false"
                             + " and coalesce((data ->> 'RemovedByStaff')::boolean, false) = false";
                     });
+
+            // Task 5: the staff promotion queue reads sort by Count descending and filter by both Count
+            // and LastSeenAt (?minCount=&since=) — see MartenUnknownPrefabSightingRepository.FindForStaffAsync.
+            // No SoftDeletedWithIndex(): a sighting is never deleted, only ever incremented in place.
+            options.Schema.For<UnknownPrefabSighting>()
+                .Index(x => x.Count)
+                .Index(x => x.LastSeenAt);
+
+            // Fix round 1, item 7: optimistic concurrency on ScopeCursor alone — no other document in
+            // this module has it, and it must stay that way; every other write here relies on revision
+            // LWW or a targeted patch for its own conflict story, not Marten's version column. Turns two
+            // Full snapshot batches racing the same scope's cursor into one commit and one
+            // ScopeCursorConflictException (caught in ApplySnapshotHandler and mapped to the endpoint's
+            // one retryable outcome) instead of a silent last-write-wins on a value that must never
+            // regress. See MartenScopeCursorRepository.AdvanceAsync for why every write also needs a
+            // same-session Load first for this to mean anything.
+            options.Schema.For<ScopeCursor>().UseOptimisticConcurrency(true);
+
+            // Registered explicitly, not left to Marten's on-demand table creation, because the write
+            // path added by the whole-branch review made this the first document here that is written
+            // rarely and read on the hot path: without a registration the table is only created the
+            // first time something stores one, so every read before the first-ever admin PATCH would
+            // depend on AutoCreate being permissive at runtime. Deliberately no indexes and no
+            // optimistic concurrency — it is a single row loaded by primary key, and a settings edit has
+            // one writer at a time (see MartenWorldSettingsRepository.UpsertAsync).
+            options.Schema.For<WorldSettings>();
         });
 
         // Injected rather than called statically so a grant's RegisteredAt/UpdatedAt is testable
@@ -105,6 +134,15 @@ public static class WorldInfrastructureExtensions
         services.TryAddScoped<IItemInstanceRepository, MartenItemInstanceRepository>();
         services.TryAddScoped<IItemInstanceRepositoryFactory, MartenItemInstanceRepositoryFactory>();
         services.TryAddScoped<IWorldSettingsRepository, MartenWorldSettingsRepository>();
+        // Task 3: batch-level idempotency (AppliedBatch) and the Full-mode sequence gate (ScopeCursor).
+        // Both are plain documents, not projections — see WorldStoreTests' guard test.
+        services.TryAddScoped<IAppliedBatchRepository, MartenAppliedBatchRepository>();
+        services.TryAddScoped<IScopeCursorRepository, MartenScopeCursorRepository>();
+        // Task 4: the empty-payload guard's staff record. A plain document too — same guard test.
+        services.TryAddScoped<ISuspiciousReconcileRepository, MartenSuspiciousReconcileRepository>();
+        // Task 5: the unknown-prefab reporting/staff-promotion-queue document. A plain document too —
+        // same guard test.
+        services.TryAddScoped<IUnknownPrefabSightingRepository, MartenUnknownPrefabSightingRepository>();
 
         // The concrete resolver lives in World.Application (it's the one place in this module that
         // references Items.Application's ItemCatalogEntriesQuery) — see IItemCatalogResolver's doc

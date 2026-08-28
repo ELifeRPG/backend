@@ -8,6 +8,14 @@ namespace ELifeRPG.World.Application.Common;
 /// </summary>
 public interface IItemInstanceRepository
 {
+    /// <summary>
+    /// One instance by id, <b>excluding soft-deleted rows</b> — same visibility as every other read on
+    /// this interface. Deliberately not Marten's <c>LoadAsync</c>: that is a direct id fetch which
+    /// ignores the soft-delete filter entirely, so it happily returns a row an explicit delete already
+    /// removed. That mismatch was live long enough for <c>SpawnFailedHandler</c> to accept a negative
+    /// ack against an already-deleted instance (task 2 review, item 6); a soft-deleted row must look
+    /// gone to every caller that isn't deliberately asking for tombstones.
+    /// </summary>
     ValueTask<ItemInstance?> FindByIdAsync(ItemInstanceId id, CancellationToken cancellationToken);
 
     /// <summary>The hot read: every live instance whose denormalised root resolves to this character.</summary>
@@ -66,6 +74,29 @@ public interface IItemInstanceRepository
     ValueTask<IReadOnlyList<ItemInstance>> LoadManyAsync(IReadOnlyList<ItemInstanceId> ids, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Live children directly inside <b>any</b> of <paramref name="containerInstanceIds"/>, in one
+    /// batched query — the descendant half of the snapshot write path's chain walk.
+    ///
+    /// Two things need it and neither can afford a query per container. Moving a container has to
+    /// rewrite <see cref="ItemInstance.RootCharacterId"/>/<see cref="ItemInstance.RootGameServerId"/>/
+    /// <see cref="ItemInstance.ExpiresAt"/> for everything nested inside it, and
+    /// <see cref="ItemInstance.RootCharacterId"/> is the hot inventory read — leaving it stale surfaces
+    /// a moved crate's contents in the <i>previous owner's</i> inventory. Deleting a container has to
+    /// soft-delete its descendants, or a child keeps pointing at a row that no longer exists and is
+    /// still returned by <see cref="FindCarriedByRootCharacterAsync"/>.
+    ///
+    /// Unlike <see cref="FindChildrenAsync"/> this does <b>not</b> filter
+    /// <see cref="ItemInstance.RemovedByStaff"/>. That filter exists there to stop a replayed ack
+    /// adopting a tombstoned child; here the opposite is wanted — a tombstoned row nested inside a
+    /// container being deleted must go with it, or it stays reachable through a parent that is gone.
+    ///
+    /// The caller iterates this to <see cref="ItemInstance.MaxContainerDepth"/> to reach a whole
+    /// subtree: at most six batched queries per request, constant in batch size, never one per
+    /// instance.
+    /// </summary>
+    ValueTask<IReadOnlyList<ItemInstance>> FindChildrenOfManyAsync(IReadOnlyList<ItemInstanceId> containerInstanceIds, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Live children directly inside <paramref name="containerInstanceId"/> — the ack path's idempotent
     /// child-minting (see <c>AcknowledgeSpawnsHandler</c>) uses this to find a child already minted for
     /// a given slot on a prior ack, so a replay returns that same id instead of minting a second one.
@@ -82,11 +113,81 @@ public interface IItemInstanceRepository
     ValueTask<IReadOnlyList<ItemInstance>> FindUndeliverableAsync(int maxDeliveryAttempts, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Queues a whole-document write. <b>Only the ack path may use this on a row it did not just
-    /// mint</b> — see <see cref="RecordDeliveryAttempt"/> for why a counter-only update must be a
-    /// patch instead.
+    /// Queues a whole-document write — an insert for a freshly minted row, an upsert for one that
+    /// already exists.
+    ///
+    /// <b>Minting is the only unconditionally safe use.</b> On a row loaded from storage this writes
+    /// back every field of whatever copy the caller happens to be holding, and <c>ItemInstance</c> has
+    /// no optimistic concurrency to notice that the copy went stale — see
+    /// <see cref="RecordDeliveryAttempt"/> for the reproduced lost update that costs, and
+    /// <c>ItemInstanceRepositoryTests.Store_OfACopyLoadedBeforeAnotherWriterSoftDeletedTheRow_ResurrectsIt</c>
+    /// for the worse one: Marten's document upsert clears the soft-delete marker, so this <i>undeletes</i>
+    /// a row another writer removed in the meantime and brings the stale copy's
+    /// <see cref="ItemInstance.PendingSpawn"/> back with it. A consumed item returns to the delivery
+    /// queue and the player receives a second copy.
+    ///
+    /// No write path uses this on an already-stored row any more. The snapshot path patches through
+    /// <see cref="WriteAppliedSnapshot"/> and <see cref="RewriteResolvedRoots"/>, and the ack path
+    /// through <see cref="WriteAcknowledgedSpawn"/>. What is left is minting — <c>GrantAsync</c>'s new
+    /// rows and the ack path's engine-spawned children — where the document does not yet exist and
+    /// there is nothing stale to write back. A new caller reaching for this against a loaded row
+    /// should reach for a patch instead.
     /// </summary>
     void Store(ItemInstance instance);
+
+    /// <summary>
+    /// Clears <see cref="ItemInstance.PendingSpawn"/> and stamps the resolved delivery server as a
+    /// <b>targeted patch</b> — the ack path's counterpart to <see cref="WriteAppliedSnapshot"/>, over
+    /// the three fields <see cref="ItemInstance.AcknowledgeSpawn"/> writes
+    /// (<see cref="ItemInstance.PendingSpawn"/>, <see cref="ItemInstance.RootGameServerId"/>,
+    /// <see cref="ItemInstance.UpdatedAt"/>).
+    ///
+    /// A patch for exactly the reason that method documents, reached through a different door. An ack
+    /// arrives late by design — the Bridge is store-and-forward with retries — so the window between
+    /// this handler's load and its save is wider here than anywhere else, and a
+    /// <see cref="Store"/> landing in it undeletes a row a snapshot delete removed in the meantime.
+    /// The concrete case: a granted item is consumed before its ack lands, the snapshot delete
+    /// correctly removes it, and then the delayed ack puts it back into live inventory as an item the
+    /// player already used. A patch against that row matches nothing, so the delete wins.
+    ///
+    /// Only ever called on the <c>PendingSpawn</c> true → false transition; a replayed ack for an
+    /// already-cleared row never reaches here, same as the domain method it pairs with.
+    /// </summary>
+    void WriteAcknowledgedSpawn(ItemInstance instance);
+
+    /// <summary>
+    /// Writes one applied snapshot upsert as a <b>targeted patch</b> over exactly the fields a
+    /// snapshot owns, read from <paramref name="instance"/> after
+    /// <see cref="ItemInstance.ApplySnapshot"/> and <see cref="ItemInstance.RewriteResolvedRoots"/>
+    /// have set them: the revision, the four parent-shaped fields, durability, ammo, attributes, the
+    /// pending flag, the three resolved root fields, and the two timestamps.
+    ///
+    /// A patch rather than a <see cref="Store"/>, and the reasons compound:
+    /// <list type="bullet">
+    /// <item><b>It cannot resurrect a deleted row.</b> A patch is an <c>UPDATE</c>; against a row
+    /// another writer soft-deleted between this batch's load and its save it simply matches nothing,
+    /// which is the correct outcome — the delete wins. <see cref="Store"/> in that window undeletes
+    /// the row <i>and</i> restores the stale <see cref="ItemInstance.PendingSpawn"/>, duplicating a
+    /// consumed item.</item>
+    /// <item><b>It cannot insert.</b> An <c>UPDATE</c> that matches nothing writes nothing, so the
+    /// sole-minter rule is enforced by the storage operation itself rather than only by the handler
+    /// check in front of it.</item>
+    /// <item><b>It cannot clobber what it does not name.</b> The backend-owned fields — the delivery
+    /// and spawn-failure counters, and <see cref="ItemInstance.RemovedByStaff"/> once staff tooling
+    /// starts writing it — are absent from the field list and therefore survive a concurrent writer
+    /// untouched.</item>
+    /// </list>
+    ///
+    /// <see cref="ItemInstance.Origin"/>, <see cref="ItemInstance.OriginRef"/> and
+    /// <see cref="ItemInstance.RegisteredAt"/> are deliberately absent too. They are already
+    /// <c>private init</c>, so the domain makes them unassignable after construction; leaving them out
+    /// of the patch means the persistence layer independently cannot overwrite them either — the same
+    /// invariant enforced twice, by two mechanisms that fail differently.
+    ///
+    /// Mutates nothing itself: the caller has already applied the domain methods, and this only
+    /// projects the resulting state into a patch.
+    /// </summary>
+    void WriteAppliedSnapshot(ItemInstance instance);
 
     /// <summary>
     /// Increments <see cref="ItemInstance.DeliveryAttempts"/> (and restamps
@@ -117,6 +218,31 @@ public interface IItemInstanceRepository
     /// a whole-document write from a stale copy resurrects <see cref="ItemInstance.PendingSpawn"/>.
     /// </summary>
     void RecordSpawnFailure(ItemInstance instance, SpawnFailureReason reason, DateTimeOffset now);
+
+    /// <summary>
+    /// Writes the three derived root fields (<see cref="ItemInstance.RootCharacterId"/>,
+    /// <see cref="ItemInstance.RootGameServerId"/>, <see cref="ItemInstance.ExpiresAt"/>) as an
+    /// <b>atomic patch</b>, for exactly the reason <see cref="RecordDeliveryAttempt"/> documents.
+    ///
+    /// This is the snapshot write path's descendant cascade: when a container moves, every instance
+    /// nested inside it needs its roots rewritten even though the batch said nothing about those rows
+    /// themselves. A whole-document <see cref="Store"/> there would write back every other field of
+    /// whatever copy the batch happened to load — including <see cref="ItemInstance.PendingSpawn"/>,
+    /// which is the field the phase 1 review found resurrecting a paid item into the delivery queue.
+    /// A descendant whose only real change is three derived fields must therefore patch exactly those
+    /// three, never replace the document. A row the same batch <i>also</i> upserts goes
+    /// through <see cref="WriteAppliedSnapshot"/> instead — the same kind of write over a wider field
+    /// list, since there the batch owns the whole mod-facing state and not just the derived roots.
+    ///
+    /// Mutates <paramref name="instance"/> in memory too, same convention as
+    /// <see cref="RecordDeliveryAttempt"/> and <see cref="SoftDelete"/>.
+    /// </summary>
+    void RewriteResolvedRoots(
+        ItemInstance instance,
+        CharacterId? rootCharacterId,
+        GameServerId? rootGameServerId,
+        DateTimeOffset? expiresAt,
+        DateTimeOffset now);
 
     /// <summary>
     /// Removes <paramref name="instance"/> from this session's pending changes entirely — used only by

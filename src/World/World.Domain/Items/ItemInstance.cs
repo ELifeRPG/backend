@@ -208,6 +208,20 @@ public sealed class ItemInstance
     /// does not call out to the catalog itself, per the phase 1 brief. Only <c>Despawns</c> items get
     /// a TTL; a <c>Persistent</c> item (a parked vehicle, a placed deployable) gets <c>null</c> and is
     /// never swept.
+    ///
+    /// <b>Kept deliberately, despite having no production caller</b> (phase 2 whole-branch review). So
+    /// do <see cref="MoveToCharacter"/> and <see cref="MoveToContainer"/>: all three reparenting
+    /// operations are unreached for one shared reason, not three separate oversights. The snapshot write
+    /// path never replaces a document — every write it makes is a targeted patch, because a
+    /// whole-document write resurrects fields a concurrent writer cleared (see docs/world.md, and
+    /// ARCHITECTURE.md §9e gotcha 10) — so it computes the same derived fields these methods set
+    /// (<c>ApplySnapshotHandler</c>'s root resolver) and patches them, rather than mutating a loaded
+    /// aggregate.
+    ///
+    /// Removing this one alone would leave the domain able to express "picked up" and "put in a crate"
+    /// but not "dropped on the ground", which is a worse state than an unreached-but-tested method.
+    /// Whether the family stays at all is one decision about all three, and it belongs with phase 3's
+    /// world-structure work rather than a cleanup pass at the end of phase 2.
     /// </summary>
     public void MoveToWorld(WorldTransform transform, bool despawns, TimeSpan groundItemTtl, DateTimeOffset now, GameServerId? rootGameServerId = null)
     {
@@ -364,6 +378,92 @@ public sealed class ItemInstance
     public void ClearPendingOnExplicitDelete(DateTimeOffset now)
     {
         PendingSpawn = false;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Applies one <c>POST /api/inventory/snapshots</c> upsert onto this already-minted row — the
+    /// snapshot write path's only mutator. Never a factory: the backend is the sole minter of an
+    /// <see cref="ItemInstanceId"/> (see <see cref="Register"/>/<see cref="RegisterChild"/>), so an
+    /// upsert naming an id the backend never issued is rejected by the handler and never reaches
+    /// here. That is why this is an instance method with no counterpart <c>ApplySnapshotAsNew</c>:
+    /// there is deliberately no way to reach an insert from this path.
+    ///
+    /// Clears <see cref="PendingSpawn"/> unconditionally — the mod reporting an instance in a
+    /// snapshot <i>is</i> proof it adopted it, which is what makes this the implicit-ack path that
+    /// survives a lost <c>POST /api/inventory/acks</c>. That is safe precisely because
+    /// <see cref="PendingSpawn"/> only ever protects a row from <i>reconcile</i> (its absence from a
+    /// snapshot), never from the mod explicitly reporting it present — same rule
+    /// <see cref="ClearPendingOnExplicitDelete"/> documents for the delete half.
+    ///
+    /// Deliberately leaves <see cref="RootCharacterId"/>, <see cref="RootGameServerId"/> and
+    /// <see cref="ExpiresAt"/> alone: all three are derived from wherever this instance's container
+    /// chain now anchors, which only the caller — holding the whole batch plus the loaded stored rows
+    /// in memory — can resolve. It calls <see cref="RewriteResolvedRoots"/> once the chain is walked.
+    /// Splitting them this way is what lets the same resolution also rewrite the <i>descendants</i>
+    /// of a moved container, which <see cref="MoveToContainer"/>'s own doc comment explains it cannot
+    /// do on its own.
+    ///
+    /// <see cref="Origin"/>, <see cref="OriginRef"/> and <see cref="RegisteredAt"/> are untouched and
+    /// unreachable from here — they are <c>private init</c>, so this method could not reassign them
+    /// even by mistake (see the class summary; this is the exact "future snapshot-apply that
+    /// wholesale-copies fields" case that restriction was added for). So are
+    /// <see cref="RemovedByStaff"/> (a sticky tombstone the mod may never clear),
+    /// <see cref="DeliveryAttempts"/> and the spawn-failure counters (backend-owned, never conflated
+    /// with <see cref="Revision"/>).
+    /// </summary>
+    public void ApplySnapshot(
+        long revision,
+        ParentKind parentKind,
+        CharacterId? ownerCharacterId,
+        ItemInstanceId? containerInstanceId,
+        string? slot,
+        WorldTransform? transform,
+        float? durability,
+        int? ammo,
+        ItemAttributes attributes,
+        DateTimeOffset now)
+    {
+        Revision = revision;
+
+        // Normalise the parent-shaped fields against the kind rather than copying all four verbatim:
+        // the stored shape is ParentKind plus four independently-nullable columns (see ItemParent),
+        // and a row that kept a stale ContainerInstanceId after moving onto a character would still
+        // be found by FindChildrenAsync.
+        ParentKind = parentKind;
+        OwnerCharacterId = parentKind == ParentKind.Character ? ownerCharacterId : null;
+        ContainerInstanceId = parentKind == ParentKind.Container ? containerInstanceId : null;
+        Slot = parentKind == ParentKind.World ? null : slot;
+        Transform = parentKind == ParentKind.World ? transform : null;
+
+        Durability = durability;
+        Ammo = ammo;
+        Attributes = attributes;
+
+        PendingSpawn = false;
+        LastSeenAt = now;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Writes the three derived root fields resolved by the caller's walk up this instance's
+    /// container chain. This is the descendant cascade <see cref="MoveToContainer"/>'s own doc comment
+    /// defers to the application layer: that method propagates forward only (onto the instance being
+    /// moved), so when a <i>container</i> moves, everything nested inside it keeps stale roots until
+    /// something holding the whole chain in memory rewrites them. All three travel together — the TTL
+    /// especially, since a crate dropped on the ground has to hand its ground TTL down to its contents
+    /// and take it back away when it is picked up again.
+    ///
+    /// Takes already-resolved values rather than a container to inherit from, because the caller
+    /// resolves each chain exactly once and reuses the answer for every descendant; and because a
+    /// character- or world-anchored instance has roots that come from the batch's own calling
+    /// gameserver and catalog persistence class, not from any parent instance at all.
+    /// </summary>
+    public void RewriteResolvedRoots(CharacterId? rootCharacterId, GameServerId? rootGameServerId, DateTimeOffset? expiresAt, DateTimeOffset now)
+    {
+        RootCharacterId = rootCharacterId;
+        RootGameServerId = rootGameServerId;
+        ExpiresAt = expiresAt;
         UpdatedAt = now;
     }
 

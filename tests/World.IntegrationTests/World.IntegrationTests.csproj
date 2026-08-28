@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- This test project is its own composition root, so it needs Mediator.SourceGenerator itself. See ARCHITECTURE.md §9e. -->
     <PackageReference Include="Mediator.SourceGenerator">
       <PrivateAssets>all</PrivateAssets>
@@ -25,6 +29,13 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\World\World.Application\World.Application.csproj" />
     <ProjectReference Include="..\..\src\World\World.Infrastructure\World.Infrastructure.csproj" />
+    <!-- Review round 3's endpoint test seam. World.Api's own AssemblyInfo.cs grants this assembly
+         InternalsVisibleTo so the two pure functions behind POST /api/inventory/snapshots — the request
+         parse and the result-to-IResult mapping — can be asserted on directly. Neither touches HTTP, DI
+         or the database; the only thing that had stopped them being tested was `private static`. The
+         FrameworkReference is what gives this project IResult/ProblemHttpResult to assert against; no
+         host is started. -->
+    <ProjectReference Include="..\..\src\World\World.Api\World.Api.csproj" />
     <!-- Needed to seed a catalog entry for the grant path (GrantAsync resolves PrefabClassName through it). -->
     <ProjectReference Include="..\..\src\Items\Items.Application\Items.Application.csproj" />
     <ProjectReference Include="..\..\src\Items\Items.Infrastructure\Items.Infrastructure.csproj" />

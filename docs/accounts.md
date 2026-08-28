@@ -1,24 +1,80 @@
 # Accounts
 
-Bootstraps (or looks up) an `Account` for a player's Bohemia ID, provisioning a Keycloak user if needed. See [MIGRATION.md §5](../MIGRATION.md#5-migration-plan-feature-1--accounts--sessions) for how this replaced legacy's unauthenticated `POST /v1/sessions`.
+How an `Account` comes into existence, and how a player's in-game (Bohemia) identity gets attached to it. See [MIGRATION.md §5](../MIGRATION.md#5-migration-plan-feature-1--accounts--sessions) for how this replaced legacy's unauthenticated `POST /v1/sessions`.
 
 Assumes `src/Api` is running (see the main [README](../README.md#run)) and you're calling from inside the devcontainer, which is on the Compose network — `keycloak` resolves by hostname there. From your host machine, use `http://localhost:8180` for Keycloak instead.
 
-`POST /api/accounts/session-bootstrap` requires a bearer token with the `gameserver:session:create` scope — get one from the pre-provisioned dev client:
+Mint the gameserver token first; `$BRIDGE_TOKEN` is reused across the other feature docs ([Characters](./characters.md), [Banking](./banking.md), [Companies](./companies.md), [World](./world.md), [Bridge](./bridge.md)) — mint it once per shell session.
 
 ```sh
 BRIDGE_TOKEN=$(curl -s -X POST http://keycloak:8080/realms/eliferpg/protocol/openid-connect/token \
   -d "client_id=gameserver-dev" -d "client_secret=local-dev-only-not-a-real-secret" -d "grant_type=client_credentials" \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
-
-curl -X POST http://localhost:5100/api/accounts/session-bootstrap \
-  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"bohemiaId":"11111111-1111-1111-1111-111111111111"}'
 ```
 
-`$BRIDGE_TOKEN` is reused across the other feature docs ([Characters](./characters.md), [Banking](./banking.md), [Companies](./companies.md)) — mint it once per shell session.
+## Identity is portal-first
 
-`session-bootstrap` always returns `200` — a blocked account comes back as `{"status": "blocked", ...}` with no error, rather than a `403`.
+**An account is created by web signup, never by joining a gameserver.** The Keycloak user comes from ordinary portal signup (Discord broker or local registration); the account is created the first time that user reaches the backend, well before they ever connect to a server, and therefore with **no Bohemia ID**. The player attaches their game identity afterwards, by typing an in-game PIN into Keycloak's own form.
+
+This is worth stating plainly because it inverts what the endpoint names suggest: `session-bootstrap` **never creates anything**. It is a lookup. The creating endpoint is `POST /api/accounts/me`.
+
+### Getting an `accountId`
+
+`POST /api/accounts/me` creates (or returns) the account behind the calling **Keycloak user** — the `sub` on the token, not a body parameter. It requires the `account:self:manage` scope, which in the real flow the portal (`eliferpg-portal`, Authorization Code + PKCE) carries. That client has no service account and no direct-access grant, so there is no pure-`curl` path through it.
+
+For local development, `account:self:manage` is therefore also assigned to `staff-admin-dev` as an **optional** client scope. Optional means it is never in a token unless explicitly requested, so this changes nothing about `$STAFF_TOKEN` as used everywhere else in these docs:
+
+```sh
+SELF_TOKEN=$(curl -s -X POST http://keycloak:8080/realms/eliferpg/protocol/openid-connect/token \
+  -d "client_id=staff-admin-dev" -d "client_secret=staff-secret-change-me" -d "grant_type=client_credentials" \
+  -d "scope=account:self:manage" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+ACCOUNT_ID=$(curl -s -X POST http://localhost:5100/api/accounts/me \
+  -H "Authorization: Bearer $SELF_TOKEN" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['accountId'])")
+echo $ACCOUNT_ID
+```
+
+Returns `{"accountId": "…", "created": true}`, and `created: false` on every call after the first — it is idempotent, keyed on the Keycloak user, so a portal page calling it on every load does not create a second account. The account it makes belongs to `staff-admin-dev`'s own service-account user and has no Bohemia ID, which is exactly the state a freshly-signed-up player is in and is all the other feature docs need.
+
+*(If your Keycloak predates this and rejects the scope, assign it once with the admin API: `PUT /admin/realms/eliferpg/clients/{clientUuid}/optional-client-scopes/{scopeId}`, using an `admin-cli` token from the `master` realm. Recreating the stack re-imports `infra/keycloak/eliferpg-realm.json`, which now carries it.)*
+
+`$ACCOUNT_ID` is what [Characters](./characters.md) needs.
+
+### Joining: `session-bootstrap`
+
+`POST /api/accounts/session-bootstrap` requires the `gameserver:session:create` scope (on `$BRIDGE_TOKEN`) and answers one question: *which account, if any, owns this Bohemia ID?*
+
+```sh
+curl -s -X POST http://localhost:5100/api/accounts/session-bootstrap \
+  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"bohemiaId":"11111111-1111-1111-1111-111111111111"}' | python3 -m json.tool
+```
+
+**It always returns `200`.** Every outcome is reported in `status`, never as an error code:
+
+| `status` | `accountId` | Means |
+|---|---|---|
+| `active` | set | Linked, not locked, whitelisted (or whitelisting is off). Let them play. |
+| `blocked` | set | The account is locked. Not a `403`. |
+| `not_whitelisted` | set | Whitelisting is on and this account has no approved application. |
+| `unlinked` | **`null`** | **No account owns this Bohemia ID yet.** Nothing was created. |
+
+The `unlinked` response carries a `linkPin` for the mod to display:
+
+```jsonc
+{ "accountId": null, "keycloakUserId": null, "status": "unlinked", "linkPin": "UVQQM8ZU" }
+```
+
+The player types that PIN into Keycloak's own linking form (the `link-bohemia-gameaccount` required action, from the `keycloak-bohemia-gameaccount` provider — which is why `infra/keycloak` builds a custom image rather than pulling stock Keycloak). Keycloak writes the binding onto their user; the *next* `session-bootstrap` for that Bohemia ID notices it, records it on the account, and returns `active` with a real `accountId`.
+
+Two consequences worth knowing before you go looking for a bug:
+
+- **A Bohemia ID nobody has linked provisions nothing.** No account, no Keycloak user. `accountId` is `null` and stays `null` until the player completes the PIN step in a browser.
+- **`linkPin` can be `null` even on `unlinked`.** Keycloak refuses to mint a PIN for an already-bound Bohemia ID, which means the binding landed between the lookup and the mint — re-issue the call rather than showing a PIN that could never be redeemed.
+
+There is no `curl`-only shortcut for the PIN step: it is a browser form on Keycloak by design, because it is the moment a human proves the game identity is theirs.
 
 ## Locking and unlocking an account
 

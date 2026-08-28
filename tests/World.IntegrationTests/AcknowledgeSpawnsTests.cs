@@ -7,6 +7,7 @@ using ELifeRPG.World.Application.Settings;
 using ELifeRPG.World.Domain.Items;
 using ELifeRPG.World.Infrastructure.Common;
 using Marten;
+using Marten.Linq.SoftDeletes;
 using Marten.Patching;
 using Mediator;
 using Microsoft.Extensions.DependencyInjection;
@@ -326,6 +327,92 @@ public sealed class AcknowledgeSpawnsTests : IAsyncLifetime
         var reloaded = await repository.FindByIdAsync(instanceId, CancellationToken.None);
         Assert.NotNull(reloaded);
         Assert.True(reloaded.PendingSpawn); // never un-tombstoned into a delivered state
+    }
+
+    /// <summary>
+    /// Task 2 fix round 4, item 2. Converting the ack write to a patch stopped it resurrecting a row a
+    /// snapshot delete had removed — but a declared child is an <i>insert</i>, not an update, so it
+    /// still landed. The result was an orphan: live, not pending, carrying the deleted parent's
+    /// <c>RootCharacterId</c>, answering the carried-inventory read while its
+    /// <c>ContainerInstanceId</c> pointed at a row that no longer exists. Exactly the state the
+    /// snapshot path's delete cascade exists to prevent, reached through a door that cascade cannot
+    /// see.
+    ///
+    /// The race only exists <i>inside</i> the handler — a delete that lands before it runs is already
+    /// handled, since the initial load filters soft-deleted rows — so the test drives it from inside,
+    /// through <c>InstrumentedItemInstanceRepository</c>'s post-load hook. Asserting on the
+    /// reconciliation any other way would only assert that it exists.
+    /// </summary>
+    [Fact]
+    public async Task Ack_WhenTheInstanceIsDeletedAfterTheHandlerLoadedIt_MintsNoOrphanedChildrenAndReportsNotFound()
+    {
+        var deleteOnNextLoad = false;
+        ItemInstanceId parentInstanceId = default;
+        ServiceProvider provider = null!;
+
+        provider = TestServices.BuildProvider("ack-orphan-server", services =>
+        {
+            services.AddSingleton<RepositoryCallCounts>();
+            services.AddScoped<MartenItemInstanceRepository>();
+            services.AddScoped<IItemInstanceRepository>(sp => new InstrumentedItemInstanceRepository(
+                sp.GetRequiredService<MartenItemInstanceRepository>(),
+                sp.GetRequiredService<RepositoryCallCounts>(),
+                afterLoadMany: async () =>
+                {
+                    if (!deleteOnNextLoad)
+                    {
+                        return;
+                    }
+
+                    // Fire once, on the handler's *first* batched load — the one that decides the ack
+                    // is valid — so the delete commits before children are minted and before the
+                    // reconciliation's own re-read.
+                    deleteOnNextLoad = false;
+
+                    // Raw session on purpose: going through the repository would re-enter this hook.
+                    var store = provider.GetRequiredService<IWorldStore>();
+                    await using var session = store.LightweightSession();
+                    session.Delete<ItemInstance>(parentInstanceId);
+                    await session.SaveChangesAsync();
+                }));
+        });
+
+        await using var _ = provider;
+
+        var owner = await CreateCharacterAsync(provider, "Ack Orphan Character");
+        var parentItemId = await CreateCatalogItemAsync(provider);
+        var childItemId = await CreateCatalogItemAsync(provider);
+        parentInstanceId = await GrantOneAsync(provider, parentItemId, owner);
+
+        await using var scope = provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var serverId = await scope.ServiceProvider.GetRequiredService<ICurrentGameServer>().GetIdAsync(CancellationToken.None);
+
+        deleteOnNextLoad = true;
+
+        var results = Acknowledged(await mediator.Send(new AcknowledgeSpawnsCommand(
+            serverId, [new InstanceAckRequest(parentInstanceId, [new AckChildRequest(childItemId, "magazine")])])));
+
+        var outcome = Assert.Single(results);
+        Assert.True(outcome.Outcome is AckOutcome.NotFound, $"Expected NotFound, got {outcome.Outcome}");
+
+        // The parent stayed deleted — the patch matched nothing, as it should.
+        await using var readScope = provider.CreateAsyncScope();
+        var store = readScope.ServiceProvider.GetRequiredService<IWorldStore>();
+        await using var session = store.QuerySession();
+        Assert.Null(await session.Query<ItemInstance>().Where(x => x.Id == parentInstanceId).SingleOrDefaultAsync());
+
+        // And nothing was minted underneath it. Checked against every row, deleted ones included, so
+        // this cannot pass by the child having been created and then filtered out of view.
+        var anyChild = await session.Query<ItemInstance>()
+            .Where(x => x.ContainerInstanceId != null && x.ContainerInstanceId!.Value.Value == parentInstanceId.Value && x.MaybeDeleted())
+            .ToListAsync();
+        Assert.Empty(anyChild);
+
+        // The orphan's concrete harm, had one been minted: it would answer this read.
+        var repository = readScope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+        var carried = await repository.FindCarriedByRootCharacterAsync(owner, DateTimeOffset.UtcNow, CancellationToken.None);
+        Assert.Empty(carried);
     }
 
     /// <summary>Review round 1, B-2: a slot already minted for a different itemId must be reported, not silently adopted under the caller's own (wrong) itemId.</summary>

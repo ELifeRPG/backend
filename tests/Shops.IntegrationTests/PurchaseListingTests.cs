@@ -818,16 +818,34 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         public ValueTask<IReadOnlyList<ItemInstance>> FindUndeliverableAsync(int maxDeliveryAttempts, CancellationToken cancellationToken)
             => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
 
+        public ValueTask<IReadOnlyList<ItemInstance>> FindChildrenOfManyAsync(
+            IReadOnlyList<ItemInstanceId> containerInstanceIds, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
         public void Store(ItemInstance instance)
         {
             // Unreachable — this fake's GrantAsync never queues anything — but a void method has no
             // meaningful "not supported" signal, so it is a no-op rather than a throw.
         }
 
+        public void WriteAcknowledgedSpawn(ItemInstance instance)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public void WriteAppliedSnapshot(ItemInstance instance)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
         public void RecordDeliveryAttempt(ItemInstance instance, DateTimeOffset now)
             => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
 
         public void RecordSpawnFailure(ItemInstance instance, SpawnFailureReason reason, DateTimeOffset now)
+            => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
+
+        public void RewriteResolvedRoots(
+            ItemInstance instance,
+            CharacterId? rootCharacterId,
+            GameServerId? rootGameServerId,
+            DateTimeOffset? expiresAt,
+            DateTimeOffset now)
             => throw new NotSupportedException("Not exercised by PurchaseListingHandler.");
 
         public void Eject(ItemInstance instance)

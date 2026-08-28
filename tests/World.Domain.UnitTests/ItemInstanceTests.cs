@@ -109,6 +109,21 @@ public sealed class ItemInstanceTests
         Assert.Throws<AttributeLimitExceededException>(() => ItemAttributes.Create(values));
     }
 
+    /// <summary>
+    /// Review round 3: the domain-level backstop behind <c>WorldModule.TryParseApplySnapshotCommand</c>'s
+    /// own rejection of the same input. System.Text.Json can put a JSON <c>null</c> into this
+    /// dictionary's <i>value</i> position despite the declared type (<c>Dictionary&lt;string, string&gt;</c>,
+    /// no nullable annotation) — a JSON object's keys are always strings by grammar, so only the value
+    /// side needs this. Without it, <c>Validate</c>'s own <c>value.Length</c> check NREs directly.
+    /// </summary>
+    [Fact]
+    public void Attributes_WithANullValue_ThrowsAttributeLimitExceeded()
+    {
+        var values = new Dictionary<string, string> { ["key"] = null! };
+
+        Assert.Throws<AttributeLimitExceededException>(() => ItemAttributes.Create(values));
+    }
+
     [Fact]
     public void SetExpiry_ForPersistentItem_LeavesExpiresAtNull()
     {
@@ -252,5 +267,101 @@ public sealed class ItemInstanceTests
         Assert.Equal(SpawnFailureReason.PrefabMissing, instance.LastSpawnFailureReason);
         Assert.Equal(Now.AddMinutes(2), instance.LastSpawnFailureAt);
         Assert.Equal(2, instance.SpawnFailureCount);
+    }
+
+    /// <summary>The implicit-ack path: the mod reporting an instance in a snapshot is proof it adopted it.</summary>
+    [Fact]
+    public void ApplySnapshot_OnAPendingInstance_ClearsPendingSpawn()
+    {
+        var character = new CharacterId(Guid.NewGuid());
+        var instance = RegisterToCharacter(character);
+        Assert.True(instance.PendingSpawn);
+
+        instance.ApplySnapshot(4, ParentKind.Character, character, null, "chest", null, 0.5f, 30, ItemAttributes.Empty, Now.AddMinutes(1));
+
+        Assert.False(instance.PendingSpawn);
+        Assert.Equal(4, instance.Revision);
+        Assert.Equal(0.5f, instance.Durability);
+        Assert.Equal(30, instance.Ammo);
+        Assert.Equal("chest", instance.Slot);
+        Assert.Equal(Now.AddMinutes(1), instance.LastSeenAt);
+        Assert.Equal(Now.AddMinutes(1), instance.UpdatedAt);
+    }
+
+    /// <summary>
+    /// The stored shape is a ParentKind plus four independently-nullable fields, so a kind change has
+    /// to clear the ones the new kind doesn't use — a row that kept a stale ContainerInstanceId after
+    /// moving onto a character would still be found by a container's own children query.
+    /// </summary>
+    [Fact]
+    public void ApplySnapshot_ChangingParentKind_ClearsTheFieldsTheNewKindDoesNotUse()
+    {
+        var character = new CharacterId(Guid.NewGuid());
+        var container = RegisterToCharacter(character);
+        var instance = RegisterToCharacter(character);
+
+        instance.ApplySnapshot(1, ParentKind.Container, null, container.Id, "pocket", null, null, null, ItemAttributes.Empty, Now);
+        Assert.Equal(container.Id, instance.ContainerInstanceId);
+        Assert.Null(instance.OwnerCharacterId);
+
+        var transform = new WorldTransform(new WorldVector3(1f, 2f, 3f), new WorldVector3(0f, 0f, 0f));
+        instance.ApplySnapshot(2, ParentKind.World, null, null, "pocket", transform, null, null, ItemAttributes.Empty, Now);
+
+        Assert.Equal(ParentKind.World, instance.ParentKind);
+        Assert.Null(instance.ContainerInstanceId);
+        Assert.Null(instance.OwnerCharacterId);
+        Assert.Null(instance.Slot);
+        Assert.Equal(transform, instance.Transform);
+
+        instance.ApplySnapshot(3, ParentKind.Character, character, container.Id, "chest", transform, null, null, ItemAttributes.Empty, Now);
+
+        Assert.Equal(ParentKind.Character, instance.ParentKind);
+        Assert.Equal(character, instance.OwnerCharacterId);
+        Assert.Null(instance.ContainerInstanceId);
+        Assert.Null(instance.Transform);
+        Assert.Equal("chest", instance.Slot);
+    }
+
+    /// <summary>The backend-owned fields the mod never reports must survive a snapshot untouched — see ItemInstance.ApplySnapshot's own doc comment.</summary>
+    [Fact]
+    public void ApplySnapshot_LeavesBackendOwnedFieldsAlone()
+    {
+        var character = new CharacterId(Guid.NewGuid());
+        var instance = RegisterToCharacter(character);
+        instance.RecordDeliveryAttempt(Now);
+        instance.RecordSpawnFailure(SpawnFailureReason.InventoryFull, Now);
+
+        instance.ApplySnapshot(9, ParentKind.Character, character, null, null, null, null, null, ItemAttributes.Empty, Now.AddMinutes(1));
+
+        Assert.Equal(1, instance.DeliveryAttempts);
+        Assert.Equal(1, instance.SpawnFailureCount);
+        Assert.Equal(SpawnFailureReason.InventoryFull, instance.LastSpawnFailureReason);
+        Assert.Equal(ItemOrigin.ShopPurchase, instance.Origin);
+        Assert.Equal(Now, instance.RegisteredAt);
+        Assert.False(instance.RemovedByStaff);
+    }
+
+    /// <summary>
+    /// ApplySnapshot deliberately leaves the three derived root fields alone — only the caller, holding
+    /// the whole container chain in memory, can resolve them. This is the other half of that split.
+    /// </summary>
+    [Fact]
+    public void ApplySnapshot_DoesNotTouchTheRootFields_WhichRewriteResolvedRootsOwns()
+    {
+        var character = new CharacterId(Guid.NewGuid());
+        var instance = RegisterToCharacter(character);
+        Assert.Equal(character, instance.RootCharacterId);
+
+        instance.ApplySnapshot(1, ParentKind.World, null, null, null, null, null, null, ItemAttributes.Empty, Now);
+        Assert.Equal(character, instance.RootCharacterId);
+
+        var serverId = new GameServerId(Guid.NewGuid());
+        var expiresAt = Now.AddHours(1);
+        instance.RewriteResolvedRoots(null, serverId, expiresAt, Now.AddMinutes(2));
+
+        Assert.Null(instance.RootCharacterId);
+        Assert.Equal(serverId, instance.RootGameServerId);
+        Assert.Equal(expiresAt, instance.ExpiresAt);
+        Assert.Equal(Now.AddMinutes(2), instance.UpdatedAt);
     }
 }

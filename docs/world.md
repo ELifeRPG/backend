@@ -1,8 +1,14 @@
 # World
 
-Persists what a character carries and what the world looks like across gameserver restarts. Phase 1
-(this doc) covers the grant path — shop purchases and gathering minting items — and the delivery loop
-that hands them to the game; snapshot apply/reconcile and world-structure state are later phases.
+Persists what a character carries and what the world looks like across gameserver restarts. This doc
+covers the grant path — shop purchases and gathering minting items — the delivery loop that hands them
+to the game, and the [snapshot write path](#the-snapshot-write-path) the mod uses to report what the
+game did on its own — including `Full`-mode reconcile (deleting the rows a snapshot leaves out) and
+batch-level idempotency, both of which now ship. World-structure state is a later phase.
+
+The client-facing contract for that write path — the wire shapes, every error code and its `retryable`
+flag, the ordering and `sequence` rules, and what the Bridge is required to do in return — lives in
+[Bridge](./bridge.md). This document is the *why*; that one is what you build a mod against.
 
 ## An instance is one entity
 
@@ -21,15 +27,17 @@ Every instance is born through a backend API call — a shop purchase, a gatheri
 grant. The mod never mints an id of its own. An id the backend never issued is always rejected, with
 no exception: there is no legitimate way for an unknown id to show up, since nothing splits or merges
 on the game side for one to be minted from. This is what makes ack "adopt this id" rather than "tell
-me what you called it" — see [Delivering a granted instance](#delivering-a-granted-instance) below.
+me what you called it" — see [Acking](#acking) below, and
+[Bridge](./bridge.md#the-adoption-rule-the-single-most-important-rule-here) for the ordering a mod has
+to get right when it adopts one.
 
 ## Scopes
 
 | Scope | Grants |
 |---|---|
 | `gameserver:inventory:read` | `GET /api/inventory/limits`, `.../characters/{id}/items`, `.../characters/{id}/pending` |
-| `gameserver:inventory:write` | `POST /api/inventory/acks`, `.../instances/{id}/spawn-failed`, `POST /api/gathering/actions` (also reserved for the not-yet-built snapshot-apply endpoint) |
-| `inventory:manage` | staff: `GET /api/inventory/undeliverable` today; the unknown-prefab queue, movement audit, item removal and prune land with later phases |
+| `gameserver:inventory:write` | `POST /api/inventory/acks`, `.../instances/{id}/spawn-failed`, `POST /api/inventory/snapshots`, `POST /api/gathering/actions`, `POST /api/inventory/unknown-prefabs` |
+| `inventory:manage` | staff: `GET /api/inventory/undeliverable`, `GET /api/inventory/unknown-prefabs`, `PATCH /api/inventory/limits` today; movement audit, item removal and prune land with later phases |
 
 Both `gameserver:*` scopes are granted to `gameserver-dev`. `inventory:manage` is **not** — same
 reasoning as `accounts:manage` being withheld from the gameserver client (see
@@ -167,6 +175,13 @@ never both, and never neither (short of soft-delete/staff removal). Ack is also 
 per declared child, parented to the acked instance — the only way a composed prefab (a magazine seated
 in a rifle, a SIM in a phone) gets an id at all, since the mod never mints one itself.
 
+An ack arrives late by design — the Bridge is store-and-forward with retries — so it races the one
+thing that can make its subject disappear: a snapshot reporting the item as consumed before the ack
+ever landed. The delete wins, in both halves. The ack's own write is a patch, so it updates a row that
+is gone rather than resurrecting it; and any children the same entry declared are discarded rather
+than minted under a parent that no longer exists, with that entry reported `"outcome": "NotFound"` —
+by the time the batch committed, the instance really was not there.
+
 ### Gathering
 
 A gather action grants the item and its skill XP in one commit — the two can never diverge, so there
@@ -219,6 +234,150 @@ hand. There's no automatic refund path — that would need a cross-module unwind
 policy for a partially-delivered multi-item order, and it becomes a griefing surface the moment a
 player can make delivery fail on purpose.
 
+**Unknown prefabs → the catalog's own growth signal.** A grant only ever mints an `ItemInstance` for a
+prefab already in the catalog — an uncatalogued one is never persisted (see [Items](./items.md)).
+`POST /api/inventory/unknown-prefabs` is how that gap stays visible instead of silent: the mod reports
+`{ prefabClassName, count, firstSeenAt, sampleContext }` for whatever it saw with no catalog entry, and
+the backend upserts one `UnknownPrefabSighting` per distinct name, keyed on a deterministic id derived
+from the name, hive-wide across every gameserver — a repeat report increments `count` and advances
+`lastSeenAt` rather than creating a second row. `GET /api/inventory/unknown-prefabs` (needs
+`inventory:manage`) is the resulting staff promotion queue: sorted by `count` descending, filterable by
+`minCount`/`since`, and paginated (`offset`/`limit`, unlike `GET /api/inventory/undeliverable` above)
+so staff can work through it a page at a time.
+
+## The snapshot write path
+
+`POST /api/inventory/snapshots` is how the mod reports state the backend didn't cause — a player moved
+a rifle into a backpack, dropped a crate, fired a magazine down to nine rounds. One batch carries an
+`upserts` array and a `deletes` array, and the whole batch commits in a single transaction: all of it
+lands or none of it does, which is what lets the Bridge retry a failed POST without reasoning about
+partial application.
+
+**Revision is the conflict resolution, not a lock.** Each instance carries a `revision` the mod bumps
+on every change. A higher revision wins. A lower one is discarded and counted in `skippedNoOp` — the
+backend already holds strictly newer content, so there is nothing to do. An *equal* revision carrying
+different content is the interesting case: two writers disagree about the same instance at the same
+point in its history, so it is rejected `IdentityConflict` rather than silently overwritten. Nothing
+on this path takes a row lock; revision comparison plus the batch transaction is the whole mechanism.
+
+**A snapshot never creates a row.** The [sole-minter rule](#the-backend-is-the-sole-minter-of-iteminstanceid)
+applies here with no exception: an upsert naming an id no grant ever issued is rejected
+`UnknownInstance` and creates nothing, whatever its parent kind. So is an upsert nesting into a
+container the backend never issued. This is the strongest anti-duplication lever the design has —
+because nothing in Reforger splits or stacks, there is no honest way for the mod to be holding an id
+the backend hasn't seen.
+
+**Reporting a pending instance counts as adopting it — but only from the right batch.** A row minted
+by a grant is `pendingSpawn` until the mod acks it. If that ack is lost, the mod's next snapshot
+naming the instance clears the flag anyway — the mod could not report an instance it had not spawned.
+That path deliberately applies regardless of revision, because a backend-minted row starts at revision
+0 and so does the mod's own counter; comparing them would discard the item's first real change and
+strand the row in the pending queue forever. The mirror case is a delete: an item consumed before its
+ack ever landed clears `pendingSpawn` as it is removed, so it is not re-offered at the player's next
+login.
+
+An undelivered grant has no `rootGameServerId` yet — that is what "undelivered" means — so the ordinary
+server guard has nothing to check it against. A pending row is therefore only touchable from a
+`Character`-scoped batch naming the character it is owed to, whose own presence on the calling server
+the batch has already had to prove. Without that, any server holding the id could drop somebody else's
+paid, undelivered item onto its own map's ground, where it would lose its owner and start despawning.
+
+The same reasoning applies to whatever a snapshot nests an item *into*, and to a batch's own scope: a
+container nobody has taken delivery of is not somewhere anything can be put, so both are rejected —
+unless the same batch is adopting that container too, which is the honest case of a mod spawning a
+granted crate and reporting its contents in one snapshot. And because clearing `pendingSpawn` makes a
+row live, an applied row is never left without a `rootGameServerId`: a live row with no server root
+would satisfy neither guard, which is the first hole reconstituted in two steps.
+
+**Rejections are per instance, failures are per batch.** An uncatalogued `itemId`, an out-of-range
+`revision`/`durability`/`ammo`, a container cycle or over-deep nesting, an oversized attribute bag, a
+staff-removed row, an instance on another gameserver, an unknown id, an identity conflict, a stale
+delete — each is reported in `rejected` and the rest of the batch still applies.
+
+A batch-level failure is different in kind: nothing is written at all, and the response is a problem
+document rather than a 200. Setting aside malformed requests, there are nine of them — a duplicate
+`instanceId` within one batch, an over-sized array (chunk against `GET /api/inventory/limits`), a
+`sequence` outside `0..10^15`, a `Full` scope that is not a single character or container, a scope not
+reachable from the calling gameserver (409, and deliberately *not* naming which other gameserver holds
+the character), a `Full` whose `sequence` has already been superseded (409, carrying
+`lastAppliedSequence`), a `Full` refused by the empty-payload guard (422), two `Full` batches racing
+one scope's cursor (409), and exceeding the endpoint's rate limit (429).
+
+**Seven of the nine are `retryable: false`; two are `retryable: true`.** The two exceptions are the
+ones that name no fault in the request — a lost cursor race and a rate limit — and both want a plain
+unmodified resend. Every other one is a pure function of the request, so resending reproduces it
+forever. [Bridge](./bridge.md#errors-per-batch) carries the full table with status codes and what a
+client should do with each; that table, not this paragraph, is the contract.
+
+**Moving a container moves what's inside it, and deleting one takes them with it.** `rootCharacterId`,
+`rootGameServerId` and `expiresAt` are denormalised down the container chain, so dropping a crate on
+the ground has to rewrite all three for everything nested inside — including the ground TTL, which is
+the one that breaks quietly. `rootCharacterId` is the hot inventory read, so getting this wrong is not
+cosmetic: a crate that changes hands with stale contents surfaces those contents in the *previous*
+player's inventory. Deleting a container likewise soft-deletes its descendants, or a child ends up
+pointing at a row that no longer exists while still answering that same read.
+
+The mod is under no obligation to re-report the inside of a crate it merely moved, so neither of those
+is reachable from the batch's own entries. The batch walks the chain itself — upward before the diff
+so the cycle guard sees whole chains, downward afterwards to reach subtrees — a level at a time, each
+level one batched query, capped at the container depth limit. That is bounded by nesting depth, never
+by how many entries the batch carries.
+
+Cascaded deletes are reported in the response's `cascadeDeleted`, kept separate from `deleted` so that
+`deleted` still counts exactly the deletes the caller asked for and its own arithmetic closes, while
+the caller is still told how many rows actually went away.
+
+The upsert side of that arithmetic has one term the delete side does not, and
+[the Bridge contract](./bridge.md#response-200) states it as a caveat on the identity rather than
+leaving a client to discover it: an upsert whose row the *same* batch cascaded out of existence — it
+was moved into a container the batch also deleted — is counted in neither `applied` nor `rejected`.
+`applied` deliberately counts writes that survived the batch (`appliedInstanceIds.ExceptWith(removedInstanceIds)`
+in `ApplySnapshotHandler`), because nothing the upsert said survives; and nothing about the entry was
+wrong, so it is not a rejection either. The row is still counted, in `cascadeDeleted`.
+
+**Every write on this path — and on the ack path — is a targeted patch, never a document replacement.** `ItemInstance` has no
+optimistic concurrency, so writing a whole document back writes every field of whatever copy the batch
+happened to load. That resurrects a `pendingSpawn` flag another writer cleared — the phase 1 review's
+duplicated paid item — and, confirmed by an integration test against real Postgres rather than
+reasoned about, it also *undeletes* a row a concurrent batch soft-deleted, bringing it back still
+pending so the delivery loop serves a consumed item a second time. A patch is an `UPDATE`: against
+that same row it matches nothing and writes nothing, which is the correct outcome rather than merely a
+safer one, and it cannot insert, which means the sole-minter rule is enforced by the storage operation
+itself and not only by the check in front of it. The two patches differ only in width — an applied
+upsert writes the whole surface a snapshot owns, a descendant writes just the three derived root
+fields — and neither names `origin`, `originRef` or `registeredAt`, so the persistence layer
+independently cannot overwrite what the domain already makes unassignable.
+
+[Acking](#acking) is written the same way, over the three fields it owns, and it is if anything the
+more urgent of the two: an ack arrives late by design, so its window is the widest in the module. The
+case that window costs is a granted item consumed before its ack ever landed — the snapshot delete
+correctly removes it, and a whole-document ack write would then put an already-used item back into
+live inventory.
+
+## Tuning the limits
+
+`GET /api/inventory/limits` composes three things: the fifteen `WorldSettings` knobs, the structural
+domain constants (container depth, the three attribute caps, the `Full`-mode `sequence` ceiling), and
+the two rate-limit buckets read back off the same options objects the limiter itself is built from.
+
+Only the first of the three is writable, through `PATCH /api/inventory/limits` (`inventory:manage`).
+It is a partial update — omitted fields keep their stored value — and every supplied value is
+**range-checked, not clamped**: an out-of-range knob comes back `setting_out_of_range` (`400`,
+`retryable: false`) naming the knob and its allowed range, and nothing is written, so a request naming
+one good value and one bad one is never half-applied. The ranges live in one table in
+`UpdateWorldSettingsHandler`, with the two rules that set them written above it.
+
+The structural constants are deliberately not settable: they are invariants already baked into stored
+rows, so a runtime edit would retroactively invalidate data that was valid when written. The
+rate-limit figures are not settable either, for the opposite reason — they are derived from what is
+enforced, and a separately-stored copy could only ever drift from it.
+
+This is newer than the settings themselves. Phase 2 accepted three reconcile-guard thresholds on the
+grounds that they were retunable against real data while the repository exposed no write path at all
+and the singleton table held zero rows, which the whole-branch review caught. `WorldSettingsTests` now
+fails if a knob is added without being both publishable and settable, so the gap cannot reopen
+quietly.
+
 ## An OpenAPI schema-collapse hazard
 
 `grantedInstances` is field-for-field identical between `Shops.Api`'s `PurchaseListingResultDto` and
@@ -240,6 +399,9 @@ changed one module's DTO."
 
 ## Related reading
 
+- [Bridge](./bridge.md) — the client contract for everything above: the snapshot wire shapes, the
+  rejection/error tables with their `retryable` flags, the adoption rule, the rate limits, and the
+  buffering the Bridge is required to provide.
 - [ARCHITECTURE.md §9e](../ARCHITECTURE.md#9e-modulith-structure--module-boundaries) — why
   `ItemInstance` is a plain document rather than an event-sourced aggregate, and a Marten gotcha
   (`Store()`+`Delete()` on the same id in one `SaveChangesAsync`) discovered while building the

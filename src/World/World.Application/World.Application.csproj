@@ -9,9 +9,11 @@
     <ProjectReference Include="..\World.Domain\World.Domain.csproj" />
     <!--
       Application->Application exception (ARCHITECTURE.md §9e): only for the batched
-      ItemCatalogEntriesQuery contract, so the grant path can resolve a granted item's
-      PrefabClassName without World.Domain (or any caller of the grant path, e.g. Shops) ever
-      depending on Items.Domain.
+      ItemCatalogEntriesQuery contract — the grant path resolves a granted item's PrefabClassName
+      through it, and the snapshot write path reads its ItemPersistence to decide whether a
+      world-parented instance gets a ground TTL. Both values are fields of that contract's own
+      published result shape (ItemCatalogEntry), so the Items.Domain types this pulls in transitively
+      are the contract's, never a reach into Items' internals; World.Domain still depends on nothing.
     -->
     <ProjectReference Include="..\..\Items\Items.Application\Items.Application.csproj" />
     <!-- Only for Accounts.Application's public GameServerIdByClientIdQuery contract, used by

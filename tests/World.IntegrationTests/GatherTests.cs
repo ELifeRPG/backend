@@ -403,6 +403,10 @@ public sealed class GatherTests : IAsyncLifetime
         public ValueTask<IReadOnlyList<ItemInstance>> FindUndeliverableAsync(int maxDeliveryAttempts, CancellationToken cancellationToken)
             => throw new NotSupportedException("Not exercised by GatherHandler.");
 
+        public ValueTask<IReadOnlyList<ItemInstance>> FindChildrenOfManyAsync(
+            IReadOnlyList<ItemInstanceId> containerInstanceIds, CancellationToken cancellationToken)
+            => throw new NotSupportedException("Not exercised by GatherHandler.");
+
         public void Store(ItemInstance instance)
         {
             // GrantAsync's real implementation queues minted rows here before its own SaveChangesAsync;
@@ -410,10 +414,24 @@ public sealed class GatherTests : IAsyncLifetime
             // no-op rather than a throw since a void method has no meaningful "not supported" signal.
         }
 
+        public void WriteAcknowledgedSpawn(ItemInstance instance)
+            => throw new NotSupportedException("Not exercised by GatherHandler.");
+
+        public void WriteAppliedSnapshot(ItemInstance instance)
+            => throw new NotSupportedException("Not exercised by GatherHandler.");
+
         public void RecordDeliveryAttempt(ItemInstance instance, DateTimeOffset now)
             => throw new NotSupportedException("Not exercised by GatherHandler.");
 
         public void RecordSpawnFailure(ItemInstance instance, SpawnFailureReason reason, DateTimeOffset now)
+            => throw new NotSupportedException("Not exercised by GatherHandler.");
+
+        public void RewriteResolvedRoots(
+            ItemInstance instance,
+            CharacterId? rootCharacterId,
+            GameServerId? rootGameServerId,
+            DateTimeOffset? expiresAt,
+            DateTimeOffset now)
             => throw new NotSupportedException("Not exercised by GatherHandler.");
 
         public void Eject(ItemInstance instance)

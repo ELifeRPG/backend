@@ -36,6 +36,267 @@ public sealed class ItemInstanceRepositoryTests : IAsyncLifetime
             new OriginRef("Shops", Guid.NewGuid().ToString()),
             DateTimeOffset.UtcNow);
 
+    /// <summary>
+    /// Task 2 review, item 6: <c>FindByIdAsync</c> used to go through Marten's <c>LoadAsync</c>, a
+    /// direct id fetch that ignores the soft-delete filter every other read on this repository
+    /// applies — so a deleted row still came back, and <c>SpawnFailedHandler</c> would happily record
+    /// a negative ack against it.
+    /// </summary>
+    [Fact]
+    public async Task FindById_ForASoftDeletedInstance_ReturnsNull()
+    {
+        var instance = Register(new CharacterId(Guid.NewGuid()));
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            repository.Store(instance);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            var loaded = await repository.FindByIdAsync(instance.Id, CancellationToken.None);
+            Assert.NotNull(loaded);
+
+            repository.SoftDelete(loaded);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            Assert.Null(await repository.FindByIdAsync(instance.Id, CancellationToken.None));
+        }
+
+        // The row is still there, just soft-deleted — this is a visibility fix, not a hard delete.
+        await using var readScope = _provider.CreateAsyncScope();
+        var store = readScope.ServiceProvider.GetRequiredService<IWorldStore>();
+        await using var session = store.QuerySession();
+        var tombstoned = await session.Query<ItemInstance>()
+            .Where(x => x.Id == instance.Id && x.MaybeDeleted())
+            .SingleOrDefaultAsync();
+        Assert.NotNull(tombstoned);
+    }
+
+    /// <summary>
+    /// <b>Documents Marten's engine behaviour, not this codebase's.</b> Nothing in the snapshot write
+    /// path does what this test does any more — that is the point of it. It is the evidence for why
+    /// <see cref="IItemInstanceRepository.WriteAppliedSnapshot"/> exists and is a patch, and the next
+    /// person who proposes "simplifying" that back to a <c>Store()</c> has to get past this first.
+    /// A Marten bump that changes the behaviour will fail here loudly rather than quietly altering
+    /// what the fix was for.
+    ///
+    /// <b>Observed, empirically, before any of it was designed around:</b> <c>Store()</c> of a copy
+    /// loaded <i>before</i> another writer soft-deleted the row <b>resurrects it</b>. It is visible to
+    /// ordinary (non-<c>MaybeDeleted</c>) queries again, carrying the stale copy's field values with
+    /// <see cref="ItemInstance.PendingSpawn"/> among them. Marten's document upsert writes
+    /// <c>mt_deleted = false</c> rather than leaving the soft-delete columns alone, so a deleted id is
+    /// not durably gone as far as a later whole-document write is concerned.
+    ///
+    /// What that cost, when the snapshot path still wrote applied upserts with <c>Store()</c>: a
+    /// delete committing inside a batch's load-to-save window brought a consumed item back, and
+    /// brought it back <i>pending</i>, so the delivery loop re-served it and the player received a
+    /// second copy of something they had already used. A duplicated paid item — the same class as the
+    /// phase 1 review's C1, but demonstrated rather than theorised.
+    ///
+    /// See <see cref="WriteAppliedSnapshot_OfACopyLoadedBeforeAnotherWriterSoftDeletedTheRow_LeavesItDeleted"/>
+    /// for the same race against the write path as it now stands.
+    /// </summary>
+    [Fact]
+    public async Task Store_OfACopyLoadedBeforeAnotherWriterSoftDeletedTheRow_ResurrectsIt()
+    {
+        var owner = new CharacterId(Guid.NewGuid());
+        var instance = Register(owner);
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            repository.Store(instance);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        // Reader A takes its copy before anything is deleted — the snapshot path's LoadManyAsync.
+        ItemInstance copyLoadedBeforeTheDelete;
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            copyLoadedBeforeTheDelete = (await repository.FindByIdAsync(instance.Id, CancellationToken.None))!;
+            Assert.True(copyLoadedBeforeTheDelete.PendingSpawn);
+        }
+
+        // Writer B soft-deletes and commits, inside A's load-to-save window.
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            var loaded = (await repository.FindByIdAsync(instance.Id, CancellationToken.None))!;
+            repository.SoftDelete(loaded);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            Assert.Null(await repository.FindByIdAsync(instance.Id, CancellationToken.None));
+        }
+
+        // A now writes its stale copy back, exactly as an applied snapshot upsert would.
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            repository.Store(copyLoadedBeforeTheDelete);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using var readScope = _provider.CreateAsyncScope();
+        var store = readScope.ServiceProvider.GetRequiredService<IWorldStore>();
+        await using var session = store.QuerySession();
+
+        var live = await session.Query<ItemInstance>().Where(x => x.Id == instance.Id).SingleOrDefaultAsync();
+
+        // This is the observed behaviour, asserted so it cannot change unnoticed — not the behaviour
+        // this codebase wants.
+        Assert.NotNull(live);
+        Assert.True(live.PendingSpawn);
+    }
+
+    /// <summary>
+    /// The regression test for the conversion: the exact race the characterisation test above
+    /// demonstrates, run against the write the snapshot path actually performs, must leave the row
+    /// <b>deleted</b>.
+    ///
+    /// A patch is an <c>UPDATE</c>. Against a row another writer soft-deleted in this batch's
+    /// load-to-save window it matches nothing and writes nothing, so the delete wins — which is the
+    /// correct outcome, not merely a safer one. The consumed item stays consumed, and nothing returns
+    /// to the delivery queue.
+    /// </summary>
+    [Fact]
+    public async Task WriteAppliedSnapshot_OfACopyLoadedBeforeAnotherWriterSoftDeletedTheRow_LeavesItDeleted()
+    {
+        var owner = new CharacterId(Guid.NewGuid());
+        var instance = Register(owner);
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            repository.Store(instance);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        ItemInstance copyLoadedBeforeTheDelete;
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            copyLoadedBeforeTheDelete = (await repository.FindByIdAsync(instance.Id, CancellationToken.None))!;
+        }
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            var loaded = (await repository.FindByIdAsync(instance.Id, CancellationToken.None))!;
+            repository.SoftDelete(loaded);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        // The batch decides to apply its upsert against the copy it loaded, unaware of the delete.
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            copyLoadedBeforeTheDelete.ApplySnapshot(
+                7, ParentKind.Character, owner, null, "chest", null, 0.9f, 12, ItemAttributes.Empty, DateTimeOffset.UtcNow);
+            copyLoadedBeforeTheDelete.RewriteResolvedRoots(owner, new GameServerId(Guid.NewGuid()), null, DateTimeOffset.UtcNow);
+            repository.WriteAppliedSnapshot(copyLoadedBeforeTheDelete);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using var readScope = _provider.CreateAsyncScope();
+        var store = readScope.ServiceProvider.GetRequiredService<IWorldStore>();
+        await using var session = store.QuerySession();
+
+        Assert.Null(await session.Query<ItemInstance>().Where(x => x.Id == instance.Id).SingleOrDefaultAsync());
+
+        var tombstoned = await session.Query<ItemInstance>()
+            .Where(x => x.Id == instance.Id && x.MaybeDeleted())
+            .SingleOrDefaultAsync();
+        Assert.NotNull(tombstoned);
+
+        // The assertion that actually distinguishes "the UPDATE matched nothing" from "the UPDATE
+        // landed on a row that happened to already be deleted". The patch above set Revision to 7; if
+        // it had applied to the tombstone — which it would if Marten's patch ignored the soft-delete
+        // filter the way its upsert ignores the marker — the row would read 7 here while still being
+        // invisible to the live query, and every other assertion in this test would pass regardless.
+        Assert.Equal(0, tombstoned.Revision);
+
+        // And still not pending, so nothing re-offers it even if it is ever restored.
+        Assert.False(tombstoned.PendingSpawn);
+    }
+
+    /// <summary>
+    /// The ack path's version of the same race, and the reason it was worth closing there too: an ack
+    /// arrives late <i>by design</i> — the Bridge is store-and-forward with Polly retries — so its
+    /// load-to-save window is the widest in the module. The concrete case is a granted item consumed
+    /// before its ack ever landed: the snapshot delete correctly removes it, and then the delayed ack
+    /// arrives. With a whole-document <c>Store()</c> that put an already-used item back into live
+    /// inventory; with a patch the delete wins.
+    /// </summary>
+    [Fact]
+    public async Task WriteAcknowledgedSpawn_OfACopyLoadedBeforeAnotherWriterSoftDeletedTheRow_LeavesItDeleted()
+    {
+        var owner = new CharacterId(Guid.NewGuid());
+        var instance = Register(owner);
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            repository.Store(instance);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        // The ack handler loads the still-pending row it is about to acknowledge.
+        ItemInstance copyLoadedBeforeTheDelete;
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            copyLoadedBeforeTheDelete = (await repository.FindByIdAsync(instance.Id, CancellationToken.None))!;
+            Assert.True(copyLoadedBeforeTheDelete.PendingSpawn);
+            Assert.Null(copyLoadedBeforeTheDelete.RootGameServerId);
+        }
+
+        // Meanwhile a snapshot reports the item as consumed and deletes it.
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            var loaded = (await repository.FindByIdAsync(instance.Id, CancellationToken.None))!;
+            repository.SoftDelete(loaded);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        var ackServerId = new GameServerId(Guid.NewGuid());
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IItemInstanceRepository>();
+            copyLoadedBeforeTheDelete.AcknowledgeSpawn(ackServerId, DateTimeOffset.UtcNow);
+            repository.WriteAcknowledgedSpawn(copyLoadedBeforeTheDelete);
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using var readScope = _provider.CreateAsyncScope();
+        var store = readScope.ServiceProvider.GetRequiredService<IWorldStore>();
+        await using var session = store.QuerySession();
+
+        Assert.Null(await session.Query<ItemInstance>().Where(x => x.Id == instance.Id).SingleOrDefaultAsync());
+
+        var tombstoned = await session.Query<ItemInstance>()
+            .Where(x => x.Id == instance.Id && x.MaybeDeleted())
+            .SingleOrDefaultAsync();
+        Assert.NotNull(tombstoned);
+
+        // The discriminating field: PendingSpawn is false either way (SoftDelete clears it too), but
+        // only the ack stamps a delivery server. Still null means the patch wrote nothing at all.
+        Assert.Null(tombstoned.RootGameServerId);
+    }
+
     [Fact]
     public async Task Store_ThenSaveChanges_PersistsEveryFieldNeededToReconstructTheInstance()
     {

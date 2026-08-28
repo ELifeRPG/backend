@@ -253,16 +253,91 @@ public sealed class AcknowledgeSpawnsHandler(
             if (wasPending)
             {
                 instance.AcknowledgeSpawn(request.GameServerId, now);
-                repository.Store(instance);
+
+                // A targeted patch, not a Store() of this loaded copy. An ack is the write with the
+                // widest load-to-save window in the module — the Bridge is store-and-forward with
+                // retries, so it can arrive long after the batch that produced it — and Marten's
+                // document upsert clears the soft-delete marker, so a Store() here undeletes a row a
+                // snapshot delete removed in the meantime. That is the "granted item consumed before
+                // its ack landed" case putting an already-used item back into live inventory. See
+                // IItemInstanceRepository.WriteAcknowledgedSpawn.
+                repository.WriteAcknowledgedSpawn(instance);
             }
 
             entry.Kind = wasPending ? AckKind.Cleared : AckKind.AlreadyCleared;
             entry.Children = await ResolveChildrenAsync(instance, ack.Children, childrenCacheByParent, childPrefabsByItemId, now, cancellationToken);
         }
 
+        await DiscardChildrenOfVanishedParentsAsync(working, cancellationToken);
         await SaveReconcilingChildSlotConflictsAsync(working, cancellationToken);
 
         return new AcknowledgeSpawnsResult.Acknowledged(working.Select(ToOutcome).ToList());
+    }
+
+    /// <summary>
+    /// Drops speculatively-minted children whose parent has been soft-deleted since this handler
+    /// loaded it, and reports that ack as <see cref="AckOutcome.NotFound"/>.
+    ///
+    /// The case is the ack path's own version of the race
+    /// <c>IItemInstanceRepository.WriteAcknowledgedSpawn</c> documents: a granted item is consumed
+    /// before its ack lands, a snapshot delete correctly removes it, and the delayed ack arrives
+    /// afterwards. Patching the parent already handles itself — the <c>UPDATE</c> matches nothing, so
+    /// the row stays deleted — but a child insert is not an update. Minted children would land as
+    /// live, non-pending rows carrying the deleted parent's <see cref="ItemInstance.RootCharacterId"/>
+    /// and a <see cref="ItemInstance.ContainerInstanceId"/> pointing at a row that no longer exists.
+    /// They would answer the carried-inventory read, which is exactly the orphaned state the snapshot
+    /// path's delete cascade exists to prevent, arriving through a door that cascade cannot see.
+    ///
+    /// Costs one batched read, and only for a request that actually declares children — the common
+    /// ack carries none and pays nothing. Reuses <c>Eject</c>, the same mechanism the child-slot
+    /// reconciliation below uses to abandon an insert that must not be retried.
+    ///
+    /// <b>Narrows the window rather than eliminating it</b>, and that is worth stating plainly: a
+    /// delete committing between this check and the <c>SaveChangesAsync</c> below still produces the
+    /// orphan. Closing it outright needs the delete and the ack to serialise on the same row lock,
+    /// which neither path takes today and which is a larger design decision than this fix. What is
+    /// removed here is the whole span from the handler's initial load — where the delete has real time
+    /// to land, since an ack is store-and-forward and arrives late by design — down to a window of
+    /// microseconds.
+    /// </summary>
+    private async ValueTask DiscardChildrenOfVanishedParentsAsync(List<WorkingAck> working, CancellationToken cancellationToken)
+    {
+        var parentIds = working
+            .Where(x => x.Children.Any(child => child.IsNewlyMinted))
+            .Select(x => x.InstanceId)
+            .Distinct()
+            .ToList();
+
+        if (parentIds.Count == 0)
+        {
+            return;
+        }
+
+        // Soft-deleted rows are absent from this read (IItemInstanceRepository.LoadManyAsync queries
+        // rather than loads by id), which is precisely the signal wanted here.
+        var stillLive = (await repository.LoadManyAsync(parentIds, cancellationToken)).Select(x => x.Id).ToHashSet();
+
+        foreach (var ack in working)
+        {
+            if (stillLive.Contains(ack.InstanceId) || !ack.Children.Any(child => child.IsNewlyMinted))
+            {
+                continue;
+            }
+
+            foreach (var child in ack.Children)
+            {
+                if (child is { IsNewlyMinted: true, Instance: not null })
+                {
+                    repository.Eject(child.Instance);
+                }
+            }
+
+            // NotFound rather than Cleared: by the time this batch committed, the instance did not
+            // exist. Saying otherwise would tell the mod it had successfully adopted a row that is
+            // gone.
+            ack.Kind = AckKind.NotFound;
+            ack.Children = [];
+        }
     }
 
     private async ValueTask<List<WorkingChild>> ResolveChildrenAsync(
