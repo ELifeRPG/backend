@@ -265,7 +265,7 @@ public static partial class WorldModule
                 + "pendingSpawn on each. Adoption is mandatory: an id the backend never granted, or one "
                 + "granted to a character not currently on the calling gameserver, is NotFound — never a "
                 + "create. Idempotent: a replayed ack for an already-cleared instance returns "
-                + "AlreadyCleared. Also mints any declared children (an engine-spawned magazine, SIM, "
+                + "AlreadyCleared. Also mints any declared children (an engine-spawned magazine, battery, "
                 + "etc.), keyed by slot — a replay returns the same child ids rather than minting a "
                 + "second set. A child naming an uncatalogued itemId is reported per-child, not a 500. "
                 + "Bounded by count, not body size: more than maxAcksPerBatch entries, or more than "

@@ -8,48 +8,120 @@ Phone data is hive-wide: a number reaches its owner regardless of which gameserv
 same model [Shops](./shops.md) and the whitelist moved to on 2026-08-22. Nothing here carries a
 `GameServerId`.
 
-## The device / SIM split
+## One phone, one number
 
-The one idea worth internalising before reading anything else:
+A phone is a single thing. The number, the PIN, the blocklist, the contacts, the message history,
+the installed apps and the power state all belong to the handset, and a character may hold several
+handsets, each with its own number.
 
-| Lives on the **SIM card** | Lives on the **handset** |
-| --- | --- |
-| The phone number | Which model it is, and therefore what it can do |
-| The contact book | Which apps are installed |
-| Message threads and history | Whether it is powered on |
-| The blocklist | Which SIMs are seated in it |
+This replaces an earlier device/SIM split, where a transferable `SimCard` owned the identity and the
+handset was only a host supplying power, apps and a capability tier. Nothing could exercise it —
+handsets and SIMs only ever appear through provisioning, so nobody could move a card between
+two handsets they did not have — and it cost every app command a two-aggregate guard chain. The
+tiering went with it: there is no `PhoneModel` catalog any more, and every phone has the same limits.
 
-Move a SIM to another handset and the number, contacts and every conversation come with it; the old
-handset keeps nothing. A handset is a host that supplies power, a capability tier and apps.
+Two consequences worth internalising:
 
-Two consequences that surprise people:
+- **Limits are hive-wide, not per handset.** `PhoneContactLimit`, `PhoneThreadMessageLimit` and
+  `PhoneMaxGroupParticipants` live on `hiveSettings` next to `smsPerMinutePerPhone` and
+  `smsMaxBodyLength`, and are editable at runtime through `PATCH /api/hive/settings`. Retention is
+  applied when a message arrives and the limit that applied rides on the event, so replaying a
+  stream rebuilds exactly the history that existed — and lowering the cap costs a thread its backlog
+  on its *next* message rather than at once.
+- **The PIN replaced the biolock.** A handset used to be bound to one character forever, which made
+  a dropped or looted phone a brick. Now possession plus the PIN is enough. See below.
 
-- **Retention is the handset's, history is the SIM's.** A thread is trimmed to the
-  `threadMessageLimit` of whatever device the SIM currently sits in, applied when a message arrives.
-  Drop a smartphone SIM into a burner and the next message costs you the backlog. The limit that
-  applied rides on each event, so replaying a stream rebuilds exactly the history that existed.
-- **Both halves are bound to a character.** The handset is biolocked (`boundCharacterId`, set once at
-  provisioning and never changed) and the SIM is registered to a character. Every mutating call
-  checks the acting character against *both*, so neither a stolen handset nor a stolen SIM is worth
-  anything.
+## The PIN
+
+Every phone is provisioned with a PIN: 4 to 8 digits, since it is typed on an in-game keypad.
+
+The owner never sends it. `PhoneAccessPolicy` grants the registered owner outright, so the mod fills
+it in implicitly for the character who owns the handset; `pin` is an optional field that anyone
+*else* holding the phone supplies. `POST /api/phones/{phoneId}/pin` changes it, and takes the owner
+or the current PIN — so whoever picks up a phone and knows the PIN can lock the previous owner out.
+
+Enforcement (`phone:enforce`) is the one thing the PIN does not open: suspend and restore take no
+acting character and no PIN at all, because the point of an enforcement action is that the holder
+does not consent to it.
+
+Three deliberate choices, recorded so they are not re-litigated:
+
+- **Stored in the clear.** It is a game prop, not a credential. The only caller is the Bridge holding
+  a client-credentials token, so there is no untrusted party on the other end, and hashing four
+  digits would not stop anyone who can already reach the endpoint.
+- **No attempt counter and no lockout.** For the same reason — the mod owns the in-game attempt UX.
+- **Never returned by any read**, moderation reads included. A read endpoint that echoed it would
+  hand every holder of `gameserver:phone:read` the key to every handset.
+
+It does travel in the query string on the two `DELETE` routes that take one (uninstalling an app,
+unblocking a number), so it reaches request logs. That is accepted rather than overlooked: it is
+already stored in the clear, so a log line exposes nothing the database does not, and the
+alternative is a `DELETE` with a body — which every other delete in this codebase avoids.
 
 ## Apps
 
 `AppCatalog` in `Phone.Domain/Apps` is the backend's list of what apps exist, so adding or
 rebalancing one needs no mod redeploy — the same reasoning [Skills](./skills.md) applies to its
-action-to-XP map. A `PhoneModel` declares which apps it supports, which is where tier actually bites:
-a burner refuses what a smartphone advertises.
+action-to-XP map. Every phone can run every entry: with models gone, installing an app is a player's
+choice rather than a permission the handset grants. A phone ships with all of them installed.
+
+What installing still governs is delivery. Uninstalling Messages does not lose anything — contacts
+and threads belong to the phone — and incoming messages queue rather than vanish, arriving when it
+is installed again.
 
 Every app command runs one shared guard chain, `PhoneAccessPolicy`:
 
-1. The SIM exists and is `Active` (not suspended, not deactivated).
-2. The acting character is registered to that SIM.
-3. The SIM is seated in a handset.
-4. The acting character is the handset's biolocked owner.
-5. The handset is powered on.
-6. The app is installed on the handset and supported by its model.
+1. The phone exists.
+2. The acting character is the registered owner, **or** the supplied PIN matches.
+3. The phone is `Active` (not suspended, not deactivated).
+4. The phone is powered on, and the app is installed.
 
-Adding an app buys all six for the cost of one call. See [Adding an app](#adding-an-app).
+Adding an app buys all four for the cost of one call. See [Adding an app](#adding-an-app).
+
+Platform commands deliberately run less than the whole chain. Power, apps and the PIN itself need
+step 1 and 2 but not power or an installed app — you cannot require a phone to be switched on in
+order to switch it on.
+
+Everything an app owns is rooted under `/api/phones/{phoneId}/apps/{appKey}/`, mirroring the
+`Apps/<Name>/` folders in Domain, Application and Api. A new app owns that prefix outright, so two
+apps can never race each other for the same noun. The blocklist is under Messages for that reason:
+it is one app's list, and its URL and its guard chain agree about which.
+
+## Routes
+
+The split the URLs make visible: the phone itself, versus what runs on it.
+
+```
+Platform            POST   /api/phones
+                    GET    /api/phones/{phoneId}
+                    GET    /api/characters/{characterId}/phones
+                    POST   /api/phones/{phoneId}/power
+                    POST   /api/phones/{phoneId}/pin
+                    GET    /api/phones/{phoneId}/apps
+                    PUT    /api/phones/{phoneId}/apps/{appKey}
+                    DELETE /api/phones/{phoneId}/apps/{appKey}
+
+Enforcement         POST   /api/phones/{phoneId}/suspend
+                    POST   /api/phones/{phoneId}/restore
+
+Contacts app        GET    /api/phones/{phoneId}/apps/contacts/entries
+                    POST   /api/phones/{phoneId}/apps/contacts/entries
+                    PATCH  /api/phones/{phoneId}/apps/contacts/entries/{contactId}
+                    DELETE /api/phones/{phoneId}/apps/contacts/entries/{contactId}
+
+Messages app        GET    /api/phones/{phoneId}/apps/messages/threads
+                    GET    /api/phones/{phoneId}/apps/messages/threads/{threadId}
+                    POST   /api/phones/{phoneId}/apps/messages/threads/{threadId}/read
+                    POST   /api/phones/{phoneId}/apps/messages/send
+                    POST   /api/phones/{phoneId}/apps/messages/blocks
+                    DELETE /api/phones/{phoneId}/apps/messages/blocks/{number}
+
+Staff               GET    /api/admin/phones
+                    GET    /api/admin/phones/{phoneId}/threads
+```
+
+`send` is a verb rather than a POST to a collection on purpose: a send is not the creation of one
+thing, it fans out across the sender's thread and every reachable recipient's.
 
 ## Authorization
 
@@ -62,15 +134,20 @@ Scopes:
 
 | Scope | Covers |
 | --- | --- |
-| `phone:read` | Reading models, handsets, SIMs, contacts and threads |
-| `phone:write` | Everything a character does with their own phone, plus the SignalR hub |
-| `phone:provision` | Creating handsets and SIMs — the gameserver bridge, and later the NPC service |
-| `phone:manage` | The model catalog and the staff moderation reads |
-| `phone:enforce` | Suspending and restoring a SIM |
+| `gameserver:phone:read` | Reading phones, contacts and threads |
+| `gameserver:phone:write` | Everything a character does with a phone, plus the SignalR hub |
+| `gameserver:phone:provision` | Creating phones — the gameserver bridge, and later the NPC service |
+| `phone:manage` | The staff moderation reads |
+| `phone:enforce` | Suspending and restoring a phone |
+
+They follow the realm's split: `gameserver:<module>:<verb>` for what a gameserver's Bridge holds,
+a bare `<x>:<verb>` for staff, the same as `accounts:manage` and `inventory:manage`. They were bare
+`phone:*` until this module lost its SIM, but had never been registered in
+`infra/keycloak/eliferpg-realm.json` at all — no token could carry them, so nothing was in use to
+break. They are registered now, on `gameserver-dev` and `staff-admin-dev` respectively.
 
 `phone:enforce` is deliberately its own scope rather than part of `phone:manage`, so an in-game
-Police/State faction can be granted exactly that later without also gaining catalog and moderation
-powers.
+Police/State faction can be granted exactly that later without also gaining moderation powers.
 
 ## Walkthrough
 
@@ -78,35 +155,25 @@ Needs `$BRIDGE_TOKEN` (see [Accounts](./accounts.md)) and a `characterId` from
 [Characters](./characters.md).
 
 ```sh
-MODEL_ID=$(curl -s -X POST http://localhost:5100/api/phone-models \
+PHONE=$(curl -s -X POST http://localhost:5100/api/phones \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"displayName":"Burner","tier":1,"simSlots":1,"supportedApps":["Messages","Contacts"],
-       "contactLimit":20,"threadMessageLimit":30,"maxGroupParticipants":5}' \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['modelId'])")
+  -d "{\"characterId\":\"$CHARACTER_ID\",\"pin\":\"1234\"}")
+PHONE_ID=$(echo "$PHONE" | python3 -c "import json,sys; print(json.load(sys.stdin)['phoneId'])")
+NUMBER=$(echo "$PHONE" | python3 -c "import json,sys; print(json.load(sys.stdin)['number'])")
 
-PHONE_ID=$(curl -s -X POST http://localhost:5100/api/phones \
-  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d "{\"characterId\":\"$CHARACTER_ID\",\"modelId\":\"$MODEL_ID\"}" \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['phoneId'])")
-
-# A handset ships with its model's apps installed, and powered off.
-SIM=$(curl -s -X POST http://localhost:5100/api/sim-cards \
-  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d "{\"characterId\":\"$CHARACTER_ID\"}")
-SIM_ID=$(echo "$SIM" | python3 -c "import json,sys; print(json.load(sys.stdin)['simCardId'])")
-NUMBER=$(echo "$SIM" | python3 -c "import json,sys; print(json.load(sys.stdin)['number'])")
-
-curl -s -X PUT http://localhost:5100/api/phones/$PHONE_ID/sims/$SIM_ID \
-  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d "{\"characterId\":\"$CHARACTER_ID\"}"
-
+# A phone ships with every app installed, and powered off.
 curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/power \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
   -d "{\"characterId\":\"$CHARACTER_ID\",\"isPoweredOn\":true}"
 
-curl -s -X POST http://localhost:5100/api/sim-cards/$SIM_ID/messages \
+curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/apps/messages/send \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
   -d "{\"characterId\":\"$CHARACTER_ID\",\"to\":[\"$OTHER_NUMBER\"],\"body\":\"on my way\"}"
+
+# Someone else holding the handset sends the PIN alongside their own characterId.
+curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/apps/messages/send \
+  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
+  -d "{\"characterId\":\"$OTHER_CHARACTER_ID\",\"pin\":\"1234\",\"to\":[\"$OTHER_NUMBER\"],\"body\":\"borrowed this\"}"
 ```
 
 Numbers are eight digits. They are typed by hand in game, so the API accepts spaces, dashes,
@@ -123,10 +190,10 @@ Per recipient:
 
 | Recipient state | Outcome |
 | --- | --- |
-| Unknown number, or SIM `Deactivated` | Undeliverable, reported back to the sender |
-| SIM `Suspended` | Undeliverable, reported back — and **not queued** |
+| Unknown number, or phone `Deactivated` | Undeliverable, reported back to the sender |
+| Phone `Suspended` | Undeliverable, reported back — and **not** queued |
 | Sender's number is on the recipient's blocklist | Dropped silently, **not** reported |
-| SIM loose, handset off, or Messages uninstalled | Queued as a `PendingDelivery` |
+| Phone powered off, or Messages uninstalled | Queued as a `PendingDelivery` |
 | Otherwise | Appended to the recipient's thread |
 
 Two of those are deliberate and easy to get wrong later:
@@ -141,21 +208,21 @@ Two of those are deliberate and easy to get wrong later:
 The sender's own thread is appended regardless. Texting a dead, blocked or suspended number still
 reads as sent from their side, exactly like SMS.
 
-Queued messages are delivered when the number becomes reachable again: powering the handset on, or
-seating the SIM. Both are safe to repeat — a still-unreachable SIM simply leaves everything queued,
-and each delivery leaves the queue in the same commit that appends it to the thread.
+Queued messages are delivered when the number becomes reachable again: powering the phone on, or
+installing Messages. Both are safe to repeat — a still-unreachable phone simply leaves everything
+queued, and each delivery leaves the queue in the same commit that appends it to the thread.
 
 ## Threads
 
-A thread is keyed by *(SIM, participant set)*. There is no group object to create, name or
+A thread is keyed by *(phone, participant set)*. There is no group object to create, name or
 administer — addressing two people simply lands in the thread for those two people, and addressing
 them again in the other order lands in the same one. From a recipient's side the thread is "everyone
 else", meaning the sender plus the other recipients.
 
 ## Rate limiting
 
-Per SIM, not per handset: the number is the sending identity. The limit is
-`hiveSettings.smsPerMinutePerSim`, alongside `smsMaxBodyLength` — both editable at runtime through
+Per phone, which is per number since the two are now one thing. The limit is
+`hiveSettings.smsPerMinutePerPhone`, alongside `smsMaxBodyLength` — both editable at runtime through
 `PATCH /api/hive/settings`. It is a fixed window, so a burst spanning a boundary can reach twice the
 limit; that is well within what this throttle is for.
 
@@ -163,11 +230,12 @@ limit; that is well within what this throttle is for.
 
 `hubs/phone`, token via the `access_token` query parameter, same as [Shops](./shops.md).
 
-- `SubscribeToSim(simCardId)` / `UnsubscribeFromSim(simCardId)`, with `?characterId=` on the
+- `SubscribeToPhone(phoneId)` / `UnsubscribeFromPhone(phoneId)`, with `?characterId=` on the
   connection.
-- **Subscribing authorizes**, unlike `ShopsHub`: shops are hive-public, message threads are not.
-- Groups are keyed by SIM, so a subscription survives the SIM moving to another handset, and one
-  subscription carries every app's events.
+- **Subscribing authorizes**, unlike `ShopsHub`: shops are hive-public, message threads are not. It
+  takes *ownership*, not the PIN — a live subscription is a standing grant rather than a single act,
+  so it is deliberately narrower than what the guard chain allows a borrower to do.
+- Groups are keyed by phone, so one subscription carries every app's events.
 - Events: `MessageReceived`, `ThreadUpdated`.
 - As with Shops, the hub is a delivery convenience and **never the source of truth**. Re-fetch on
   reconnect.
@@ -176,38 +244,36 @@ limit; that is well within what this throttle is for.
 
 1. One `AppKey` member and one `AppDefinition` in `AppCatalog`.
 2. `Apps/<Name>/` folders in `Phone.Domain`, `Phone.Application` and `Phone.Api`.
-3. Add the key to the relevant `PhoneModel.supportedApps` — data, not code.
-4. Call `PhoneAccessPolicy` with the new key and inherit SIM status, SIM ownership, biolock, power
-   state and the install check unchanged.
-5. New hub event names on the existing per-SIM group.
+3. Routes under `/api/phones/{phoneId}/apps/<key>/`, which is yours alone — no coordination with
+   any other app about names.
+4. Call `PhoneAccessPolicy` with the new key and inherit phone status, ownership-or-PIN, power state
+   and the install check unchanged.
+5. New hub event names on the existing per-phone group.
 
-Nothing under `Devices/` or `Sims/` is touched. `AppKey` is an **append-only** enum: ordinals are
-persisted in Marten payloads, so inserting a member mid-list remaps every stored value.
+Nothing under `Devices/` is touched. `AppKey` is an **append-only** enum: ordinals are persisted in
+Marten payloads, so inserting a member mid-list remaps every stored value.
 
 A Banking app is also where `ICrossModuleTransaction` would finally earn its place in this module,
 spanning the Phone and Banking stores the way `PurchaseListingHandler` already spans Shops and
 Banking.
 
-## TODO: inventory, and where devices come from
+## TODO: inventory, and where phones come from
 
-Handsets and SIMs exist **only** through `POST /api/phones` and `POST /api/sim-cards` under
-`phone:provision`. They are not yet connected to buying one.
+Phones exist **only** through `POST /api/phones` under `gameserver:phone:provision`. They are not
+yet connected to buying one.
 
 eliferpg-core has no per-character inventory (listed as an unbuilt prerequisite in
 `npc-virtual-simulation/docs/concept/ownership-map.md`), so a shop purchase cannot hand over a
-device: [Shops](./shops.md) can sell a phone `Item`, but nothing links that purchase to a device
+device: [Shops](./shops.md) can sell a phone `Item`, but nothing links that purchase to a phone
 record.
 
-Closing this needs Reforger inventory persistence for **composed items**. A phone is a compound
-object: an item instance carrying properties that reference the `phoneId` it is and the `simCardId`
-currently seated in it. Once an inventory item can hold that:
+Closing this needs Reforger inventory persistence: an item instance carrying a property that
+references the `phoneId` it is. Once an inventory item can hold that:
 
 - provisioning moves into the purchase flow (see `PurchaseListingHandler`'s
   `ICrossModuleTransaction`), so paying and receiving commit together;
 - buying, dropping, looting and trading a handset all become inventory operations rather than
-  separate API calls;
-- `PhoneModel.itemId` — already on the model, already returned by the API — becomes the link the
-  bridge uses to spawn the right prefab.
+  separate API calls.
 
-Until then, the biolock is what makes a dropped or looted handset harmless: possession confers
-nothing, because the backend only ever answers to the bound character.
+That is also the point at which the PIN starts to matter in earnest — until a phone can change hands
+in-world, nobody but its owner can be holding one.

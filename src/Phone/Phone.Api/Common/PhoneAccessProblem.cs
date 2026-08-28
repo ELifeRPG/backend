@@ -10,38 +10,26 @@ internal static class PhoneAccessProblem
 {
     public static IResult ToResult(PhoneAccessResult denial) => denial switch
     {
-        PhoneAccessResult.SimNotFound => Results.Problem(
-            title: "SIM card not found", statusCode: StatusCodes.Status404NotFound),
+        PhoneAccessResult.PhoneNotFound => Results.Problem(
+            title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
 
-        // 403 rather than 404: the caller named a SIM that exists, they simply do not own it.
-        PhoneAccessResult.NotSimOwner => Results.Problem(
-            title: "Character does not own this SIM card", statusCode: StatusCodes.Status403Forbidden),
+        // 403 rather than 404: the caller named a phone that exists, they simply may not use it.
+        // One status for "not yours" and "wrong PIN" together, deliberately — see the union.
+        PhoneAccessResult.NotAuthorized => Results.Problem(
+            title: "Not the phone's owner, and no matching PIN was supplied",
+            statusCode: StatusCodes.Status403Forbidden),
 
-        PhoneAccessResult.SimSuspended => Results.Problem(
-            title: "SIM card is suspended", statusCode: StatusCodes.Status403Forbidden),
+        PhoneAccessResult.PhoneSuspended => Results.Problem(
+            title: "Phone is suspended", statusCode: StatusCodes.Status403Forbidden),
 
-        PhoneAccessResult.SimDeactivated => Results.Problem(
-            title: "SIM card has been deactivated", statusCode: StatusCodes.Status410Gone),
+        PhoneAccessResult.PhoneDeactivated => Results.Problem(
+            title: "Phone has been deactivated", statusCode: StatusCodes.Status410Gone),
 
-        PhoneAccessResult.SimNotInstalled => Results.Problem(
-            title: "SIM card is not installed in a device", statusCode: StatusCodes.Status409Conflict),
-
-        PhoneAccessResult.DeviceNotFound => Results.Problem(
-            title: "Device not found", statusCode: StatusCodes.Status404NotFound),
-
-        // The biolock: holding a handset is not the same as being bound to it.
-        PhoneAccessResult.NotDeviceOwner => Results.Problem(
-            title: "Character is not bound to this device", statusCode: StatusCodes.Status403Forbidden),
-
-        PhoneAccessResult.DevicePoweredOff => Results.Problem(
-            title: "Device is powered off", statusCode: StatusCodes.Status409Conflict),
+        PhoneAccessResult.PhonePoweredOff => Results.Problem(
+            title: "Phone is powered off", statusCode: StatusCodes.Status409Conflict),
 
         PhoneAccessResult.AppNotInstalled => Results.Problem(
-            title: "App is not installed on this device", statusCode: StatusCodes.Status409Conflict),
-
-        // A handset pointing at a model that no longer exists is a data fault, not a caller error.
-        PhoneAccessResult.ModelNotFound => Results.Problem(
-            title: "Device model not found", statusCode: StatusCodes.Status500InternalServerError),
+            title: "App is not installed on this phone", statusCode: StatusCodes.Status409Conflict),
 
         PhoneAccessResult.Granted => throw new InvalidOperationException("Granted is not a denial."),
     };

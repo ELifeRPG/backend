@@ -1,9 +1,7 @@
-using ELifeRPG.Phone.Domain.Apps;
 using ELifeRPG.Phone.Domain.Apps.Contacts;
 using ELifeRPG.Phone.Domain.Apps.Contacts.Events;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Domain.Exceptions;
-using ELifeRPG.Phone.Domain.Sims;
 using Xunit;
 
 namespace ELifeRPG.Phone.Domain.UnitTests;
@@ -13,22 +11,19 @@ public class ContactBookTests
     private static readonly PhoneNumber Dispatcher = PhoneNumber.Parse("55009911");
     private static readonly PhoneNumber Mechanic = PhoneNumber.Parse("55009912");
 
-    private static PhoneModel Model(int contactLimit = 50) =>
-        PhoneModel.Create(PhoneModel.Define(
-            new PhoneModelId(Guid.NewGuid()), "Burner", 1, null, 1,
-            [AppKey.Messages, AppKey.Contacts], contactLimit, 30, 5));
+    private const int ContactLimit = 50;
 
     private static ContactBook Book() =>
-        ContactBook.Create(new ContactBookOpened(new ContactBookId(Guid.NewGuid()), new SimCardId(Guid.NewGuid())));
+        ContactBook.Create(new ContactBookOpened(new ContactBookId(Guid.NewGuid()), new PhoneDeviceId(Guid.NewGuid())));
 
     [Fact]
-    public void Create_OpensAnEmptyBookForTheSim()
+    public void Create_OpensAnEmptyBookForThePhone()
     {
-        var simId = new SimCardId(Guid.NewGuid());
+        var phoneId = new PhoneDeviceId(Guid.NewGuid());
 
-        var book = ContactBook.Create(new ContactBookOpened(new ContactBookId(Guid.NewGuid()), simId));
+        var book = ContactBook.Create(new ContactBookOpened(new ContactBookId(Guid.NewGuid()), phoneId));
 
-        Assert.Equal(simId, book.SimCardId);
+        Assert.Equal(phoneId, book.PhoneId);
         Assert.Empty(book.Contacts);
     }
 
@@ -38,7 +33,7 @@ public class ContactBookTests
         var book = Book();
         var contactId = new ContactId(Guid.NewGuid());
 
-        book.SaveContact(contactId, Dispatcher, "Dispatcher", Model());
+        book.SaveContact(contactId, Dispatcher, "Dispatcher", ContactLimit);
 
         var contact = Assert.Single(book.Contacts);
         Assert.Equal(contactId, contact.Id);
@@ -51,7 +46,7 @@ public class ContactBookTests
     {
         var book = Book();
 
-        book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "  Dispatcher  ", Model());
+        book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "  Dispatcher  ", ContactLimit);
 
         Assert.Equal("Dispatcher", book.Contacts[0].DisplayName);
     }
@@ -61,40 +56,40 @@ public class ContactBookTests
     {
         var book = Book();
 
-        Assert.Throws<ArgumentException>(() => book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "   ", Model()));
+        Assert.Throws<ArgumentException>(() => book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "   ", ContactLimit));
     }
 
     [Fact]
     public void SaveContact_WithANumberAlreadySaved_ThrowsContactAlreadyExists()
     {
         var book = Book();
-        book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "Dispatcher", Model());
+        book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "Dispatcher", ContactLimit);
 
         Assert.Throws<ContactAlreadyExistsException>(() =>
-            book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "Dispatcher again", Model()));
+            book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "Dispatcher again", ContactLimit));
     }
 
     [Fact]
     public void SaveContact_MatchesExistingNumbersRegardlessOfFormatting()
     {
         var book = Book();
-        book.SaveContact(new ContactId(Guid.NewGuid()), PhoneNumber.Parse("5500-9911"), "Dispatcher", Model());
+        book.SaveContact(new ContactId(Guid.NewGuid()), PhoneNumber.Parse("5500-9911"), "Dispatcher", ContactLimit);
 
         Assert.Throws<ContactAlreadyExistsException>(() =>
-            book.SaveContact(new ContactId(Guid.NewGuid()), PhoneNumber.Parse("+55009911"), "Dispatcher", Model()));
+            book.SaveContact(new ContactId(Guid.NewGuid()), PhoneNumber.Parse("+55009911"), "Dispatcher", ContactLimit));
     }
 
     [Fact]
-    public void SaveContact_AtTheModelContactLimit_ThrowsContactLimitReached()
+    public void SaveContact_AtTheContactLimit_ThrowsContactLimitReached()
     {
-        // The device the SIM currently sits in decides how many contacts fit — that is what buying a
-        // better handset gets you.
-        var model = Model(contactLimit: 1);
+        // The cap is hive-wide and handed in by the caller: every phone holds the same number, so
+        // there is no better handset to buy for a longer address book.
+        const int limit = 1;
         var book = Book();
-        book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "Dispatcher", model);
+        book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "Dispatcher", limit);
 
         Assert.Throws<ContactLimitReachedException>(() =>
-            book.SaveContact(new ContactId(Guid.NewGuid()), Mechanic, "Mechanic", model));
+            book.SaveContact(new ContactId(Guid.NewGuid()), Mechanic, "Mechanic", limit));
     }
 
     [Fact]
@@ -102,7 +97,7 @@ public class ContactBookTests
     {
         var book = Book();
         var contactId = new ContactId(Guid.NewGuid());
-        book.SaveContact(contactId, Dispatcher, "Dispatcher", Model());
+        book.SaveContact(contactId, Dispatcher, "Dispatcher", ContactLimit);
 
         book.RenameContact(contactId, "Night dispatcher");
 
@@ -120,7 +115,7 @@ public class ContactBookTests
     {
         var book = Book();
         var contactId = new ContactId(Guid.NewGuid());
-        book.SaveContact(contactId, Dispatcher, "Dispatcher", Model());
+        book.SaveContact(contactId, Dispatcher, "Dispatcher", ContactLimit);
 
         Assert.Throws<ArgumentException>(() => book.RenameContact(contactId, " "));
     }
@@ -130,7 +125,7 @@ public class ContactBookTests
     {
         var book = Book();
         var contactId = new ContactId(Guid.NewGuid());
-        book.SaveContact(contactId, Dispatcher, "Dispatcher", Model());
+        book.SaveContact(contactId, Dispatcher, "Dispatcher", ContactLimit);
 
         book.DeleteContact(contactId);
 
@@ -146,13 +141,13 @@ public class ContactBookTests
     [Fact]
     public void DeleteContact_FreesUpRoomAgainstTheLimit()
     {
-        var model = Model(contactLimit: 1);
+        const int limit = 1;
         var book = Book();
         var contactId = new ContactId(Guid.NewGuid());
-        book.SaveContact(contactId, Dispatcher, "Dispatcher", model);
+        book.SaveContact(contactId, Dispatcher, "Dispatcher", limit);
         book.DeleteContact(contactId);
 
-        book.SaveContact(new ContactId(Guid.NewGuid()), Mechanic, "Mechanic", model);
+        book.SaveContact(new ContactId(Guid.NewGuid()), Mechanic, "Mechanic", limit);
 
         Assert.Single(book.Contacts);
     }
@@ -161,7 +156,7 @@ public class ContactBookTests
     public void Find_ReturnsTheContactForANumber()
     {
         var book = Book();
-        book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "Dispatcher", Model());
+        book.SaveContact(new ContactId(Guid.NewGuid()), Dispatcher, "Dispatcher", ContactLimit);
 
         Assert.Equal("Dispatcher", book.Find(Dispatcher)?.DisplayName);
         Assert.Null(book.Find(Mechanic));
@@ -174,7 +169,7 @@ public class ContactBookTests
         var contactId = new ContactId(Guid.NewGuid());
         var book = new ContactBook();
 
-        book.Apply(new ContactBookOpened(bookId, new SimCardId(Guid.NewGuid())));
+        book.Apply(new ContactBookOpened(bookId, new PhoneDeviceId(Guid.NewGuid())));
         book.Apply(new ContactSaved(bookId, contactId, Dispatcher, "Dispatcher"));
         book.Apply(new ContactRenamed(bookId, contactId, "Night dispatcher"));
 

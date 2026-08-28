@@ -1,3 +1,4 @@
+using ELifeRPG.Accounts.Application.Hive;
 using ELifeRPG.Phone.Application.Common;
 using ELifeRPG.Phone.Domain.Apps.Contacts.Events;
 using ELifeRPG.Phone.Domain.Exceptions;
@@ -20,42 +21,44 @@ public union SaveContactResult(
     public record InvalidDisplayName(string Reason);
 
     /// <summary>
-    /// Carries the guard chain's own verdict rather than restating all eleven cases per command.
+    /// Carries the guard chain's own verdict rather than restating every case per command.
     /// One mapping in the Api layer turns it into the right status for every app.
     /// </summary>
     public record AccessDenied(PhoneAccessResult Reason);
 }
 
 public sealed record SaveContactCommand(
-    SimCardId SimCardId,
-    CharacterId ActingCharacterId,
+    PhoneDeviceId PhoneId,
+    PhoneActor Actor,
     PhoneNumber Number,
     string DisplayName) : IRequest<SaveContactResult>;
 
 public sealed class SaveContactHandler(
-    ISimCardRepository simCardRepository,
-    IPhoneDeviceRepository deviceRepository,
-    IPhoneModelRepository modelRepository,
-    IContactBookRepository contactBookRepository)
+    IPhoneDeviceRepository phoneRepository,
+    IContactBookRepository contactBookRepository,
+    IMediator mediator)
     : IRequestHandler<SaveContactCommand, SaveContactResult>
 {
     public async ValueTask<SaveContactResult> Handle(SaveContactCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.SimCardId, request.ActingCharacterId, AppKey.Contacts,
-            simCardRepository, deviceRepository, modelRepository, cancellationToken);
+            request.PhoneId, request.Actor, AppKey.Contacts, phoneRepository, cancellationToken);
 
-        if (access is not PhoneAccessResult.Granted granted)
+        if (access is not PhoneAccessResult.Granted)
         {
             return new SaveContactResult.AccessDenied(access);
         }
 
-        // Opened on first use rather than at SIM issue: a SIM that never saves a contact never needs
-        // a book, and this keeps provisioning to a single stream.
-        var book = await contactBookRepository.FindBySimAsync(request.SimCardId, cancellationToken);
+        // The cap is a hive-wide knob now, not a number on the handset's model — every phone holds
+        // the same. Read per call so a staff edit takes effect without a redeploy.
+        var contactLimit = (await mediator.Send(new HiveSettingsQuery(), cancellationToken)).PhoneContactLimit;
+
+        // Opened on first use rather than at provisioning: a phone whose owner never saves a number
+        // never needs a book, and this keeps provisioning to a single stream.
+        var book = await contactBookRepository.FindByPhoneAsync(request.PhoneId, cancellationToken);
         if (book is null)
         {
-            var opened = new ContactBookOpened(new ContactBookId(Guid.NewGuid()), request.SimCardId);
+            var opened = new ContactBookOpened(new ContactBookId(Guid.NewGuid()), request.PhoneId);
             book = ContactBook.Create(opened);
             contactBookRepository.StartStream(book, opened);
         }
@@ -65,15 +68,15 @@ public sealed class SaveContactHandler(
             return new SaveContactResult.AlreadySaved();
         }
 
-        if (book.Contacts.Count >= granted.Model.ContactLimit)
+        if (book.Contacts.Count >= contactLimit)
         {
-            return new SaveContactResult.ContactLimitReached(granted.Model.ContactLimit);
+            return new SaveContactResult.ContactLimitReached(contactLimit);
         }
 
         var contactId = new ContactId(Guid.NewGuid());
         try
         {
-            contactBookRepository.Append(book.Id, book.SaveContact(contactId, request.Number, request.DisplayName, granted.Model));
+            contactBookRepository.Append(book.Id, book.SaveContact(contactId, request.Number, request.DisplayName, contactLimit));
         }
         catch (ArgumentException exception)
         {
@@ -102,30 +105,27 @@ public union RenameContactResult(
 }
 
 public sealed record RenameContactCommand(
-    SimCardId SimCardId,
-    CharacterId ActingCharacterId,
+    PhoneDeviceId PhoneId,
+    PhoneActor Actor,
     ContactId ContactId,
     string DisplayName) : IRequest<RenameContactResult>;
 
 public sealed class RenameContactHandler(
-    ISimCardRepository simCardRepository,
-    IPhoneDeviceRepository deviceRepository,
-    IPhoneModelRepository modelRepository,
+    IPhoneDeviceRepository phoneRepository,
     IContactBookRepository contactBookRepository)
     : IRequestHandler<RenameContactCommand, RenameContactResult>
 {
     public async ValueTask<RenameContactResult> Handle(RenameContactCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.SimCardId, request.ActingCharacterId, AppKey.Contacts,
-            simCardRepository, deviceRepository, modelRepository, cancellationToken);
+            request.PhoneId, request.Actor, AppKey.Contacts, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted)
         {
             return new RenameContactResult.AccessDenied(access);
         }
 
-        var book = await contactBookRepository.FindBySimAsync(request.SimCardId, cancellationToken);
+        var book = await contactBookRepository.FindByPhoneAsync(request.PhoneId, cancellationToken);
         if (book?.Contacts.All(contact => contact.Id != request.ContactId) != false)
         {
             return new RenameContactResult.ContactNotFound();
@@ -158,28 +158,25 @@ public union DeleteContactResult(
     public record AccessDenied(PhoneAccessResult Reason);
 }
 
-public sealed record DeleteContactCommand(SimCardId SimCardId, CharacterId ActingCharacterId, ContactId ContactId)
+public sealed record DeleteContactCommand(PhoneDeviceId PhoneId, PhoneActor Actor, ContactId ContactId)
     : IRequest<DeleteContactResult>;
 
 public sealed class DeleteContactHandler(
-    ISimCardRepository simCardRepository,
-    IPhoneDeviceRepository deviceRepository,
-    IPhoneModelRepository modelRepository,
+    IPhoneDeviceRepository phoneRepository,
     IContactBookRepository contactBookRepository)
     : IRequestHandler<DeleteContactCommand, DeleteContactResult>
 {
     public async ValueTask<DeleteContactResult> Handle(DeleteContactCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.SimCardId, request.ActingCharacterId, AppKey.Contacts,
-            simCardRepository, deviceRepository, modelRepository, cancellationToken);
+            request.PhoneId, request.Actor, AppKey.Contacts, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted)
         {
             return new DeleteContactResult.AccessDenied(access);
         }
 
-        var book = await contactBookRepository.FindBySimAsync(request.SimCardId, cancellationToken);
+        var book = await contactBookRepository.FindByPhoneAsync(request.PhoneId, cancellationToken);
         if (book?.Contacts.All(contact => contact.Id != request.ContactId) != false)
         {
             return new DeleteContactResult.ContactNotFound();

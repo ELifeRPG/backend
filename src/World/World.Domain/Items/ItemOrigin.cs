@@ -19,7 +19,7 @@ public enum ItemOrigin
     /// <summary>Minted directly by staff tooling, bypassing any economic transaction.</summary>
     AdminGrant = 2,
 
-    /// <summary>Minted to seed a composed item's structure — e.g. a phone's SIM slot.</summary>
+    /// <summary>Minted to seed a composed item's structure — e.g. a rifle's magazine well.</summary>
     Provisioned = 3,
 
     /// <summary>
@@ -30,7 +30,7 @@ public enum ItemOrigin
 
     /// <summary>
     /// Minted by <c>AcknowledgeSpawnsHandler</c> for a child entity the mod declares in an ack's
-    /// <c>children</c> array — a magazine loaded in a granted rifle, a SIM seated in a granted phone.
+    /// <c>children</c> array — a magazine loaded in a granted rifle, a battery in a granted radio.
     /// Still "born backend-side via an API call" (this class's own summary): the ack call itself is
     /// that API call, even though the child entity existed in-engine before the mod reported it.
     /// </summary>

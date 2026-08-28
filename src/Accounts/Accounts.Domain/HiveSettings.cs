@@ -19,8 +19,26 @@ public sealed class HiveSettings
 
     public bool WhitelistEnabled { get; set; }
 
-    /// <summary>Messages one SIM may send per minute. Throttling is per number, not per handset.</summary>
-    public int SmsPerMinutePerSim { get; set; } = 20;
+    /// <summary>Messages one phone may send per minute. A phone is a number, so this is per number.</summary>
+    public int SmsPerMinutePerPhone { get; set; } = 20;
 
     public int SmsMaxBodyLength { get; set; } = 480;
+
+    /// <summary>
+    /// The three caps below used to be per-handset capability numbers on a <c>PhoneModel</c> catalog
+    /// row — what made a burner a burner. Nothing could ever pick which model a player got, so the
+    /// tier was enforced everywhere and chosen by nobody; they are hive-wide knobs now, and every
+    /// phone gets the same ones.
+    /// </summary>
+    public int PhoneContactLimit { get; set; } = 50;
+
+    /// <summary>
+    /// Applied when a message is appended, and carried on the resulting event so a replay rebuilds
+    /// the history that existed. Lowering it therefore trims each thread on its next message rather
+    /// than at once.
+    /// </summary>
+    public int PhoneThreadMessageLimit { get; set; } = 30;
+
+    /// <summary>Recipients on one message, excluding the sender. Below 2 there are no groups.</summary>
+    public int PhoneMaxGroupParticipants { get; set; } = 5;
 }

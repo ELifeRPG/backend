@@ -11,11 +11,11 @@ namespace ELifeRPG.Phone.Api;
 /// </summary>
 public sealed class PhoneHubNotifier(IHubContext<PhoneHub> hubContext)
 {
-    public Task NotifyMessageReceivedAsync(Guid simCardId, Guid threadId, MessageDto message, CancellationToken cancellationToken) =>
-        hubContext.Clients.Group(PhoneHub.GroupName(simCardId))
-            .SendAsync("MessageReceived", new { simCardId, threadId, message }, cancellationToken);
+    public Task NotifyMessageReceivedAsync(Guid phoneId, Guid threadId, MessageDto message, CancellationToken cancellationToken) =>
+        hubContext.Clients.Group(PhoneHub.GroupName(phoneId))
+            .SendAsync("MessageReceived", new { phoneId, threadId, message }, cancellationToken);
 
-    public Task NotifyThreadUpdatedAsync(Guid simCardId, MessageThreadSummaryDto thread, CancellationToken cancellationToken) =>
-        hubContext.Clients.Group(PhoneHub.GroupName(simCardId))
-            .SendAsync("ThreadUpdated", new { simCardId, thread }, cancellationToken);
+    public Task NotifyThreadUpdatedAsync(Guid phoneId, MessageThreadSummaryDto thread, CancellationToken cancellationToken) =>
+        hubContext.Clients.Group(PhoneHub.GroupName(phoneId))
+            .SendAsync("ThreadUpdated", new { phoneId, thread }, cancellationToken);
 }

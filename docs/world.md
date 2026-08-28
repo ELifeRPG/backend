@@ -173,7 +173,7 @@ curl -s http://localhost:5100/api/inventory/characters/$BUYER_CHARACTER_ID/items
 never both, and never neither (short of soft-delete/staff removal). Ack is also what an
 **engine-spawned child** rides in on: an ack entry's `children: [{ itemId, slot }]` mints one instance
 per declared child, parented to the acked instance — the only way a composed prefab (a magazine seated
-in a rifle, a SIM in a phone) gets an id at all, since the mod never mints one itself.
+in a rifle, a battery in a radio) gets an id at all, since the mod never mints one itself.
 
 An ack arrives late by design — the Bridge is store-and-forward with retries — so it races the one
 thing that can make its subject disappear: a snapshot reporting the item as consumed before the ack

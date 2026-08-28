@@ -2654,58 +2654,12 @@
         }
       }
     },
-    "/api/phone-models": {
-      "post": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Defines a handset model. Tier fields decide what devices of this model can do.",
-        "operationId": "CreatePhoneModel",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePhoneModelRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
-      "get": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Lists the handset model catalog.",
-        "operationId": "ListPhoneModels",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PhoneModelDto"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/phones": {
       "post": {
         "tags": [
           "Phone"
         ],
-        "description": "Provisions a handset biolocked to a character. Ships powered off, with the model's apps installed.",
+        "description": "Provisions a phone with a fresh number and a PIN, registered to a character. Ships powered off, with every app installed.",
         "operationId": "ProvisionPhone",
         "requestBody": {
           "content": {
@@ -2719,7 +2673,14 @@
         },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisionPhoneResponseDto"
+                }
+              }
+            }
           }
         }
       }
@@ -2729,7 +2690,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Lists the handsets biolocked to a character.",
+        "description": "Lists the phones registered to a character. A character may hold several, each with its own number.",
         "operationId": "ListCharacterPhones",
         "parameters": [
           {
@@ -2750,7 +2711,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PhoneDeviceDto"
+                    "$ref": "#/components/schemas/PhoneDto"
                   }
                 }
               }
@@ -2764,7 +2725,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Gets a handset.",
+        "description": "Gets a phone, including its number, status and blocklist. Never its PIN.",
         "operationId": "GetPhone",
         "parameters": [
           {
@@ -2783,7 +2744,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PhoneDeviceDto"
+                  "$ref": "#/components/schemas/PhoneDto"
                 }
               }
             }
@@ -2796,7 +2757,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Powers a handset on or off. Powering on delivers anything queued for its SIMs.",
+        "description": "Powers a phone on or off. Powering on delivers anything queued for its number.",
         "operationId": "SetPhonePower",
         "parameters": [
           {
@@ -2826,12 +2787,47 @@
         }
       }
     },
+    "/api/phones/{phoneId}/pin": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Sets a new PIN. Takes the owner, or the current PIN from whoever else is holding the phone.",
+        "operationId": "ChangePhonePin",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePinRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/phones/{phoneId}/apps": {
       "get": {
         "tags": [
           "Phone"
         ],
-        "description": "Lists the apps installed on a handset.",
+        "description": "Lists the apps installed on a phone.",
         "operationId": "ListPhoneApps",
         "parameters": [
           {
@@ -2856,7 +2852,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Installs an app on a handset. Idempotent.",
+        "description": "Installs an app. Every phone can run every app; installing Messages delivers anything queued while it was gone. Idempotent.",
         "operationId": "InstallPhoneApp",
         "parameters": [
           {
@@ -2881,7 +2877,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ActingCharacterRequestDto"
+                "$ref": "#/components/schemas/PhoneActorRequestDto"
               }
             }
           },
@@ -2897,7 +2893,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Uninstalls an app from a handset. Idempotent; nothing is lost.",
+        "description": "Uninstalls an app. Idempotent; nothing is lost, and messages queue rather than vanish.",
         "operationId": "UninstallPhoneApp",
         "parameters": [
           {
@@ -2925,266 +2921,13 @@
               "type": "string",
               "format": "uuid"
             }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/sim-cards": {
-      "post": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Issues a SIM card with a fresh number, registered to a character.",
-        "operationId": "ProvisionSimCard",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProvisionSimRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProvisionSimResponseDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/characters/{characterId}/sim-cards": {
-      "get": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Lists the SIM cards registered to a character.",
-        "operationId": "ListCharacterSimCards",
-        "parameters": [
-          {
-            "name": "characterId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/SimCardDto"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sim-cards/{simCardId}": {
-      "get": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Gets a SIM card, including its number, status and blocklist.",
-        "operationId": "GetSimCard",
-        "parameters": [
-          {
-            "name": "simCardId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SimCardDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/phones/{phoneId}/sims/{simCardId}": {
-      "put": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Seats a SIM in a handset. Contacts and message history travel with it, and anything queued is delivered.",
-        "operationId": "InstallSimCard",
-        "parameters": [
-          {
-            "name": "phoneId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           },
           {
-            "name": "simCardId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ActingCharacterRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Removes a SIM from a handset. The handset keeps nothing.",
-        "operationId": "EjectSimCard",
-        "parameters": [
-          {
-            "name": "phoneId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "simCardId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "characterId",
+            "name": "pin",
             "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/sim-cards/{simCardId}/blocks": {
-      "post": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Blocks a number. Blocked senders still see their messages as sent.",
-        "operationId": "BlockNumber",
-        "parameters": [
-          {
-            "name": "simCardId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BlockNumberRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/sim-cards/{simCardId}/blocks/{number}": {
-      "delete": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Removes a number from a SIM's blocklist.",
-        "operationId": "UnblockNumber",
-        "parameters": [
-          {
-            "name": "simCardId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "number",
-            "in": "path",
-            "required": true,
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "characterId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         ],
         "responses": {
@@ -3194,16 +2937,16 @@
         }
       }
     },
-    "/api/sim-cards/{simCardId}/suspend": {
+    "/api/phones/{phoneId}/suspend": {
       "post": {
         "tags": [
           "Phone"
         ],
-        "description": "Locks a number from outside its owner's control. Messages to it are dropped, not queued; nothing stored is lost.",
-        "operationId": "SuspendSimCard",
+        "description": "Locks a number from outside its owner's control. It can neither send nor receive, and messages to it are dropped rather than queued. Nothing stored is lost.",
+        "operationId": "SuspendPhone",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3216,7 +2959,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SuspendSimRequestDto"
+                "$ref": "#/components/schemas/SuspendPhoneRequestDto"
               }
             }
           },
@@ -3229,16 +2972,16 @@
         }
       }
     },
-    "/api/sim-cards/{simCardId}/restore": {
+    "/api/phones/{phoneId}/restore": {
       "post": {
         "tags": [
           "Phone"
         ],
-        "description": "Lifts a suspension, returning the number with its contacts, threads and blocklist intact.",
-        "operationId": "RestoreSimCard",
+        "description": "Lifts a suspension, handing the number back whole. A deactivated phone stays retired.",
+        "operationId": "RestorePhone",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3254,16 +2997,16 @@
         }
       }
     },
-    "/api/sim-cards/{simCardId}/contacts": {
+    "/api/phones/{phoneId}/apps/contacts/entries": {
       "get": {
         "tags": [
           "Phone"
         ],
-        "description": "Lists a SIM's saved contacts.",
+        "description": "Lists a phone's saved contacts.",
         "operationId": "ListContacts",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3278,6 +3021,13 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "pin",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -3301,11 +3051,11 @@
         "tags": [
           "Phone"
         ],
-        "description": "Saves a number to a SIM's address book.",
+        "description": "Saves a number to a phone's address book.",
         "operationId": "SaveContact",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3331,7 +3081,7 @@
         }
       }
     },
-    "/api/sim-cards/{simCardId}/contacts/{contactId}": {
+    "/api/phones/{phoneId}/apps/contacts/entries/{contactId}": {
       "patch": {
         "tags": [
           "Phone"
@@ -3340,7 +3090,7 @@
         "operationId": "RenameContact",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3382,7 +3132,7 @@
         "operationId": "DeleteContact",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3407,6 +3157,13 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "pin",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -3416,16 +3173,16 @@
         }
       }
     },
-    "/api/sim-cards/{simCardId}/threads": {
+    "/api/phones/{phoneId}/apps/messages/threads": {
       "get": {
         "tags": [
           "Phone"
         ],
-        "description": "Lists a SIM's conversations, newest first. Bodies are omitted; open a thread for those.",
+        "description": "Lists a phone's conversations, newest first. Bodies are omitted; open a thread for those.",
         "operationId": "ListThreads",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3440,6 +3197,13 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "pin",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -3460,7 +3224,7 @@
         }
       }
     },
-    "/api/sim-cards/{simCardId}/threads/{threadId}": {
+    "/api/phones/{phoneId}/apps/messages/threads/{threadId}": {
       "get": {
         "tags": [
           "Phone"
@@ -3469,7 +3233,7 @@
         "operationId": "GetThread",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3494,6 +3258,13 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "pin",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -3510,7 +3281,7 @@
         }
       }
     },
-    "/api/sim-cards/{simCardId}/messages": {
+    "/api/phones/{phoneId}/apps/messages/send": {
       "post": {
         "tags": [
           "Phone"
@@ -3519,7 +3290,7 @@
         "operationId": "SendMessage",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3552,7 +3323,7 @@
         }
       }
     },
-    "/api/sim-cards/{simCardId}/threads/{threadId}/read": {
+    "/api/phones/{phoneId}/apps/messages/threads/{threadId}/read": {
       "post": {
         "tags": [
           "Phone"
@@ -3561,7 +3332,7 @@
         "operationId": "MarkThreadRead",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3583,7 +3354,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ActingCharacterRequestDto"
+                "$ref": "#/components/schemas/PhoneActorRequestDto"
               }
             }
           },
@@ -3596,13 +3367,97 @@
         }
       }
     },
-    "/api/admin/sim-cards": {
+    "/api/phones/{phoneId}/apps/messages/blocks": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Blocks a number. Messages from it are dropped silently — the sender still sees them as sent. Idempotent.",
+        "operationId": "BlockNumber",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockNumberRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/apps/messages/blocks/{number}": {
+      "delete": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Removes a number from the blocklist. Idempotent.",
+        "operationId": "UnblockNumber",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "characterId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "pin",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/admin/phones": {
       "get": {
         "tags": [
           "Phone"
         ],
-        "description": "Staff: searches SIM cards by number fragment.",
-        "operationId": "AdminSearchSimCards",
+        "description": "Staff: lists phones, optionally filtered by number fragment. PINs are not returned.",
+        "operationId": "AdminListPhones",
         "parameters": [
           {
             "name": "number",
@@ -3620,7 +3475,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/SimCardDto"
+                    "$ref": "#/components/schemas/PhoneDto"
                   }
                 }
               }
@@ -3629,40 +3484,16 @@
         }
       }
     },
-    "/api/admin/phones": {
+    "/api/admin/phones/{phoneId}/threads": {
       "get": {
         "tags": [
           "Phone"
         ],
-        "description": "Staff: lists handsets.",
-        "operationId": "AdminListPhones",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PhoneDeviceDto"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/sim-cards/{simCardId}/threads": {
-      "get": {
-        "tags": [
-          "Phone"
-        ],
-        "description": "Staff: reads a SIM's conversations.",
-        "operationId": "AdminListSimThreads",
+        "description": "Staff: reads a phone's conversations.",
+        "operationId": "AdminListPhoneThreads",
         "parameters": [
           {
-            "name": "simCardId",
+            "name": "phoneId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3835,7 +3666,7 @@
         "tags": [
           "Inventory"
         ],
-        "description": "Batched confirmation that one or more backend-granted instances were spawned, clearing pendingSpawn on each. Adoption is mandatory: an id the backend never granted, or one granted to a character not currently on the calling gameserver, is NotFound — never a create. Idempotent: a replayed ack for an already-cleared instance returns AlreadyCleared. Also mints any declared children (an engine-spawned magazine, SIM, etc.), keyed by slot — a replay returns the same child ids rather than minting a second set. A child naming an uncatalogued itemId is reported per-child, not a 500. Bounded by count, not body size: more than maxAcksPerBatch entries, or more than maxChildrenPerAck children on any one entry, is rejected whole as batch_too_large (400, not retryable) — both caps are published on GET /api/inventory/limits.",
+        "description": "Batched confirmation that one or more backend-granted instances were spawned, clearing pendingSpawn on each. Adoption is mandatory: an id the backend never granted, or one granted to a character not currently on the calling gameserver, is NotFound — never a create. Idempotent: a replayed ack for an already-cleared instance returns AlreadyCleared. Also mints any declared children (an engine-spawned magazine, battery, etc.), keyed by slot — a replay returns the same child ids rather than minting a second set. A child naming an uncatalogued itemId is reported per-child, not a 500. Bounded by count, not body size: more than maxAcksPerBatch entries, or more than maxChildrenPerAck children on any one entry, is rejected whole as batch_too_large (400, not retryable) — both caps are published on GET /api/inventory/limits.",
         "operationId": "AcknowledgeInventorySpawns",
         "requestBody": {
           "content": {
@@ -4686,6 +4517,12 @@
           },
           "number": {
             "type": "string"
+          },
+          "pin": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -4775,6 +4612,28 @@
             "items": {
               "$ref": "#/components/schemas/BulkImportItemResultDto"
             }
+          }
+        }
+      },
+      "ChangePinRequestDto": {
+        "required": [
+          "characterId",
+          "newPin"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "newPin": {
+            "type": "string"
+          },
+          "pin": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5021,77 +4880,6 @@
           }
         }
       },
-      "CreatePhoneModelRequestDto": {
-        "required": [
-          "displayName",
-          "tier",
-          "itemId",
-          "simSlots",
-          "supportedApps",
-          "contactLimit",
-          "threadMessageLimit",
-          "maxGroupParticipants"
-        ],
-        "type": "object",
-        "properties": {
-          "displayName": {
-            "type": "string"
-          },
-          "tier": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "itemId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "simSlots": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "supportedApps": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "contactLimit": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "threadMessageLimit": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxGroupParticipants": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
       "CreateSessionRequestDto": {
         "required": [
           "bohemiaId"
@@ -5280,15 +5068,18 @@
       "HiveSettingsDto": {
         "required": [
           "whitelistEnabled",
-          "smsPerMinutePerSim",
-          "smsMaxBodyLength"
+          "smsPerMinutePerPhone",
+          "smsMaxBodyLength",
+          "phoneContactLimit",
+          "phoneThreadMessageLimit",
+          "phoneMaxGroupParticipants"
         ],
         "type": "object",
         "properties": {
           "whitelistEnabled": {
             "type": "boolean"
           },
-          "smsPerMinutePerSim": {
+          "smsPerMinutePerPhone": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -5297,6 +5088,30 @@
             "format": "int32"
           },
           "smsMaxBodyLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phoneContactLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phoneThreadMessageLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phoneMaxGroupParticipants": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -5740,13 +5555,32 @@
           }
         }
       },
-      "PhoneDeviceDto": {
+      "PhoneActorRequestDto": {
+        "required": [
+          "characterId"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pin": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PhoneDto": {
         "required": [
           "id",
-          "modelId",
-          "boundCharacterId",
+          "number",
+          "registeredTo",
+          "status",
           "isPoweredOn",
-          "installedSimCardIds",
+          "blockedNumbers",
           "installedApps"
         ],
         "type": "object",
@@ -5755,22 +5589,23 @@
             "type": "string",
             "format": "uuid"
           },
-          "modelId": {
+          "number": {
+            "type": "string"
+          },
+          "registeredTo": {
             "type": "string",
             "format": "uuid"
           },
-          "boundCharacterId": {
-            "type": "string",
-            "format": "uuid"
+          "status": {
+            "type": "string"
           },
           "isPoweredOn": {
             "type": "boolean"
           },
-          "installedSimCardIds": {
+          "blockedNumbers": {
             "type": "array",
             "items": {
-              "type": "string",
-              "format": "uuid"
+              "type": "string"
             }
           },
           "installedApps": {
@@ -5778,82 +5613,6 @@
             "items": {
               "type": "string"
             }
-          }
-        }
-      },
-      "PhoneModelDto": {
-        "required": [
-          "id",
-          "displayName",
-          "tier",
-          "itemId",
-          "simSlots",
-          "supportedApps",
-          "contactLimit",
-          "threadMessageLimit",
-          "maxGroupParticipants"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "tier": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "itemId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "simSlots": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "supportedApps": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "contactLimit": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "threadMessageLimit": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxGroupParticipants": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
           }
         }
       },
@@ -5906,7 +5665,7 @@
       "ProvisionPhoneRequestDto": {
         "required": [
           "characterId",
-          "modelId"
+          "pin"
         ],
         "type": "object",
         "properties": {
@@ -5914,32 +5673,19 @@
             "type": "string",
             "format": "uuid"
           },
-          "modelId": {
-            "type": "string",
-            "format": "uuid"
+          "pin": {
+            "type": "string"
           }
         }
       },
-      "ProvisionSimRequestDto": {
+      "ProvisionPhoneResponseDto": {
         "required": [
-          "characterId"
-        ],
-        "type": "object",
-        "properties": {
-          "characterId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "ProvisionSimResponseDto": {
-        "required": [
-          "simCardId",
+          "phoneId",
           "number"
         ],
         "type": "object",
         "properties": {
-          "simCardId": {
+          "phoneId": {
             "type": "string",
             "format": "uuid"
           },
@@ -6128,6 +5874,12 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "pin": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6181,6 +5933,12 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "pin": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6204,6 +5962,12 @@
           },
           "body": {
             "type": "string"
+          },
+          "pin": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6275,6 +6039,12 @@
           },
           "isPoweredOn": {
             "type": "boolean"
+          },
+          "pin": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6372,46 +6142,6 @@
               "string"
             ],
             "format": "int32"
-          }
-        }
-      },
-      "SimCardDto": {
-        "required": [
-          "id",
-          "number",
-          "registeredTo",
-          "installedInDeviceId",
-          "status",
-          "blockedNumbers"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "number": {
-            "type": "string"
-          },
-          "registeredTo": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "installedInDeviceId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "status": {
-            "type": "string"
-          },
-          "blockedNumbers": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         }
       },
@@ -6686,7 +6416,7 @@
           }
         }
       },
-      "SuspendSimRequestDto": {
+      "SuspendPhoneRequestDto": {
         "required": [
           "reason"
         ],
@@ -6844,8 +6574,11 @@
       "UpdateHiveSettingsRequestDto": {
         "required": [
           "whitelistEnabled",
-          "smsPerMinutePerSim",
-          "smsMaxBodyLength"
+          "smsPerMinutePerPhone",
+          "smsMaxBodyLength",
+          "phoneContactLimit",
+          "phoneThreadMessageLimit",
+          "phoneMaxGroupParticipants"
         ],
         "type": "object",
         "properties": {
@@ -6855,7 +6588,7 @@
               "boolean"
             ]
           },
-          "smsPerMinutePerSim": {
+          "smsPerMinutePerPhone": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "null",
@@ -6865,6 +6598,33 @@
             "format": "int32"
           },
           "smsMaxBodyLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phoneContactLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phoneThreadMessageLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phoneMaxGroupParticipants": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "null",

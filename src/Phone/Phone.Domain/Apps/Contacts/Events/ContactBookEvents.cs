@@ -1,8 +1,8 @@
-using ELifeRPG.Phone.Domain.Sims;
+using ELifeRPG.Phone.Domain.Devices;
 
 namespace ELifeRPG.Phone.Domain.Apps.Contacts.Events;
 
-public sealed record ContactBookOpened(ContactBookId Id, SimCardId SimCardId);
+public sealed record ContactBookOpened(ContactBookId Id, PhoneDeviceId PhoneId);
 
 public sealed record ContactSaved(ContactBookId Id, ContactId ContactId, PhoneNumber Number, string DisplayName);
 

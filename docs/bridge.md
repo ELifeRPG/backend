@@ -146,7 +146,7 @@ exists.
 That makes "an unknown id is always rejected" a total rule rather than a strict default, and it is the
 design's strongest anti-duplication lever: a snapshot **can never create a row**, for any parent kind,
 under any mode. Every instance is born through a backend call — a shop purchase, a gathering action, a
-staff grant, or an ack declaring an engine-spawned child (a magazine seated in a rifle, a SIM in a
+staff grant, or an ack declaring an engine-spawned child (a magazine seated in a rifle, a battery in a
 phone). See [World](./world.md#the-backend-is-the-sole-minter-of-iteminstanceid).
 
 ### `instanceId` entropy: a full 122-bit UUIDv4, from a CSPRNG
@@ -581,7 +581,7 @@ one bad id in a batch of ten does not touch the other nine. The only whole-reque
 
 **`children` is how an engine-spawned sub-entity gets an id at all, and it is a core mod job.** A
 composed prefab arrives with parts the backend never granted separately — a magazine seated in a rifle,
-a SIM in a phone. Declaring `{ itemId, slot }` mints one instance per child, parented to the acked
+a battery in a radio. Declaring `{ itemId, slot }` mints one instance per child, parented to the acked
 instance, and hands its id back. `itemId` is the catalog id of the child; `slot` is your own stable
 name for the socket it occupies, and it is the key the mint is idempotent on — replaying the same ack
 returns the same child ids rather than minting a second set. Since the mod never mints, this is the

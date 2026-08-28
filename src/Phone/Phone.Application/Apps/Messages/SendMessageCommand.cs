@@ -1,6 +1,7 @@
 using ELifeRPG.Accounts.Application.Hive;
 using ELifeRPG.Phone.Application.Common;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
+using ELifeRPG.Phone.Domain.Devices;
 
 namespace ELifeRPG.Phone.Application.Apps.Messages;
 
@@ -19,8 +20,8 @@ public union SendMessageResult(
     /// is deliberately absent, because a blocked sender sees a delivered message.
     ///
     /// <paramref name="Deliveries"/> is not for the sender at all. It exists so the Api layer can
-    /// push to exactly the SIMs that actually received an append, without re-deriving delivery — and
-    /// without ever pushing to a blocked or queued recipient. The response DTO does not expose it.
+    /// push to exactly the phones that actually received an append, without re-deriving delivery —
+    /// and without ever pushing to a blocked or queued recipient. The response DTO does not expose it.
     /// </summary>
     public record Sent(
         MessageThreadId ThreadId,
@@ -44,11 +45,11 @@ public union SendMessageResult(
 }
 
 /// <summary>One append that actually landed, for the Api layer's live push.</summary>
-public sealed record MessageDelivery(SimCardId SimCardId, MessageThreadId ThreadId);
+public sealed record MessageDelivery(PhoneDeviceId PhoneId, MessageThreadId ThreadId);
 
 public sealed record SendMessageCommand(
-    SimCardId SimCardId,
-    CharacterId ActingCharacterId,
+    PhoneDeviceId PhoneId,
+    PhoneActor Actor,
     IReadOnlyList<PhoneNumber> To,
     string Body) : IRequest<SendMessageResult>;
 
@@ -58,11 +59,9 @@ public sealed record SendMessageCommand(
 /// history but in nobody's inbox is the outcome this flow exists to prevent.
 /// </summary>
 public sealed class SendMessageHandler(
-    ISimCardRepository simCardRepository,
-    IPhoneDeviceRepository deviceRepository,
-    IPhoneModelRepository modelRepository,
+    IPhoneDeviceRepository phoneRepository,
     IMessageThreadRepository threadRepository,
-    ISimSendWindowRepository sendWindowRepository,
+    IPhoneSendWindowRepository sendWindowRepository,
     TimeProvider timeProvider,
     IMediator mediator)
     : IRequestHandler<SendMessageCommand, SendMessageResult>
@@ -70,8 +69,7 @@ public sealed class SendMessageHandler(
     public async ValueTask<SendMessageResult> Handle(SendMessageCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.SimCardId, request.ActingCharacterId, AppKey.Messages,
-            simCardRepository, deviceRepository, modelRepository, cancellationToken);
+            request.PhoneId, request.Actor, AppKey.Messages, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted granted)
         {
@@ -90,7 +88,7 @@ public sealed class SendMessageHandler(
             return new SendMessageResult.BodyTooLong(settings.SmsMaxBodyLength);
         }
 
-        var sender = granted.SimCard;
+        var sender = granted.Phone;
 
         // Addressing yourself alongside others is fine and simply drops out; addressing only
         // yourself leaves nobody to send to.
@@ -104,35 +102,36 @@ public sealed class SendMessageHandler(
             return new SendMessageResult.NoRecipients();
         }
 
-        if (recipients.Count > granted.Model.MaxGroupParticipants)
+        if (recipients.Count > settings.PhoneMaxGroupParticipants)
         {
-            return new SendMessageResult.TooManyRecipients(granted.Model.MaxGroupParticipants);
+            return new SendMessageResult.TooManyRecipients(settings.PhoneMaxGroupParticipants);
         }
 
         var now = timeProvider.GetUtcNow();
-        if (!await TryConsumeQuotaAsync(request.SimCardId, settings.SmsPerMinutePerSim, now, cancellationToken))
+        if (!await TryConsumeQuotaAsync(request.PhoneId, settings.SmsPerMinutePerPhone, now, cancellationToken))
         {
-            return new SendMessageResult.RateLimited(settings.SmsPerMinutePerSim);
+            return new SendMessageResult.RateLimited(settings.SmsPerMinutePerPhone);
         }
 
+        var retentionLimit = settings.PhoneThreadMessageLimit;
         var messageId = new MessageId(Guid.NewGuid());
         var undeliverable = new List<PhoneNumber>();
         var deliveries = new List<MessageDelivery>();
 
         foreach (var recipientNumber in recipients)
         {
-            var recipientSim = await simCardRepository.FindByNumberAsync(recipientNumber, cancellationToken);
+            var recipient = await phoneRepository.FindByNumberAsync(recipientNumber, cancellationToken);
 
             // A number nobody holds, or one the state has locked or retired, is simply unreachable.
             // Suspended never queues: holding the message for a later restore would turn an
             // enforcement action into a delay.
-            if (recipientSim is null || recipientSim.Status != SimCardStatus.Active)
+            if (recipient is null || recipient.Status != PhoneStatus.Active)
             {
                 undeliverable.Add(recipientNumber);
                 continue;
             }
 
-            if (recipientSim.IsBlocked(sender.Number))
+            if (recipient.IsBlocked(sender.Number))
             {
                 // Dropped in silence, and not reported back — the sender must not be able to probe
                 // whether they have been blocked.
@@ -146,34 +145,14 @@ public sealed class SendMessageHandler(
                 .Append(sender.Number)
                 .ToList();
 
-            var recipientDevice = recipientSim.InstalledIn is { } deviceId
-                ? await deviceRepository.FindByIdAsync(deviceId, cancellationToken)
-                : null;
-
-            if (recipientDevice is null || !recipientDevice.IsPoweredOn)
+            if (!recipient.IsPoweredOn || !recipient.HasApp(AppKey.Messages))
             {
+                // Powered off, or no Messages app: hold it, so powering on or installing the app
+                // later delivers the backlog rather than losing it.
                 threadRepository.StorePending(new PendingDelivery
                 {
                     Id = Guid.NewGuid(),
-                    RecipientSimCardId = recipientSim.Id,
-                    MessageId = messageId,
-                    From = sender.Number,
-                    Participants = recipientParticipants,
-                    Body = request.Body,
-                    SentAt = now,
-                });
-                continue;
-            }
-
-            var recipientModel = await modelRepository.FindByIdAsync(recipientDevice.ModelId, cancellationToken);
-            if (recipientModel is null || !recipientDevice.HasApp(AppKey.Messages))
-            {
-                // No Messages app installed on the handset the SIM is in: hold it, so installing the
-                // app later delivers the backlog rather than losing it.
-                threadRepository.StorePending(new PendingDelivery
-                {
-                    Id = Guid.NewGuid(),
-                    RecipientSimCardId = recipientSim.Id,
+                    RecipientPhoneId = recipient.Id,
                     MessageId = messageId,
                     From = sender.Number,
                     Participants = recipientParticipants,
@@ -184,23 +163,25 @@ public sealed class SendMessageHandler(
             }
 
             var recipientThread = await MessageThreads.FindOrStartAsync(
-                threadRepository, recipientSim.Id, recipientSim.Number, recipientParticipants, recipientModel, cancellationToken);
+                threadRepository, recipient.Id, recipient.Number, recipientParticipants,
+                settings.PhoneMaxGroupParticipants, cancellationToken);
 
             threadRepository.Append(
                 recipientThread.Id,
-                recipientThread.RecordInbound(messageId, sender.Number, request.Body, now, recipientModel));
+                recipientThread.RecordInbound(messageId, sender.Number, request.Body, now, retentionLimit));
 
-            deliveries.Add(new MessageDelivery(recipientSim.Id, recipientThread.Id));
+            deliveries.Add(new MessageDelivery(recipient.Id, recipientThread.Id));
         }
 
         // Appended regardless of what happened downstream: texting a dead, blocked or suspended
         // number still reads as sent from the sender's side, exactly like SMS.
         var senderThread = await MessageThreads.FindOrStartAsync(
-            threadRepository, sender.Id, sender.Number, recipients, granted.Model, cancellationToken);
+            threadRepository, sender.Id, sender.Number, recipients,
+            settings.PhoneMaxGroupParticipants, cancellationToken);
 
         threadRepository.Append(
             senderThread.Id,
-            senderThread.RecordOutbound(messageId, sender.Number, request.Body, now, granted.Model));
+            senderThread.RecordOutbound(messageId, sender.Number, request.Body, now, retentionLimit));
 
         await threadRepository.SaveChangesAsync(cancellationToken);
 
@@ -213,10 +194,10 @@ public sealed class SendMessageHandler(
     /// limit, which is well within what a throttle is for here.
     /// </summary>
     private async ValueTask<bool> TryConsumeQuotaAsync(
-        SimCardId simCardId, int perMinuteLimit, DateTimeOffset now, CancellationToken cancellationToken)
+        PhoneDeviceId phoneId, int perMinuteLimit, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var window = await sendWindowRepository.FindAsync(simCardId, cancellationToken)
-            ?? new SimSendWindow { Id = simCardId, WindowStartedAt = now, Count = 0 };
+        var window = await sendWindowRepository.FindAsync(phoneId, cancellationToken)
+            ?? new PhoneSendWindow { Id = phoneId, WindowStartedAt = now, Count = 0 };
 
         if (now - window.WindowStartedAt >= TimeSpan.FromMinutes(1))
         {
@@ -238,20 +219,21 @@ public sealed class SendMessageHandler(
 internal static class MessageThreads
 {
     /// <summary>
-    /// Threads are keyed by (SIM, participant set), so a conversation is found rather than chosen —
-    /// there is no group object to create, exactly like SMS.
+    /// Threads are keyed by (phone, participant set), so a conversation is found rather than chosen
+    /// — there is no group object to create, exactly like SMS.
     /// </summary>
     public static async ValueTask<MessageThread> FindOrStartAsync(
         IMessageThreadRepository threadRepository,
-        SimCardId ownerSimCardId,
+        PhoneDeviceId ownerPhoneId,
         PhoneNumber ownerNumber,
         IReadOnlyList<PhoneNumber> participants,
-        PhoneModel model,
+        int maxGroupParticipants,
         CancellationToken cancellationToken)
     {
-        var started = MessageThread.Start(new MessageThreadId(Guid.NewGuid()), ownerSimCardId, ownerNumber, participants, model);
+        var started = MessageThread.Start(
+            new MessageThreadId(Guid.NewGuid()), ownerPhoneId, ownerNumber, participants, maxGroupParticipants);
 
-        if (await threadRepository.FindByKeyAsync(ownerSimCardId, started.ThreadKey, cancellationToken) is { } existing)
+        if (await threadRepository.FindByKeyAsync(ownerPhoneId, started.ThreadKey, cancellationToken) is { } existing)
         {
             return existing;
         }

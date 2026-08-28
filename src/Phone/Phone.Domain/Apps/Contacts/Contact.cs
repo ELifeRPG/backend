@@ -1,4 +1,4 @@
-using ELifeRPG.Phone.Domain.Sims;
+using ELifeRPG.Phone.Domain.Devices;
 
 namespace ELifeRPG.Phone.Domain.Apps.Contacts;
 

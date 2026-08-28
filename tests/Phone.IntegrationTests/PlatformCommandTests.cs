@@ -1,8 +1,8 @@
+using ELifeRPG.Phone.Application.Apps.Messages;
+using ELifeRPG.Phone.Application.Common;
 using ELifeRPG.Phone.Application.Devices;
-using ELifeRPG.Phone.Application.Sims;
 using ELifeRPG.Phone.Domain.Apps;
 using ELifeRPG.Phone.Domain.Devices;
-using ELifeRPG.Phone.Domain.Sims;
 using ELifeRPG.Shared.Kernel;
 using Mediator;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,11 +12,13 @@ using Xunit.Sdk;
 namespace ELifeRPG.Phone.IntegrationTests;
 
 /// <summary>
-/// Requires the local infra stack. Covers the platform command layer: provisioning, power, SIM
-/// seating, blocking and enforcement.
+/// Requires the local infra stack. Covers the platform command layer: provisioning, the PIN, power,
+/// apps and enforcement. Blocking lives with the Messages app now, so its tests do too.
 /// </summary>
 public sealed class PlatformCommandTests : IAsyncLifetime
 {
+    private const string Pin = "1234";
+
     private ServiceProvider _provider = null!;
 
     public Task InitializeAsync()
@@ -40,293 +42,222 @@ public sealed class PlatformCommandTests : IAsyncLifetime
         return await scope.ServiceProvider.GetRequiredService<IMediator>().Send(request, CancellationToken.None);
     }
 
-    private async Task<PhoneModelId> CreateModel(int simSlots = 1, AppKey[]? apps = null, int contactLimit = 50)
+    private async Task<(PhoneDeviceId Id, PhoneNumber Number)> ProvisionPhone(CharacterId owner, string pin = Pin)
     {
-        var result = await Send(new CreatePhoneModelCommand(
-            "Test handset", 1, null, simSlots, apps ?? [AppKey.Messages, AppKey.Contacts], contactLimit, 30, 5));
-        return result is CreatePhoneModelResult.Created created
-            ? created.ModelId
-            : throw new XunitException($"Expected Created, got {result}");
-    }
-
-    private async Task<PhoneDeviceId> ProvisionDevice(PhoneModelId modelId, CharacterId owner)
-    {
-        var result = await Send(new ProvisionPhoneDeviceCommand(owner, modelId));
-        return result is ProvisionPhoneDeviceResult.Provisioned provisioned
-            ? provisioned.DeviceId
+        var result = await Send(new ProvisionPhoneCommand(owner, pin));
+        return result is ProvisionPhoneResult.Provisioned provisioned
+            ? (provisioned.PhoneId, provisioned.Number)
             : throw new XunitException($"Expected Provisioned, got {result}");
     }
 
-    private async Task<(SimCardId Id, PhoneNumber Number)> ProvisionSim(CharacterId owner)
+    private async Task<PhoneDevice> Load(PhoneDeviceId phoneId)
     {
-        var result = await Send(new ProvisionSimCardCommand(owner));
-        return result is ProvisionSimCardResult.Provisioned provisioned
-            ? (provisioned.SimCardId, provisioned.Number)
-            : throw new XunitException($"Expected Provisioned, got {result}");
+        var lookup = await Send(new PhoneDeviceLookupQuery(phoneId));
+        return lookup is PhoneDeviceLookupResult.Found found
+            ? found.Phone
+            : throw new XunitException($"Expected Found, got {lookup}");
     }
 
     [Fact]
-    public async Task CreatePhoneModel_WithAnImpossibleDefinition_IsRejectedAsInvalid()
-    {
-        // Validation belongs to PhoneModel.Define; the handler's job is to turn it into a 400 rather
-        // than letting an ArgumentException become a 500.
-        var result = await Send(new CreatePhoneModelCommand("Broken", 1, null, 0, [AppKey.Messages], 50, 30, 5));
-
-        var result1 = result;
-
-        ExpectCase(result1 is CreatePhoneModelResult.InvalidDefinition, "InvalidDefinition", result1);
-    }
-
-    [Fact]
-    public async Task ProvisionPhoneDevice_ShipsWithTheModelsAppsAndPoweredOff()
+    public async Task ProvisionPhone_ShipsWithEveryAppAndPoweredOff()
     {
         var owner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(), owner);
+        var phone = await ProvisionPhone(owner);
 
-        var lookup = await Send(new PhoneDeviceLookupQuery(deviceId));
-        if (lookup is not PhoneDeviceLookupResult.Found found)
+        var loaded = await Load(phone.Id);
+
+        Assert.False(loaded.IsPoweredOn);
+        Assert.Equal(PhoneStatus.Active, loaded.Status);
+        Assert.Equal(owner, loaded.RegisteredTo);
+        Assert.Equal(phone.Number, loaded.Number);
+        foreach (var key in AppCatalog.Entries.Keys)
         {
-            throw new XunitException($"Expected Found, got {lookup}");
+            Assert.True(loaded.HasApp(key), $"AppKey.{key} should ship installed.");
         }
-
-        var device = found.Device;
-
-        Assert.False(device.IsPoweredOn);
-        Assert.True(device.HasApp(AppKey.Messages));
-        Assert.True(device.HasApp(AppKey.Contacts));
-        Assert.Equal(owner, device.BoundCharacterId);
     }
 
     [Fact]
-    public async Task ProvisionPhoneDevice_WithAnUnknownModel_IsRejected()
+    public async Task ProvisionPhone_IssuesDistinctNumbersAndBothAreTheCharactersOwn()
     {
-        var result = await Send(new ProvisionPhoneDeviceCommand(new CharacterId(Guid.NewGuid()), new PhoneModelId(Guid.NewGuid())));
+        // A character may hold several phones, each with its own number — the replacement for
+        // holding several SIMs.
+        var owner = new CharacterId(Guid.NewGuid());
 
-        var result2 = result;
+        var first = await ProvisionPhone(owner);
+        var second = await ProvisionPhone(owner);
 
-        ExpectCase(result2 is ProvisionPhoneDeviceResult.ModelNotFound, "ModelNotFound", result2);
+        Assert.NotEqual(first.Number, second.Number);
+        Assert.Equal(2, (await Send(new CharacterPhonesQuery(owner))).Count);
     }
+
+    [Fact]
+    public async Task ProvisionPhone_WithAnUnusablePin_IsRejected()
+    {
+        var result = await Send(new ProvisionPhoneCommand(new CharacterId(Guid.NewGuid()), "12"));
+
+        ExpectCase(result is ProvisionPhoneResult.InvalidPin, "InvalidPin", result);
+    }
+
+    // --- The PIN, which is what replaced the biolock ----------------------------------------
+
+    [Fact]
+    public async Task SetPhonePower_ByAnotherCharacterWithTheCorrectPin_IsAllowed()
+    {
+        // The whole point of dropping the biolock: possession plus the PIN is enough, so a handset
+        // that changes hands is worth something.
+        var phone = await ProvisionPhone(new CharacterId(Guid.NewGuid()), pin: "4711");
+        var stranger = new PhoneActor(new CharacterId(Guid.NewGuid()), "4711");
+
+        var result = await Send(new SetPhonePowerCommand(phone.Id, stranger, true));
+
+        ExpectCase(result is SetPhonePowerResult.PowerChanged, "PowerChanged", result);
+    }
+
+    [Fact]
+    public async Task SetPhonePower_ByAnotherCharacterWithTheWrongPin_IsRefused()
+    {
+        var phone = await ProvisionPhone(new CharacterId(Guid.NewGuid()), pin: "4711");
+        var stranger = new PhoneActor(new CharacterId(Guid.NewGuid()), "0000");
+
+        var result = await Send(new SetPhonePowerCommand(phone.Id, stranger, true));
+
+        ExpectCase(result is SetPhonePowerResult.NotAuthorized, "NotAuthorized", result);
+    }
+
+    [Fact]
+    public async Task SetPhonePower_ByAnotherCharacterWithNoPinAtAll_IsRefused()
+    {
+        var phone = await ProvisionPhone(new CharacterId(Guid.NewGuid()));
+        var stranger = new PhoneActor(new CharacterId(Guid.NewGuid()));
+
+        var result = await Send(new SetPhonePowerCommand(phone.Id, stranger, true));
+
+        ExpectCase(result is SetPhonePowerResult.NotAuthorized, "NotAuthorized", result);
+    }
+
+    [Fact]
+    public async Task SetPhonePower_ByTheOwnerWithoutAPin_IsAllowed()
+    {
+        // The owner's client never sends one; ownership is the fast path past the PIN.
+        var owner = new CharacterId(Guid.NewGuid());
+        var phone = await ProvisionPhone(owner);
+
+        var result = await Send(new SetPhonePowerCommand(phone.Id, new PhoneActor(owner), true));
+
+        ExpectCase(result is SetPhonePowerResult.PowerChanged, "PowerChanged", result);
+    }
+
+    [Fact]
+    public async Task ChangePin_ByAHolderWithTheCurrentPin_LocksTheOldOneOut()
+    {
+        var phone = await ProvisionPhone(new CharacterId(Guid.NewGuid()), pin: "4711");
+        var stranger = new CharacterId(Guid.NewGuid());
+
+        var changed = await Send(new ChangePinCommand(phone.Id, new PhoneActor(stranger, "4711"), "9876"));
+        ExpectCase(changed is ChangePinResult.Changed, "Changed", changed);
+
+        var withNewPin = await Send(new SetPhonePowerCommand(phone.Id, new PhoneActor(stranger, "9876"), true));
+        ExpectCase(withNewPin is SetPhonePowerResult.PowerChanged, "PowerChanged", withNewPin);
+
+        var withOldPin = await Send(new SetPhonePowerCommand(phone.Id, new PhoneActor(stranger, "4711"), false));
+        ExpectCase(withOldPin is SetPhonePowerResult.NotAuthorized, "NotAuthorized", withOldPin);
+    }
+
+    [Fact]
+    public async Task ChangePin_ToAnUnusablePin_IsRejected()
+    {
+        var owner = new CharacterId(Guid.NewGuid());
+        var phone = await ProvisionPhone(owner);
+
+        var result = await Send(new ChangePinCommand(phone.Id, new PhoneActor(owner), "abcd"));
+
+        ExpectCase(result is ChangePinResult.InvalidPin, "InvalidPin", result);
+    }
+
+    // --- Power and apps ---------------------------------------------------------------------
 
     [Fact]
     public async Task SetPhonePower_TogglesThenReportsARepeatAsAlreadyInState()
     {
         var owner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(), owner);
+        var phone = await ProvisionPhone(owner);
 
-        var result3 = await Send(new SetPhonePowerCommand(deviceId, owner, true));
-
-        ExpectCase(result3 is SetPhonePowerResult.PowerChanged, "PowerChanged", result3);
+        var first = await Send(new SetPhonePowerCommand(phone.Id, new PhoneActor(owner), true));
+        ExpectCase(first is SetPhonePowerResult.PowerChanged, "PowerChanged", first);
 
         // A bridge retrying after a dropped response is ordinary, not an error.
-        var result4 = await Send(new SetPhonePowerCommand(deviceId, owner, true));
-        ExpectCase(result4 is SetPhonePowerResult.AlreadyInState, "AlreadyInState", result4);
-    }
-
-    [Fact]
-    public async Task SetPhonePower_ByAnotherCharacter_IsRefusedByTheBiolock()
-    {
-        var deviceId = await ProvisionDevice(await CreateModel(), new CharacterId(Guid.NewGuid()));
-
-        var result = await Send(new SetPhonePowerCommand(deviceId, new CharacterId(Guid.NewGuid()), true));
-
-        var result5 = result;
-
-        ExpectCase(result5 is SetPhonePowerResult.NotDeviceOwner, "NotDeviceOwner", result5);
-    }
-
-    [Fact]
-    public async Task ProvisionSimCard_IssuesDistinctNumbers()
-    {
-        var owner = new CharacterId(Guid.NewGuid());
-
-        var first = await ProvisionSim(owner);
-        var second = await ProvisionSim(owner);
-
-        Assert.NotEqual(first.Number, second.Number);
-        Assert.Equal(2, (await Send(new CharacterSimCardsQuery(owner))).Count);
-    }
-
-    [Fact]
-    public async Task InstallSim_SeatsItInBothDirections()
-    {
-        var owner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(), owner);
-        var sim = await ProvisionSim(owner);
-
-        var result6 = await Send(new InstallSimCommand(deviceId, sim.Id, owner));
-
-        ExpectCase(result6 is InstallSimResult.Installed, "Installed", result6);
-
-        var seated = await Send(new DeviceSimCardsQuery(deviceId));
-        Assert.Equal(sim.Id, Assert.Single(seated).Id);
-        Assert.Equal(deviceId, Assert.Single(seated).InstalledIn);
-    }
-
-    [Fact]
-    public async Task InstallSim_WhenTheCharacterOwnsTheSimButNotTheDevice_IsRefused()
-    {
-        // The two ownership checks are what make a stolen handset worthless: holding someone's phone
-        // does not let you put your own SIM in it.
-        var simOwner = new CharacterId(Guid.NewGuid());
-        var deviceOwner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(), deviceOwner);
-        var sim = await ProvisionSim(simOwner);
-
-        var result = await Send(new InstallSimCommand(deviceId, sim.Id, simOwner));
-
-        var result7 = result;
-
-        ExpectCase(result7 is InstallSimResult.NotDeviceOwner, "NotDeviceOwner", result7);
-    }
-
-    [Fact]
-    public async Task InstallSim_WhenTheCharacterOwnsTheDeviceButNotTheSim_IsRefused()
-    {
-        var deviceOwner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(), deviceOwner);
-        var sim = await ProvisionSim(new CharacterId(Guid.NewGuid()));
-
-        var result = await Send(new InstallSimCommand(deviceId, sim.Id, deviceOwner));
-
-        var result8 = result;
-
-        ExpectCase(result8 is InstallSimResult.NotSimOwner, "NotSimOwner", result8);
-    }
-
-    [Fact]
-    public async Task InstallSim_BeyondTheModelSlotCount_IsRefused()
-    {
-        var owner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(simSlots: 1), owner);
-        var first = await ProvisionSim(owner);
-        var second = await ProvisionSim(owner);
-        await Send(new InstallSimCommand(deviceId, first.Id, owner));
-
-        var result = await Send(new InstallSimCommand(deviceId, second.Id, owner));
-
-        var result9 = result;
-
-        ExpectCase(result9 is InstallSimResult.NoFreeSimSlot, "NoFreeSimSlot", result9);
-    }
-
-    [Fact]
-    public async Task EjectSim_ThenInstallElsewhere_MovesTheSimBetweenHandsets()
-    {
-        var owner = new CharacterId(Guid.NewGuid());
-        var modelId = await CreateModel(simSlots: 1);
-        var firstDevice = await ProvisionDevice(modelId, owner);
-        var secondDevice = await ProvisionDevice(modelId, owner);
-        var sim = await ProvisionSim(owner);
-        await Send(new InstallSimCommand(firstDevice, sim.Id, owner));
-
-        var result10 = await Send(new EjectSimCommand(firstDevice, sim.Id, owner));
-
-        ExpectCase(result10 is EjectSimResult.Ejected, "Ejected", result10);
-        var result11 = await Send(new InstallSimCommand(secondDevice, sim.Id, owner));
-        ExpectCase(result11 is InstallSimResult.Installed, "Installed", result11);
-
-        Assert.Empty(await Send(new DeviceSimCardsQuery(firstDevice)));
-        Assert.Single(await Send(new DeviceSimCardsQuery(secondDevice)));
-    }
-
-    [Fact]
-    public async Task InstallApp_ThatTheModelDoesNotSupport_IsRefused()
-    {
-        var owner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(apps: [AppKey.Messages]), owner);
-
-        var result = await Send(new InstallAppCommand(deviceId, owner, AppKey.Contacts));
-
-        var result12 = result;
-
-        ExpectCase(result12 is InstallAppResult.NotSupportedByModel, "NotSupportedByModel", result12);
+        var repeat = await Send(new SetPhonePowerCommand(phone.Id, new PhoneActor(owner), true));
+        ExpectCase(repeat is SetPhonePowerResult.AlreadyInState, "AlreadyInState", repeat);
     }
 
     [Fact]
     public async Task UninstallApp_ThenReinstall_IsAllowed()
     {
         var owner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(), owner);
+        var phone = await ProvisionPhone(owner);
+        var actor = new PhoneActor(owner);
 
-        var result13 = await Send(new UninstallAppCommand(deviceId, owner, AppKey.Contacts));
+        var uninstalled = await Send(new UninstallAppCommand(phone.Id, actor, AppKey.Contacts));
+        ExpectCase(uninstalled is UninstallAppResult.Uninstalled, "Uninstalled", uninstalled);
 
-        ExpectCase(result13 is UninstallAppResult.Uninstalled, "Uninstalled", result13);
-        var result14 = await Send(new UninstallAppCommand(deviceId, owner, AppKey.Contacts));
-        ExpectCase(result14 is UninstallAppResult.NotInstalled, "NotInstalled", result14);
-        var result15 = await Send(new InstallAppCommand(deviceId, owner, AppKey.Contacts));
-        ExpectCase(result15 is InstallAppResult.Installed, "Installed", result15);
+        var repeat = await Send(new UninstallAppCommand(phone.Id, actor, AppKey.Contacts));
+        ExpectCase(repeat is UninstallAppResult.NotInstalled, "NotInstalled", repeat);
+
+        var reinstalled = await Send(new InstallAppCommand(phone.Id, actor, AppKey.Contacts));
+        ExpectCase(reinstalled is InstallAppResult.Installed, "Installed", reinstalled);
+    }
+
+    // --- Enforcement ------------------------------------------------------------------------
+
+    [Fact]
+    public async Task SuspendPhone_NeedsNoOwnerConsentAndSurvivesARestoreIntact()
+    {
+        // Enforcement acts against the owner by design, so there is no acting character and no PIN —
+        // and a restore has to return the number with its blocklist untouched.
+        var owner = new CharacterId(Guid.NewGuid());
+        var actor = new PhoneActor(owner);
+        var phone = await ProvisionPhone(owner);
+        var nuisance = (await ProvisionPhone(new CharacterId(Guid.NewGuid()))).Number;
+
+        // Powered on first, and the result checked: blocking is a Messages command now, so on a
+        // phone straight out of provisioning it would be refused rather than silently do nothing.
+        await Send(new SetPhonePowerCommand(phone.Id, actor, true));
+        var blocked = await Send(new BlockNumberCommand(phone.Id, actor, nuisance));
+        ExpectCase(blocked is BlockNumberResult.Blocked, "Blocked", blocked);
+
+        var suspended = await Send(new SuspendPhoneCommand(phone.Id, "Police order"));
+        ExpectCase(suspended is SuspendPhoneResult.Suspended, "Suspended", suspended);
+
+        var again = await Send(new SuspendPhoneCommand(phone.Id, "Police order"));
+        ExpectCase(again is SuspendPhoneResult.AlreadySuspended, "AlreadySuspended", again);
+
+        var restored = await Send(new RestorePhoneCommand(phone.Id));
+        ExpectCase(restored is RestorePhoneResult.Restored, "Restored", restored);
+
+        var restoredAgain = await Send(new RestorePhoneCommand(phone.Id));
+        ExpectCase(restoredAgain is RestorePhoneResult.NotSuspended, "NotSuspended", restoredAgain);
+
+        var loaded = await Load(phone.Id);
+        Assert.Equal(PhoneStatus.Active, loaded.Status);
+        Assert.True(loaded.IsBlocked(nuisance));
     }
 
     [Fact]
-    public async Task BlockNumber_ThenUnblock_RoundTrips()
+    public async Task SuspendedPhone_RefusesEveryAppCommandButKeepsItsState()
     {
         var owner = new CharacterId(Guid.NewGuid());
-        var sim = await ProvisionSim(owner);
-        var nuisance = (await ProvisionSim(new CharacterId(Guid.NewGuid()))).Number;
+        var phone = await ProvisionPhone(owner);
+        var actor = new PhoneActor(owner);
+        await Send(new SetPhonePowerCommand(phone.Id, actor, true));
+        await Send(new SuspendPhoneCommand(phone.Id, "Police order"));
 
-        var result16 = await Send(new BlockNumberCommand(sim.Id, owner, nuisance));
-
-        ExpectCase(result16 is BlockNumberResult.Blocked, "Blocked", result16);
-        var result17 = await Send(new BlockNumberCommand(sim.Id, owner, nuisance));
-        ExpectCase(result17 is BlockNumberResult.AlreadyBlocked, "AlreadyBlocked", result17);
-        var result18 = await Send(new UnblockNumberCommand(sim.Id, owner, nuisance));
-        ExpectCase(result18 is UnblockNumberResult.Unblocked, "Unblocked", result18);
-        var result19 = await Send(new UnblockNumberCommand(sim.Id, owner, nuisance));
-        ExpectCase(result19 is UnblockNumberResult.NotBlocked, "NotBlocked", result19);
-    }
-
-    [Fact]
-    public async Task BlockNumber_AgainstOwnNumber_IsRefused()
-    {
-        var owner = new CharacterId(Guid.NewGuid());
-        var sim = await ProvisionSim(owner);
-
-        var result20 = await Send(new BlockNumberCommand(sim.Id, owner, sim.Number));
-
-        ExpectCase(result20 is BlockNumberResult.CannotBlockOwnNumber, "CannotBlockOwnNumber", result20);
-    }
-
-    [Fact]
-    public async Task SuspendSim_NeedsNoOwnerConsentAndSurvivesARestoreIntact()
-    {
-        // Enforcement acts against the owner by design, so there is no acting-character check — and
-        // a restore has to return the number with its blocklist untouched.
-        var owner = new CharacterId(Guid.NewGuid());
-        var sim = await ProvisionSim(owner);
-        var nuisance = (await ProvisionSim(new CharacterId(Guid.NewGuid()))).Number;
-        await Send(new BlockNumberCommand(sim.Id, owner, nuisance));
-
-        var result21 = await Send(new SuspendSimCommand(sim.Id, "Police order"));
-
-        ExpectCase(result21 is SuspendSimResult.Suspended, "Suspended", result21);
-        var result22 = await Send(new SuspendSimCommand(sim.Id, "Police order"));
-        ExpectCase(result22 is SuspendSimResult.AlreadySuspended, "AlreadySuspended", result22);
-        var result23 = await Send(new RestoreSimCommand(sim.Id));
-        ExpectCase(result23 is RestoreSimResult.Restored, "Restored", result23);
-        var result24 = await Send(new RestoreSimCommand(sim.Id));
-        ExpectCase(result24 is RestoreSimResult.NotSuspended, "NotSuspended", result24);
-
-        var lookup = await Send(new SimCardLookupQuery(sim.Id));
-        if (lookup is not SimCardLookupResult.Found found)
+        var result = await Send(new ThreadsQuery(phone.Id, actor));
+        if (result is not ThreadsResult.AccessDenied denied)
         {
-            throw new XunitException($"Expected Found, got {lookup}");
+            throw new XunitException($"Expected AccessDenied, got {result}");
         }
 
-        var restored = found.SimCard;
-        Assert.Equal(SimCardStatus.Active, restored.Status);
-        Assert.True(restored.IsBlocked(nuisance));
-    }
-
-    [Fact]
-    public async Task SuspendedSim_CanStillBeSeatedInAHandset()
-    {
-        var owner = new CharacterId(Guid.NewGuid());
-        var deviceId = await ProvisionDevice(await CreateModel(), owner);
-        var sim = await ProvisionSim(owner);
-        await Send(new SuspendSimCommand(sim.Id, "Police order"));
-
-        // The lock is on the network, not the slot — PhoneAccessPolicy is what refuses to use it.
-        var result25 = await Send(new InstallSimCommand(deviceId, sim.Id, owner));
-        ExpectCase(result25 is InstallSimResult.Installed, "Installed", result25);
+        ExpectCase(denied.Reason is PhoneAccessResult.PhoneSuspended, "PhoneSuspended", denied.Reason);
+        Assert.True((await Load(phone.Id)).IsPoweredOn);
     }
 }

@@ -1,5 +1,15 @@
 {
     "version": "2.0.0",
+    // src/Api sets OpenApiGenerateDocumentsOnBuild, so every build boots the real host via
+    // dotnet-getdocument to emit the OpenAPI doc. That boot resolves Marten connection strings,
+    // which live only in appsettings.Development.json — so the build needs the environment set
+    // the same way launch.json already does it. The devcontainer exports this via compose;
+    // this covers running the tasks on the host.
+    "options": {
+        "env": {
+            "ASPNETCORE_ENVIRONMENT": "Development"
+        }
+    },
     "tasks": [
         {
             "label": "build",

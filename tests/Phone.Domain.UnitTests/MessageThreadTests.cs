@@ -1,8 +1,6 @@
-using ELifeRPG.Phone.Domain.Apps;
 using ELifeRPG.Phone.Domain.Apps.Messages;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
 using ELifeRPG.Phone.Domain.Devices;
-using ELifeRPG.Phone.Domain.Sims;
 using Xunit;
 
 namespace ELifeRPG.Phone.Domain.UnitTests;
@@ -14,18 +12,16 @@ public class MessageThreadTests
     private static readonly PhoneNumber Mechanic = PhoneNumber.Parse("55009912");
     private static readonly DateTimeOffset At = new(2026, 8, 25, 12, 0, 0, TimeSpan.Zero);
 
-    private static PhoneModel Model(int threadMessageLimit = 30, int maxGroupParticipants = 5) =>
-        PhoneModel.Create(PhoneModel.Define(
-            new PhoneModelId(Guid.NewGuid()), "Burner", 1, null, 1,
-            [AppKey.Messages, AppKey.Contacts], 50, threadMessageLimit, maxGroupParticipants));
+    private const int RetentionLimit = 30;
+    private const int MaxGroupParticipants = 5;
 
-    private static MessageThread Thread(PhoneModel? model = null, params PhoneNumber[] participants) =>
+    private static MessageThread Thread(int maxGroupParticipants = MaxGroupParticipants, params PhoneNumber[] participants) =>
         MessageThread.Create(MessageThread.Start(
             new MessageThreadId(Guid.NewGuid()),
-            new SimCardId(Guid.NewGuid()),
+            new PhoneDeviceId(Guid.NewGuid()),
             Owner,
             participants.Length == 0 ? [Dispatcher] : participants,
-            model ?? Model()));
+            maxGroupParticipants));
 
     private static MessageId AMessage() => new(Guid.NewGuid());
 
@@ -44,8 +40,8 @@ public class MessageThreadTests
     public void Start_SortsParticipantsSoTheKeyDoesNotDependOnSendOrder()
     {
         // Two sends naming the same people in different orders must land in one thread, not two.
-        var first = MessageThread.Start(new MessageThreadId(Guid.NewGuid()), new SimCardId(Guid.NewGuid()), Owner, [Mechanic, Dispatcher], Model());
-        var second = MessageThread.Start(new MessageThreadId(Guid.NewGuid()), new SimCardId(Guid.NewGuid()), Owner, [Dispatcher, Mechanic], Model());
+        var first = MessageThread.Start(new MessageThreadId(Guid.NewGuid()), new PhoneDeviceId(Guid.NewGuid()), Owner, [Mechanic, Dispatcher], MaxGroupParticipants);
+        var second = MessageThread.Start(new MessageThreadId(Guid.NewGuid()), new PhoneDeviceId(Guid.NewGuid()), Owner, [Dispatcher, Mechanic], MaxGroupParticipants);
 
         Assert.Equal(first.ThreadKey, second.ThreadKey);
         Assert.Equal(first.Participants, second.Participants);
@@ -54,7 +50,7 @@ public class MessageThreadTests
     [Fact]
     public void Start_DeduplicatesParticipants()
     {
-        var thread = Thread(Model(), Dispatcher, Dispatcher);
+        var thread = Thread(MaxGroupParticipants, Dispatcher, Dispatcher);
 
         Assert.Equal([Dispatcher], thread.Participants);
     }
@@ -63,7 +59,7 @@ public class MessageThreadTests
     public void Start_DropsTheOwnersOwnNumberFromTheParticipants()
     {
         // Addressing a group that includes yourself is normal; the thread is still "the others".
-        var thread = Thread(Model(), Dispatcher, Owner);
+        var thread = Thread(MaxGroupParticipants, Dispatcher, Owner);
 
         Assert.Equal([Dispatcher], thread.Participants);
     }
@@ -72,17 +68,17 @@ public class MessageThreadTests
     public void Start_WithNoParticipantsBesidesTheOwner_ThrowsArgumentException()
     {
         Assert.Throws<ArgumentException>(() => MessageThread.Start(
-            new MessageThreadId(Guid.NewGuid()), new SimCardId(Guid.NewGuid()), Owner, [Owner], Model()));
+            new MessageThreadId(Guid.NewGuid()), new PhoneDeviceId(Guid.NewGuid()), Owner, [Owner], MaxGroupParticipants));
     }
 
     [Fact]
-    public void Start_BeyondTheModelGroupLimit_ThrowsArgumentOutOfRange()
+    public void Start_BeyondTheGroupLimit_ThrowsArgumentOutOfRange()
     {
-        var model = Model(maxGroupParticipants: 2);
+
 
         Assert.Throws<ArgumentOutOfRangeException>(() => MessageThread.Start(
-            new MessageThreadId(Guid.NewGuid()), new SimCardId(Guid.NewGuid()), Owner,
-            [Dispatcher, Mechanic, PhoneNumber.Parse("55009913")], model));
+            new MessageThreadId(Guid.NewGuid()), new PhoneDeviceId(Guid.NewGuid()), Owner,
+            [Dispatcher, Mechanic, PhoneNumber.Parse("55009913")], maxGroupParticipants: 2));
     }
 
     [Fact]
@@ -98,7 +94,7 @@ public class MessageThreadTests
     {
         var thread = Thread();
 
-        thread.RecordOutbound(AMessage(), Owner, "on my way", At, Model());
+        thread.RecordOutbound(AMessage(), Owner, "on my way", At, RetentionLimit);
 
         var message = Assert.Single(thread.Messages);
         Assert.True(message.IsOutbound);
@@ -112,8 +108,8 @@ public class MessageThreadTests
     {
         var thread = Thread();
 
-        thread.RecordInbound(AMessage(), Dispatcher, "where are you", At, Model());
-        thread.RecordInbound(AMessage(), Dispatcher, "hello?", At.AddMinutes(1), Model());
+        thread.RecordInbound(AMessage(), Dispatcher, "where are you", At, RetentionLimit);
+        thread.RecordInbound(AMessage(), Dispatcher, "hello?", At.AddMinutes(1), RetentionLimit);
 
         Assert.Equal(2, thread.UnreadCount);
         Assert.False(thread.Messages[0].IsOutbound);
@@ -123,7 +119,7 @@ public class MessageThreadTests
     public void MarkRead_ResetsUnread()
     {
         var thread = Thread();
-        thread.RecordInbound(AMessage(), Dispatcher, "where are you", At, Model());
+        thread.RecordInbound(AMessage(), Dispatcher, "where are you", At, RetentionLimit);
 
         thread.MarkRead();
 
@@ -137,48 +133,47 @@ public class MessageThreadTests
     {
         var thread = Thread();
 
-        Assert.Throws<ArgumentException>(() => thread.RecordOutbound(AMessage(), Owner, body, At, Model()));
+        Assert.Throws<ArgumentException>(() => thread.RecordOutbound(AMessage(), Owner, body, At, RetentionLimit));
     }
 
     [Fact]
-    public void Record_BeyondTheModelRetentionLimit_DropsTheOldest()
+    public void Record_BeyondTheRetentionLimit_DropsTheOldest()
     {
-        var model = Model(threadMessageLimit: 2);
-        var thread = Thread(model);
+        const int limit = 2;
+        var thread = Thread();
 
-        thread.RecordInbound(AMessage(), Dispatcher, "one", At, model);
-        thread.RecordInbound(AMessage(), Dispatcher, "two", At.AddMinutes(1), model);
-        thread.RecordInbound(AMessage(), Dispatcher, "three", At.AddMinutes(2), model);
+        thread.RecordInbound(AMessage(), Dispatcher, "one", At, limit);
+        thread.RecordInbound(AMessage(), Dispatcher, "two", At.AddMinutes(1), limit);
+        thread.RecordInbound(AMessage(), Dispatcher, "three", At.AddMinutes(2), limit);
 
         Assert.Equal(["two", "three"], thread.Messages.Select(message => message.Body));
     }
 
     [Fact]
-    public void Record_AfterTheSimMovesToASmallerHandset_TrimsExistingHistory()
+    public void Record_AfterTheRetentionLimitIsLowered_TrimsExistingHistory()
     {
-        // The in-fiction consequence of history living on the SIM while the cap comes from the
-        // handset: drop a smartphone SIM into a burner and the next message costs you the backlog.
-        var smartphone = Model(threadMessageLimit: 30);
-        var burner = Model(threadMessageLimit: 2);
-        var thread = Thread(smartphone);
-        thread.RecordInbound(AMessage(), Dispatcher, "one", At, smartphone);
-        thread.RecordInbound(AMessage(), Dispatcher, "two", At.AddMinutes(1), smartphone);
-        thread.RecordInbound(AMessage(), Dispatcher, "three", At.AddMinutes(2), smartphone);
+        // Trimming happens on append, against whatever the cap is at that moment. Lowering
+        // HiveSettings.PhoneThreadMessageLimit therefore costs every thread its backlog on its next
+        // message rather than immediately — which is the behaviour to keep in mind before editing it.
+        var thread = Thread();
+        thread.RecordInbound(AMessage(), Dispatcher, "one", At, 30);
+        thread.RecordInbound(AMessage(), Dispatcher, "two", At.AddMinutes(1), 30);
+        thread.RecordInbound(AMessage(), Dispatcher, "three", At.AddMinutes(2), 30);
 
-        thread.RecordInbound(AMessage(), Dispatcher, "four", At.AddMinutes(3), burner);
+        thread.RecordInbound(AMessage(), Dispatcher, "four", At.AddMinutes(3), 2);
 
         Assert.Equal(["three", "four"], thread.Messages.Select(message => message.Body));
     }
 
     [Fact]
-    public void Apply_ReplayingUsesTheLimitRecordedOnTheEventNotTheCurrentModel()
+    public void Apply_ReplayingUsesTheLimitRecordedOnTheEventNotTheCurrentSetting()
     {
         // The retention limit is a fact about the moment of the append, so it rides on the event —
-        // otherwise a replay after a model change would rebuild a different history.
+        // otherwise a replay after a settings change would rebuild a different history.
         var threadId = new MessageThreadId(Guid.NewGuid());
         var thread = new MessageThread();
 
-        thread.Apply(new MessageThreadStarted(threadId, new SimCardId(Guid.NewGuid()), [Dispatcher], MessageThread.BuildThreadKey([Dispatcher])));
+        thread.Apply(new MessageThreadStarted(threadId, new PhoneDeviceId(Guid.NewGuid()), [Dispatcher], MessageThread.BuildThreadKey([Dispatcher])));
         thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "one", At, 2));
         thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "two", At.AddMinutes(1), 2));
         thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "three", At.AddMinutes(2), 2));

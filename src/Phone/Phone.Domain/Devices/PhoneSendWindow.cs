@@ -1,15 +1,15 @@
-namespace ELifeRPG.Phone.Domain.Sims;
+namespace ELifeRPG.Phone.Domain.Devices;
 
 /// <summary>
-/// Sliding-window send counter, one per SIM — rate limiting is per number, not per handset, because
-/// the number is the sending identity.
+/// Sliding-window send counter, one per phone — rate limiting is per number, and since the number
+/// is minted with the handset those are now the same thing.
 ///
 /// A plain mutable document rather than an event-sourced aggregate: it is throwaway throttling
 /// state, not history worth replaying. Same call as <c>GameServer</c> and <c>HiveSettings</c>.
 /// </summary>
-public class SimSendWindow
+public class PhoneSendWindow
 {
-    public SimCardId Id { get; set; }
+    public PhoneDeviceId Id { get; set; }
 
     public DateTimeOffset WindowStartedAt { get; set; }
 

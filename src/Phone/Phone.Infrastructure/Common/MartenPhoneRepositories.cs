@@ -5,8 +5,6 @@ using ELifeRPG.Phone.Domain.Apps.Messages;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Domain.Devices.Events;
-using ELifeRPG.Phone.Domain.Sims;
-using ELifeRPG.Phone.Domain.Sims.Events;
 using ELifeRPG.Shared.Kernel;
 using ELifeRPG.Phone.Domain.Exceptions;
 using Marten;
@@ -24,94 +22,34 @@ namespace ELifeRPG.Phone.Infrastructure.Common;
 /// strongly-typed id, while Events.StartStream takes the raw Guid. Mixing them up throws
 /// DocumentIdTypeMismatchException at runtime, not compile time.
 /// </summary>
-public sealed class MartenPhoneModelRepository(IPhoneSession phoneSession) : IPhoneModelRepository
-{
-    private readonly IDocumentSession _session = phoneSession.Session;
-
-    public async ValueTask<PhoneModel?> FindByIdAsync(PhoneModelId modelId, CancellationToken cancellationToken)
-        => await _session.LoadAsync<PhoneModel>(modelId, cancellationToken);
-
-    public async ValueTask<IReadOnlyList<PhoneModel>> FindAllAsync(CancellationToken cancellationToken)
-        => await _session.Query<PhoneModel>().ToListAsync(cancellationToken);
-
-    public void StartStream(PhoneModel model, PhoneModelCreated domainEvent)
-        => _session.Events.StartStream<PhoneModel>(model.Id.Value, domainEvent);
-
-    public async ValueTask SaveChangesAsync(CancellationToken cancellationToken)
-        => await _session.SaveChangesAsync(cancellationToken);
-
-}
-
 public sealed class MartenPhoneDeviceRepository(IPhoneSession phoneSession) : IPhoneDeviceRepository
 {
     private readonly IDocumentSession _session = phoneSession.Session;
 
-    public async ValueTask<PhoneDevice?> FindByIdAsync(PhoneDeviceId deviceId, CancellationToken cancellationToken)
-        => await _session.LoadAsync<PhoneDevice>(deviceId, cancellationToken);
-
-    public async ValueTask<IReadOnlyList<PhoneDevice>> FindByCharacterAsync(CharacterId characterId, CancellationToken cancellationToken)
-        => await _session.Query<PhoneDevice>().Where(device => device.BoundCharacterId.Value == characterId.Value).ToListAsync(cancellationToken);
-
-    public void StartStream(PhoneDevice device, PhoneDeviceProvisioned domainEvent)
-        => _session.Events.StartStream<PhoneDevice>(device.Id.Value, domainEvent);
-
-    public void Append(PhoneDeviceId deviceId, object domainEvent)
-        => _session.Events.Append(deviceId.Value, domainEvent);
-
-    public async ValueTask SaveChangesAsync(CancellationToken cancellationToken)
-        => await _session.SaveChangesAsync(cancellationToken);
-
-}
-
-public sealed class MartenSimCardRepository(IPhoneSession phoneSession) : ISimCardRepository
-{
-    private readonly IDocumentSession _session = phoneSession.Session;
-
-    public async ValueTask<SimCard?> FindByIdAsync(SimCardId simCardId, CancellationToken cancellationToken)
-        => await _session.LoadAsync<SimCard>(simCardId, cancellationToken);
+    public async ValueTask<PhoneDevice?> FindByIdAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
+        => await _session.LoadAsync<PhoneDevice>(phoneId, cancellationToken);
 
     /// <summary>
     /// Routing lookup for every send. Queries the canonical string form via
-    /// <see cref="SimCard.NumberValue"/> rather than the PhoneNumber struct: the duplicated column
-    /// is what a unique index and an equality predicate can both actually use.
+    /// <see cref="PhoneDevice.NumberValue"/> rather than the PhoneNumber struct: the duplicated
+    /// column is what a unique index and an equality predicate can both actually use.
     /// </summary>
-    public async ValueTask<SimCard?> FindByNumberAsync(PhoneNumber number, CancellationToken cancellationToken)
+    public async ValueTask<PhoneDevice?> FindByNumberAsync(PhoneNumber number, CancellationToken cancellationToken)
     {
         var value = number.Value;
-        return await _session.Query<SimCard>().FirstOrDefaultAsync(sim => sim.NumberValue == value, cancellationToken);
+        return await _session.Query<PhoneDevice>().FirstOrDefaultAsync(phone => phone.NumberValue == value, cancellationToken);
     }
 
-    public async ValueTask<IReadOnlyList<SimCard>> FindByCharacterAsync(CharacterId characterId, CancellationToken cancellationToken)
-        => await _session.Query<SimCard>().Where(sim => sim.RegisteredTo.Value == characterId.Value).ToListAsync(cancellationToken);
+    public async ValueTask<IReadOnlyList<PhoneDevice>> FindByCharacterAsync(CharacterId characterId, CancellationToken cancellationToken)
+        => await _session.Query<PhoneDevice>()
+            .Where(phone => phone.RegisteredTo.Value == characterId.Value)
+            .ToListAsync(cancellationToken);
 
-    /// <summary>
-    /// Loaded one at a time, deliberately. LoadManyAsync only has Guid/string/int/long overloads and
-    /// SimCard's identity is a SimCardId, so the unwrapped Guids throw DocumentIdTypeMismatchException
-    /// (the gotcha MartenAccountRepository documents); and Marten's LINQ translates neither
-    /// `ids.Contains(sim.Id)` nor `ids.Contains(sim.Id.Value)` — both raise BadLinqExpressionException.
-    /// The set here is a device's installed SIMs, capped by PhoneModel.SimSlots at one or two, so the
-    /// round trips are bounded and tiny.
-    /// </summary>
-    public async ValueTask<IReadOnlyList<SimCard>> FindByIdsAsync(IReadOnlyList<SimCardId> simCardIds, CancellationToken cancellationToken)
-    {
-        var found = new List<SimCard>(simCardIds.Count);
+    public void StartStream(PhoneDevice phone, PhoneDeviceProvisioned domainEvent)
+        => _session.Events.StartStream<PhoneDevice>(phone.Id.Value, domainEvent);
 
-        foreach (var simCardId in simCardIds)
-        {
-            if (await _session.LoadAsync<SimCard>(simCardId, cancellationToken) is { } sim)
-            {
-                found.Add(sim);
-            }
-        }
-
-        return found;
-    }
-
-    public void StartStream(SimCard simCard, SimCardIssued domainEvent)
-        => _session.Events.StartStream<SimCard>(simCard.Id.Value, domainEvent);
-
-    public void Append(SimCardId simCardId, object domainEvent)
-        => _session.Events.Append(simCardId.Value, domainEvent);
+    public void Append(PhoneDeviceId phoneId, object domainEvent)
+        => _session.Events.Append(phoneId.Value, domainEvent);
 
     /// <summary>
     /// Translates the number unique-index violation into a domain exception so Phone.Application can
@@ -126,7 +64,7 @@ public sealed class MartenSimCardRepository(IPhoneSession phoneSession) : ISimCa
         }
         catch (Exception exception) when (IsNumberCollision(exception))
         {
-            throw new PhoneNumberTakenException("That phone number is already issued to another SIM card.");
+            throw new PhoneNumberTakenException("That phone number is already issued to another phone.");
         }
     }
 
@@ -144,8 +82,8 @@ public sealed class MartenContactBookRepository(IPhoneSession phoneSession) : IC
 {
     private readonly IDocumentSession _session = phoneSession.Session;
 
-    public async ValueTask<ContactBook?> FindBySimAsync(SimCardId simCardId, CancellationToken cancellationToken)
-        => await _session.Query<ContactBook>().FirstOrDefaultAsync(book => book.SimCardId.Value == simCardId.Value, cancellationToken);
+    public async ValueTask<ContactBook?> FindByPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
+        => await _session.Query<ContactBook>().FirstOrDefaultAsync(book => book.PhoneId.Value == phoneId.Value, cancellationToken);
 
     public void StartStream(ContactBook book, ContactBookOpened domainEvent)
         => _session.Events.StartStream<ContactBook>(book.Id.Value, domainEvent);
@@ -165,13 +103,13 @@ public sealed class MartenMessageThreadRepository(IPhoneSession phoneSession) : 
     public async ValueTask<MessageThread?> FindByIdAsync(MessageThreadId threadId, CancellationToken cancellationToken)
         => await _session.LoadAsync<MessageThread>(threadId, cancellationToken);
 
-    public async ValueTask<MessageThread?> FindByKeyAsync(SimCardId simCardId, string threadKey, CancellationToken cancellationToken)
+    public async ValueTask<MessageThread?> FindByKeyAsync(PhoneDeviceId phoneId, string threadKey, CancellationToken cancellationToken)
         => await _session.Query<MessageThread>()
-            .FirstOrDefaultAsync(thread => thread.OwnerSimCardId.Value == simCardId.Value && thread.ThreadKey == threadKey, cancellationToken);
+            .FirstOrDefaultAsync(thread => thread.OwnerPhoneId.Value == phoneId.Value && thread.ThreadKey == threadKey, cancellationToken);
 
-    public async ValueTask<IReadOnlyList<MessageThread>> FindBySimAsync(SimCardId simCardId, CancellationToken cancellationToken)
+    public async ValueTask<IReadOnlyList<MessageThread>> FindByPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
         => await _session.Query<MessageThread>()
-            .Where(thread => thread.OwnerSimCardId.Value == simCardId.Value)
+            .Where(thread => thread.OwnerPhoneId.Value == phoneId.Value)
             .OrderByDescending(thread => thread.LastMessageAt)
             .ToListAsync(cancellationToken);
 
@@ -181,9 +119,9 @@ public sealed class MartenMessageThreadRepository(IPhoneSession phoneSession) : 
     public void Append(MessageThreadId threadId, object domainEvent)
         => _session.Events.Append(threadId.Value, domainEvent);
 
-    public async ValueTask<IReadOnlyList<PendingDelivery>> FindPendingForSimAsync(SimCardId simCardId, CancellationToken cancellationToken)
+    public async ValueTask<IReadOnlyList<PendingDelivery>> FindPendingForPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
         => await _session.Query<PendingDelivery>()
-            .Where(delivery => delivery.RecipientSimCardId.Value == simCardId.Value)
+            .Where(delivery => delivery.RecipientPhoneId.Value == phoneId.Value)
             .OrderBy(delivery => delivery.SentAt)
             .ToListAsync(cancellationToken);
 
@@ -201,16 +139,16 @@ public sealed class MartenMessageThreadRepository(IPhoneSession phoneSession) : 
 /// flush whatever else the scope had pending, and the counter deliberately does not need to be
 /// atomic with delivery — spending quota on a send that then fails errs closed, the safe direction.
 /// </summary>
-public sealed class MartenSimSendWindowRepository : ISimSendWindowRepository, IAsyncDisposable
+public sealed class MartenPhoneSendWindowRepository : IPhoneSendWindowRepository, IAsyncDisposable
 {
     private readonly IDocumentSession _session;
 
-    public MartenSimSendWindowRepository(IPhoneStore store) => _session = store.LightweightSession();
+    public MartenPhoneSendWindowRepository(IPhoneStore store) => _session = store.LightweightSession();
 
-    public async ValueTask<SimSendWindow?> FindAsync(SimCardId simCardId, CancellationToken cancellationToken)
-        => await _session.LoadAsync<SimSendWindow>(simCardId, cancellationToken);
+    public async ValueTask<PhoneSendWindow?> FindAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
+        => await _session.LoadAsync<PhoneSendWindow>(phoneId, cancellationToken);
 
-    public async ValueTask StoreAsync(SimSendWindow window, CancellationToken cancellationToken)
+    public async ValueTask StoreAsync(PhoneSendWindow window, CancellationToken cancellationToken)
     {
         _session.Store(window);
         await _session.SaveChangesAsync(cancellationToken);
@@ -227,21 +165,18 @@ public sealed class MartenPhoneModerationRepository(IPhoneSession phoneSession) 
 {
     private readonly IDocumentSession _session = phoneSession.Session;
 
-    public async ValueTask<IReadOnlyList<SimCard>> SearchSimCardsAsync(string? numberFragment, CancellationToken cancellationToken)
+    public async ValueTask<IReadOnlyList<PhoneDevice>> SearchPhonesAsync(string? numberFragment, CancellationToken cancellationToken)
     {
-        var query = _session.Query<SimCard>();
+        var query = _session.Query<PhoneDevice>();
 
         return string.IsNullOrWhiteSpace(numberFragment)
             ? await query.Take(200).ToListAsync(cancellationToken)
-            : await query.Where(sim => sim.NumberValue.Contains(numberFragment)).Take(200).ToListAsync(cancellationToken);
+            : await query.Where(phone => phone.NumberValue.Contains(numberFragment)).Take(200).ToListAsync(cancellationToken);
     }
 
-    public async ValueTask<IReadOnlyList<PhoneDevice>> ListDevicesAsync(CancellationToken cancellationToken)
-        => await _session.Query<PhoneDevice>().Take(200).ToListAsync(cancellationToken);
-
-    public async ValueTask<IReadOnlyList<MessageThread>> ListThreadsForSimAsync(SimCardId simCardId, CancellationToken cancellationToken)
+    public async ValueTask<IReadOnlyList<MessageThread>> ListThreadsForPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
         => await _session.Query<MessageThread>()
-            .Where(thread => thread.OwnerSimCardId.Value == simCardId.Value)
+            .Where(thread => thread.OwnerPhoneId.Value == phoneId.Value)
             .OrderByDescending(thread => thread.LastMessageAt)
             .ToListAsync(cancellationToken);
 }

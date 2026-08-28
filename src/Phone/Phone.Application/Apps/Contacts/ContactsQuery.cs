@@ -9,29 +9,26 @@ public union ContactsResult(ContactsResult.Contacts, ContactsResult.AccessDenied
     public record AccessDenied(PhoneAccessResult Reason);
 }
 
-public sealed record ContactsQuery(SimCardId SimCardId, CharacterId ActingCharacterId) : IRequest<ContactsResult>;
+public sealed record ContactsQuery(PhoneDeviceId PhoneId, PhoneActor Actor) : IRequest<ContactsResult>;
 
 public sealed class ContactsHandler(
-    ISimCardRepository simCardRepository,
-    IPhoneDeviceRepository deviceRepository,
-    IPhoneModelRepository modelRepository,
+    IPhoneDeviceRepository phoneRepository,
     IContactBookRepository contactBookRepository)
     : IRequestHandler<ContactsQuery, ContactsResult>
 {
     public async ValueTask<ContactsResult> Handle(ContactsQuery request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.SimCardId, request.ActingCharacterId, AppKey.Contacts,
-            simCardRepository, deviceRepository, modelRepository, cancellationToken);
+            request.PhoneId, request.Actor, AppKey.Contacts, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted)
         {
             return new ContactsResult.AccessDenied(access);
         }
 
-        var book = await contactBookRepository.FindBySimAsync(request.SimCardId, cancellationToken);
+        var book = await contactBookRepository.FindByPhoneAsync(request.PhoneId, cancellationToken);
 
-        // A SIM with no book yet simply has no contacts — not an error.
+        // A phone with no book yet simply has no contacts — not an error.
         return new ContactsResult.Contacts(book?.Contacts ?? []);
     }
 }

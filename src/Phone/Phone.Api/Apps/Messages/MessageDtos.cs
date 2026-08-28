@@ -1,3 +1,5 @@
+using ELifeRPG.Phone.Application.Common;
+
 namespace ELifeRPG.Phone.Api.Apps.Messages;
 
 public sealed record MessageDto(Guid Id, string From, string Body, DateTimeOffset SentAt, bool IsOutbound)
@@ -38,7 +40,15 @@ public sealed record MessageThreadDto(
         [.. source.Messages.Select(MessageDto.Create)]);
 }
 
-public sealed record SendMessageRequestDto(Guid CharacterId, IReadOnlyList<string> To, string Body);
+public sealed record BlockNumberRequestDto(Guid CharacterId, string Number, string? Pin = null)
+{
+    public PhoneActor ToActor() => new(new CharacterId(CharacterId), Pin);
+}
+
+public sealed record SendMessageRequestDto(Guid CharacterId, IReadOnlyList<string> To, string Body, string? Pin = null)
+{
+    public PhoneActor ToActor() => new(new CharacterId(CharacterId), Pin);
+}
 
 /// <summary>
 /// <paramref name="UndeliverableRecipients"/> reports only what a real network would reveal —

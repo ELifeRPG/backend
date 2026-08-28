@@ -26,15 +26,6 @@ public class AppCatalogTests
     }
 
     [Fact]
-    public void MessagesAndContacts_BothRequireASim()
-    {
-        // Both store their data on the SIM, so neither is usable without one. A later app that keeps
-        // its state on the device (a camera, say) would set this false and skip the SIM checks.
-        Assert.True(AppCatalog.Get(AppKey.Messages).RequiresSim);
-        Assert.True(AppCatalog.Get(AppKey.Contacts).RequiresSim);
-    }
-
-    [Fact]
     public void Get_WithAnUndefinedKey_Throws()
     {
         Assert.Throws<KeyNotFoundException>(() => AppCatalog.Get((AppKey)999));

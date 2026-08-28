@@ -75,7 +75,7 @@ public sealed class WorldSettings
 
     /// <summary>
     /// Caps how many engine-spawned children a single ack entry may declare — a rifle's magazine, a
-    /// phone's SIM. Same <c>batch_too_large</c> rejection and same publishing through the limits
+    /// radio's battery. Same <c>batch_too_large</c> rejection and same publishing through the limits
     /// endpoint as <see cref="MaxAcksPerBatch"/>. Distinct from it because the two bound different
     /// things: the batch cap bounds how many parents one request touches, this one bounds the mint
     /// fan-out under any single parent.

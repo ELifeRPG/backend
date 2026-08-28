@@ -3,12 +3,9 @@ using ELifeRPG.Phone.Domain.Apps;
 using ELifeRPG.Phone.Domain.Apps.Contacts;
 using ELifeRPG.Phone.Domain.Apps.Contacts.Events;
 using ELifeRPG.Phone.Domain.Apps.Messages;
-using ELifeRPG.Phone.Domain.Apps.Messages.Events;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Domain.Exceptions;
 using ELifeRPG.Phone.Domain.Devices.Events;
-using ELifeRPG.Phone.Domain.Sims;
-using ELifeRPG.Phone.Domain.Sims.Events;
 using ELifeRPG.Shared.Kernel;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -22,6 +19,9 @@ namespace ELifeRPG.Phone.IntegrationTests;
 /// </summary>
 public sealed class PhonePersistenceTests : IAsyncLifetime
 {
+    private const int RetentionLimit = 30;
+    private const int MaxGroupParticipants = 5;
+
     private ServiceProvider _provider = null!;
 
     public Task InitializeAsync()
@@ -37,63 +37,54 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
     private static PhoneNumber UniqueNumber() =>
         PhoneNumber.Parse(Random.Shared.NextInt64(10_000_000, 99_999_999).ToString());
 
-    private static PhoneModel BuildModel(int simSlots = 2, int contactLimit = 50, int threadMessageLimit = 30) =>
-        PhoneModel.Create(PhoneModel.Define(
-            new PhoneModelId(Guid.NewGuid()), "Test handset", 1, null, simSlots,
-            [AppKey.Messages, AppKey.Contacts], contactLimit, threadMessageLimit, 5));
-
     [Fact]
-    public async Task SimCard_RoundTripsIncludingTheNumberValueObject()
+    public async Task Phone_RoundTripsIncludingTheNumberValueObjectAndThePin()
     {
         var number = UniqueNumber();
         var owner = new CharacterId(Guid.NewGuid());
-        var simId = new SimCardId(Guid.NewGuid());
+        var phoneId = await ProvisionPhone(number, owner, pin: "4711");
 
-        await using (var scope = _provider.CreateAsyncScope())
-        {
-            var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-            var issued = new SimCardIssued(simId, number, owner);
-            repository.StartStream(SimCard.Create(issued), issued);
-            await repository.SaveChangesAsync(CancellationToken.None);
-        }
+        await using var scope = _provider.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
+        var reloaded = await repository.FindByIdAsync(phoneId, CancellationToken.None);
 
-        await using (var scope = _provider.CreateAsyncScope())
-        {
-            var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-            var reloaded = await repository.FindByIdAsync(simId, CancellationToken.None);
+        Assert.NotNull(reloaded);
+        Assert.Equal(number, reloaded.Number);
+        Assert.Equal(number.Value, reloaded.NumberValue);
+        Assert.Equal(owner, reloaded.RegisteredTo);
+        Assert.Equal(PhoneStatus.Active, reloaded.Status);
 
-            Assert.NotNull(reloaded);
-            Assert.Equal(number, reloaded.Number);
-            Assert.Equal(number.Value, reloaded.NumberValue);
-            Assert.Equal(SimCardStatus.Active, reloaded.Status);
-        }
+        // The PIN has to survive the round trip, or a reloaded phone would refuse the very holder it
+        // was provisioned for.
+        Assert.True(reloaded.HasPin("4711"));
     }
 
     [Fact]
-    public async Task SimCard_IsFoundByItsNumber()
+    public async Task Phone_IsFoundByItsNumber()
     {
         var number = UniqueNumber();
-        var simId = await IssueSim(number, new CharacterId(Guid.NewGuid()));
+        var phoneId = await ProvisionPhone(number, new CharacterId(Guid.NewGuid()));
 
         await using var scope = _provider.CreateAsyncScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
+        var repository = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
 
         // Parsed from a differently formatted spelling on purpose: routing must not care.
         var found = await repository.FindByNumberAsync(PhoneNumber.Parse($"+{number.Value}"), CancellationToken.None);
 
-        Assert.Equal(simId, found?.Id);
+        Assert.Equal(phoneId, found?.Id);
     }
 
     [Fact]
-    public async Task SimCard_WithADuplicateNumber_IsRejectedByTheUniqueIndex()
+    public async Task Phone_WithADuplicateNumber_IsRejectedByTheUniqueIndex()
     {
         var number = UniqueNumber();
-        await IssueSim(number, new CharacterId(Guid.NewGuid()));
+        await ProvisionPhone(number, new CharacterId(Guid.NewGuid()));
 
         await using var scope = _provider.CreateAsyncScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-        var issued = new SimCardIssued(new SimCardId(Guid.NewGuid()), number, new CharacterId(Guid.NewGuid()));
-        repository.StartStream(SimCard.Create(issued), issued);
+        var repository = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
+        var provisioned = new PhoneDeviceProvisioned(
+            new PhoneDeviceId(Guid.NewGuid()), number, "1234", new CharacterId(Guid.NewGuid()));
+        repository.StartStream(PhoneDevice.Create(provisioned), provisioned);
 
         // The repository translates the unique-index violation into a domain exception so
         // Phone.Application can retry a fresh number without referencing Marten or Npgsql.
@@ -102,66 +93,41 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SimCard_AppendedEventsAreProjectedOntoTheDocument()
+    public async Task Phone_AppendedEventsAreProjectedOntoTheDocument()
     {
         var blocked = UniqueNumber();
-        var simId = await IssueSim(UniqueNumber(), new CharacterId(Guid.NewGuid()));
+        var phoneId = await ProvisionPhone(UniqueNumber(), new CharacterId(Guid.NewGuid()));
 
         await using (var scope = _provider.CreateAsyncScope())
         {
-            var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-            var sim = await repository.FindByIdAsync(simId, CancellationToken.None);
-            repository.Append(simId, sim!.Block(blocked));
-            repository.Append(simId, sim.Suspend("Police order"));
+            var repository = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
+            var phone = await repository.FindByIdAsync(phoneId, CancellationToken.None);
+            repository.Append(phoneId, phone!.Block(blocked));
+            repository.Append(phoneId, phone.InstallApp(AppKey.Messages));
+            repository.Append(phoneId, phone.ChangePin("9876"));
+            repository.Append(phoneId, phone.Suspend("Police order"));
             await repository.SaveChangesAsync(CancellationToken.None);
         }
 
         await using (var scope = _provider.CreateAsyncScope())
         {
-            var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-            var reloaded = await repository.FindByIdAsync(simId, CancellationToken.None);
+            var repository = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
+            var reloaded = await repository.FindByIdAsync(phoneId, CancellationToken.None);
 
-            Assert.Equal(SimCardStatus.Suspended, reloaded!.Status);
+            Assert.Equal(PhoneStatus.Suspended, reloaded!.Status);
             Assert.True(reloaded.IsBlocked(blocked));
+            Assert.True(reloaded.HasApp(AppKey.Messages));
+            Assert.True(reloaded.HasPin("9876"));
         }
     }
 
     [Fact]
-    public async Task SimCards_AreFoundByRegisteredCharacter()
+    public async Task Phones_AreFoundByRegisteredCharacter()
     {
         var owner = new CharacterId(Guid.NewGuid());
-        await IssueSim(UniqueNumber(), owner);
-        await IssueSim(UniqueNumber(), owner);
-        await IssueSim(UniqueNumber(), new CharacterId(Guid.NewGuid()));
-
-        await using var scope = _provider.CreateAsyncScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-
-        Assert.Equal(2, (await repository.FindByCharacterAsync(owner, CancellationToken.None)).Count);
-    }
-
-    [Fact]
-    public async Task SimCards_AreLoadedByIdSet()
-    {
-        var first = await IssueSim(UniqueNumber(), new CharacterId(Guid.NewGuid()));
-        var second = await IssueSim(UniqueNumber(), new CharacterId(Guid.NewGuid()));
-
-        await using var scope = _provider.CreateAsyncScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-
-        var loaded = await repository.FindByIdsAsync([first, second], CancellationToken.None);
-
-        Assert.Equal(2, loaded.Count);
-    }
-
-    [Fact]
-    public async Task PhoneDevices_AreFoundByBoundCharacter()
-    {
-        var owner = new CharacterId(Guid.NewGuid());
-        var modelId = new PhoneModelId(Guid.NewGuid());
-        await ProvisionDevice(modelId, owner);
-        await ProvisionDevice(modelId, owner);
-        await ProvisionDevice(modelId, new CharacterId(Guid.NewGuid()));
+        await ProvisionPhone(UniqueNumber(), owner);
+        await ProvisionPhone(UniqueNumber(), owner);
+        await ProvisionPhone(UniqueNumber(), new CharacterId(Guid.NewGuid()));
 
         await using var scope = _provider.CreateAsyncScope();
         var repository = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
@@ -170,51 +136,26 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task PhoneModel_RoundTripsItsCapabilityNumbers()
+    public async Task ContactBook_IsFoundByPhoneAndKeepsItsContacts()
     {
-        var model = BuildModel(simSlots: 2, contactLimit: 250, threadMessageLimit: 500);
-
-        await using (var scope = _provider.CreateAsyncScope())
-        {
-            var repository = scope.ServiceProvider.GetRequiredService<IPhoneModelRepository>();
-            var created = PhoneModel.Define(model.Id, "Smartphone", 3, null, 2, [AppKey.Messages, AppKey.Contacts], 250, 500, 8);
-            repository.StartStream(PhoneModel.Create(created), created);
-            await repository.SaveChangesAsync(CancellationToken.None);
-        }
-
-        await using (var scope = _provider.CreateAsyncScope())
-        {
-            var repository = scope.ServiceProvider.GetRequiredService<IPhoneModelRepository>();
-            var reloaded = await repository.FindByIdAsync(model.Id, CancellationToken.None);
-
-            Assert.Equal(2, reloaded!.SimSlots);
-            Assert.Equal(250, reloaded.ContactLimit);
-            Assert.Equal(500, reloaded.ThreadMessageLimit);
-            Assert.True(reloaded.Supports(AppKey.Contacts));
-        }
-    }
-
-    [Fact]
-    public async Task ContactBook_IsFoundBySimAndKeepsItsContacts()
-    {
-        var simId = new SimCardId(Guid.NewGuid());
+        var phoneId = new PhoneDeviceId(Guid.NewGuid());
         var bookId = new ContactBookId(Guid.NewGuid());
         var saved = UniqueNumber();
 
         await using (var scope = _provider.CreateAsyncScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IContactBookRepository>();
-            var opened = new ContactBookOpened(bookId, simId);
+            var opened = new ContactBookOpened(bookId, phoneId);
             var book = ContactBook.Create(opened);
             repository.StartStream(book, opened);
-            repository.Append(bookId, book.SaveContact(new ContactId(Guid.NewGuid()), saved, "Dispatcher", BuildModel()));
+            repository.Append(bookId, book.SaveContact(new ContactId(Guid.NewGuid()), saved, "Dispatcher", 50));
             await repository.SaveChangesAsync(CancellationToken.None);
         }
 
         await using (var scope = _provider.CreateAsyncScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IContactBookRepository>();
-            var reloaded = await repository.FindBySimAsync(simId, CancellationToken.None);
+            var reloaded = await repository.FindByPhoneAsync(phoneId, CancellationToken.None);
 
             Assert.Equal(bookId, reloaded!.Id);
             Assert.Equal("Dispatcher", reloaded.Find(saved)?.DisplayName);
@@ -222,20 +163,21 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task MessageThread_IsFoundByItsSimAndThreadKey()
+    public async Task MessageThread_IsFoundByItsPhoneAndThreadKey()
     {
-        var simId = new SimCardId(Guid.NewGuid());
+        var phoneId = new PhoneDeviceId(Guid.NewGuid());
         var participant = UniqueNumber();
         var owner = UniqueNumber();
-        var model = BuildModel();
-        var started = MessageThread.Start(new MessageThreadId(Guid.NewGuid()), simId, owner, [participant], model);
+        var started = MessageThread.Start(
+            new MessageThreadId(Guid.NewGuid()), phoneId, owner, [participant], MaxGroupParticipants);
 
         await using (var scope = _provider.CreateAsyncScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
             var thread = MessageThread.Create(started);
             repository.StartStream(thread, started);
-            repository.Append(thread.Id, thread.RecordInbound(new MessageId(Guid.NewGuid()), participant, "where are you", DateTimeOffset.UtcNow, model));
+            repository.Append(thread.Id, thread.RecordInbound(
+                new MessageId(Guid.NewGuid()), participant, "where are you", DateTimeOffset.UtcNow, RetentionLimit));
             await repository.SaveChangesAsync(CancellationToken.None);
         }
 
@@ -243,13 +185,13 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
         {
             var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
 
-            var byKey = await repository.FindByKeyAsync(simId, started.ThreadKey, CancellationToken.None);
-            var bySim = await repository.FindBySimAsync(simId, CancellationToken.None);
+            var byKey = await repository.FindByKeyAsync(phoneId, started.ThreadKey, CancellationToken.None);
+            var byPhone = await repository.FindByPhoneAsync(phoneId, CancellationToken.None);
 
             Assert.Equal(started.Id, byKey?.Id);
             Assert.Equal("where are you", Assert.Single(byKey!.Messages).Body);
             Assert.Equal(1, byKey.UnreadCount);
-            Assert.Single(bySim);
+            Assert.Single(byPhone);
         }
     }
 
@@ -258,10 +200,10 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
     {
         // Proves the trim survives persistence, not just in-memory replay: the limit rides on each
         // event, so the projection applies it the same way the aggregate did.
-        var simId = new SimCardId(Guid.NewGuid());
+        var phoneId = new PhoneDeviceId(Guid.NewGuid());
         var participant = UniqueNumber();
-        var model = BuildModel(threadMessageLimit: 2);
-        var started = MessageThread.Start(new MessageThreadId(Guid.NewGuid()), simId, UniqueNumber(), [participant], model);
+        var started = MessageThread.Start(
+            new MessageThreadId(Guid.NewGuid()), phoneId, UniqueNumber(), [participant], MaxGroupParticipants);
 
         await using (var scope = _provider.CreateAsyncScope())
         {
@@ -270,7 +212,8 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
             repository.StartStream(thread, started);
             foreach (var body in (string[])["one", "two", "three"])
             {
-                repository.Append(thread.Id, thread.RecordInbound(new MessageId(Guid.NewGuid()), participant, body, DateTimeOffset.UtcNow, model));
+                repository.Append(thread.Id, thread.RecordInbound(
+                    new MessageId(Guid.NewGuid()), participant, body, DateTimeOffset.UtcNow, retentionLimit: 2));
             }
 
             await repository.SaveChangesAsync(CancellationToken.None);
@@ -288,7 +231,7 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
     [Fact]
     public async Task PendingDeliveries_AreStoredQueriedAndDeleted()
     {
-        var simId = new SimCardId(Guid.NewGuid());
+        var phoneId = new PhoneDeviceId(Guid.NewGuid());
         var deliveryId = Guid.NewGuid();
 
         await using (var scope = _provider.CreateAsyncScope())
@@ -297,7 +240,7 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
             repository.StorePending(new PendingDelivery
             {
                 Id = deliveryId,
-                RecipientSimCardId = simId,
+                RecipientPhoneId = phoneId,
                 MessageId = new MessageId(Guid.NewGuid()),
                 From = UniqueNumber(),
                 Body = "call me",
@@ -309,7 +252,7 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
         await using (var scope = _provider.CreateAsyncScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
-            var pending = await repository.FindPendingForSimAsync(simId, CancellationToken.None);
+            var pending = await repository.FindPendingForPhoneAsync(phoneId, CancellationToken.None);
             Assert.Equal("call me", Assert.Single(pending).Body);
 
             repository.DeletePending(deliveryId);
@@ -319,70 +262,67 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
         await using (var scope = _provider.CreateAsyncScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
-            Assert.Empty(await repository.FindPendingForSimAsync(simId, CancellationToken.None));
+            Assert.Empty(await repository.FindPendingForPhoneAsync(phoneId, CancellationToken.None));
         }
     }
 
     [Fact]
-    public async Task DeviceAndSim_WrittenInOneScope_CommitTogether()
+    public async Task ThreadAndPendingDelivery_WrittenInOneScope_CommitTogether()
     {
-        // The reason PhoneSession exists: installing a SIM appends to two streams, and a device
-        // claiming a SIM that is not installed is a state this module must never reach.
-        var owner = new CharacterId(Guid.NewGuid());
-        var model = BuildModel(simSlots: 1);
-        var deviceId = await ProvisionDevice(model.Id, owner);
-        var simId = await IssueSim(UniqueNumber(), owner);
+        // The reason PhoneSession still exists after the SIM merge: a delivery appends to a thread
+        // stream and deletes the queued document, and a message both delivered and still waiting —
+        // or dropped without ever arriving — is a state this module must never reach.
+        var phoneId = new PhoneDeviceId(Guid.NewGuid());
+        var participant = UniqueNumber();
+        var deliveryId = Guid.NewGuid();
+        var started = MessageThread.Start(
+            new MessageThreadId(Guid.NewGuid()), phoneId, UniqueNumber(), [participant], MaxGroupParticipants);
 
         await using (var scope = _provider.CreateAsyncScope())
         {
-            var devices = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
-            var sims = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-
-            var device = await devices.FindByIdAsync(deviceId, CancellationToken.None);
-            var sim = await sims.FindByIdAsync(simId, CancellationToken.None);
-
-            devices.Append(deviceId, device!.InstallSim(simId, model));
-            sims.Append(simId, sim!.InstallInto(deviceId));
-
-            // One SaveChangesAsync on either repository commits both — they share the session.
-            await devices.SaveChangesAsync(CancellationToken.None);
+            var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
+            repository.StorePending(new PendingDelivery
+            {
+                Id = deliveryId,
+                RecipientPhoneId = phoneId,
+                MessageId = new MessageId(Guid.NewGuid()),
+                From = participant,
+                Body = "call me",
+                SentAt = DateTimeOffset.UtcNow,
+            });
+            await repository.SaveChangesAsync(CancellationToken.None);
         }
 
         await using (var scope = _provider.CreateAsyncScope())
         {
-            var devices = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
-            var sims = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
+            var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
+            var thread = MessageThread.Create(started);
+            repository.StartStream(thread, started);
+            repository.Append(thread.Id, thread.RecordInbound(
+                new MessageId(Guid.NewGuid()), participant, "call me", DateTimeOffset.UtcNow, RetentionLimit));
+            repository.DeletePending(deliveryId);
 
-            var device = await devices.FindByIdAsync(deviceId, CancellationToken.None);
-            var sim = await sims.FindByIdAsync(simId, CancellationToken.None);
+            // One SaveChangesAsync covers the stream append and the document delete alike.
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
 
-            Assert.Contains(simId, device!.InstalledSims);
-            Assert.Equal(deviceId, sim!.InstalledIn);
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
 
-            var installed = await sims.FindByIdsAsync(device.InstalledSims, CancellationToken.None);
-            Assert.Equal(simId, Assert.Single(installed).Id);
+            Assert.Single(Assert.Single(await repository.FindByPhoneAsync(phoneId, CancellationToken.None)).Messages);
+            Assert.Empty(await repository.FindPendingForPhoneAsync(phoneId, CancellationToken.None));
         }
     }
 
-    private async Task<SimCardId> IssueSim(PhoneNumber number, CharacterId owner)
+    private async Task<PhoneDeviceId> ProvisionPhone(PhoneNumber number, CharacterId owner, string pin = "1234")
     {
-        var simId = new SimCardId(Guid.NewGuid());
-        await using var scope = _provider.CreateAsyncScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISimCardRepository>();
-        var issued = new SimCardIssued(simId, number, owner);
-        repository.StartStream(SimCard.Create(issued), issued);
-        await repository.SaveChangesAsync(CancellationToken.None);
-        return simId;
-    }
-
-    private async Task<PhoneDeviceId> ProvisionDevice(PhoneModelId modelId, CharacterId owner)
-    {
-        var deviceId = new PhoneDeviceId(Guid.NewGuid());
+        var phoneId = new PhoneDeviceId(Guid.NewGuid());
         await using var scope = _provider.CreateAsyncScope();
         var repository = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
-        var provisioned = new PhoneDeviceProvisioned(deviceId, modelId, owner);
+        var provisioned = new PhoneDeviceProvisioned(phoneId, number, pin, owner);
         repository.StartStream(PhoneDevice.Create(provisioned), provisioned);
         await repository.SaveChangesAsync(CancellationToken.None);
-        return deviceId;
+        return phoneId;
     }
 }

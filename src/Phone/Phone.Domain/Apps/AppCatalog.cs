@@ -1,11 +1,11 @@
 namespace ELifeRPG.Phone.Domain.Apps;
 
 /// <summary>
-/// What an app is, as far as the platform is concerned. <see cref="RequiresSim"/> is the field
-/// <c>PhoneAccessPolicy</c> reads to decide whether the SIM checks apply — a later app that keeps
-/// its state on the device rather than the SIM (a camera, say) sets it false.
+/// What an app is, as far as the platform is concerned. Every phone can run every entry here —
+/// there are no models and no capability tiers, so what a catalog entry costs is the work of adding
+/// it, not a rebalance of who may install it.
 /// </summary>
-public sealed record AppDefinition(AppKey Key, string DisplayName, bool RequiresSim);
+public sealed record AppDefinition(AppKey Key, string DisplayName);
 
 /// <summary>
 /// The backend owns the app list so adding or rebalancing an app needs no mod redeploy — the same
@@ -15,8 +15,8 @@ public static class AppCatalog
 {
     public static readonly IReadOnlyDictionary<AppKey, AppDefinition> Entries = new Dictionary<AppKey, AppDefinition>
     {
-        [AppKey.Messages] = new(AppKey.Messages, "Messages", RequiresSim: true),
-        [AppKey.Contacts] = new(AppKey.Contacts, "Contacts", RequiresSim: true),
+        [AppKey.Messages] = new(AppKey.Messages, "Messages"),
+        [AppKey.Contacts] = new(AppKey.Contacts, "Contacts"),
     };
 
     public static bool Contains(AppKey key) => Entries.ContainsKey(key);

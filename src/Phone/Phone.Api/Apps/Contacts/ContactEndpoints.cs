@@ -1,8 +1,9 @@
 using ELifeRPG.Phone.Api.Apps.Contacts;
 using ELifeRPG.Phone.Api.Common;
 using ELifeRPG.Phone.Application.Apps.Contacts;
+using ELifeRPG.Phone.Application.Common;
 using ELifeRPG.Phone.Domain.Apps.Contacts;
-using ELifeRPG.Phone.Domain.Sims;
+using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Shared.Kernel;
 using Mediator;
 using Microsoft.AspNetCore.Http;
@@ -15,15 +16,17 @@ namespace Microsoft.AspNetCore.Builder;
 public static partial class PhoneModule
 {
     /// <summary>
-    /// Addressed by SIM, not by handset, because that is what owns the address book.
+    /// Rooted under the app that owns them, mirroring the Apps/<Name>/ folders in Domain,
+    /// Application and Api. A new app owns /apps/{its key}/ outright, so two apps can never race
+    /// each other for the same noun at the phone level.
     /// </summary>
     private static void MapContacts(RouteGroupBuilder group)
     {
-        group.MapGet("sim-cards/{simCardId:guid}/contacts", async (
-                Guid simCardId, [FromQuery] Guid characterId, IMediator mediator, CancellationToken cancellationToken) =>
+        group.MapGet("phones/{phoneId:guid}/apps/contacts/entries", async (
+                Guid phoneId, [FromQuery] Guid characterId, [FromQuery] string? pin, IMediator mediator, CancellationToken cancellationToken) =>
             {
                 var result = await mediator.Send(
-                    new ContactsQuery(new SimCardId(simCardId), new CharacterId(characterId)), cancellationToken);
+                    new ContactsQuery(new PhoneDeviceId(phoneId), new PhoneActor(new CharacterId(characterId), pin)), cancellationToken);
 
                 return result switch
                 {
@@ -34,10 +37,10 @@ public static partial class PhoneModule
             .RequireAuthorization(ReadPolicy)
             .Produces<IEnumerable<ContactDto>>()
             .WithName("ListContacts")
-            .WithDescription("Lists a SIM's saved contacts.");
+            .WithDescription("Lists a phone's saved contacts.");
 
-        group.MapPost("sim-cards/{simCardId:guid}/contacts", async (
-                Guid simCardId,
+        group.MapPost("phones/{phoneId:guid}/apps/contacts/entries", async (
+                Guid phoneId,
                 [FromBody] SaveContactRequestDto request,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
@@ -48,7 +51,7 @@ public static partial class PhoneModule
                 }
 
                 var result = await mediator.Send(
-                    new SaveContactCommand(new SimCardId(simCardId), new CharacterId(request.CharacterId), number, request.DisplayName),
+                    new SaveContactCommand(new PhoneDeviceId(phoneId), request.ToActor(), number, request.DisplayName),
                     cancellationToken);
 
                 return result switch
@@ -57,7 +60,7 @@ public static partial class PhoneModule
                     SaveContactResult.AlreadySaved => Results.Problem(
                         title: "That number is already saved", statusCode: StatusCodes.Status409Conflict),
                     SaveContactResult.ContactLimitReached limit => Results.Problem(
-                        title: $"This handset holds at most {limit.Limit} contacts", statusCode: StatusCodes.Status409Conflict),
+                        title: $"A phone holds at most {limit.Limit} contacts", statusCode: StatusCodes.Status409Conflict),
                     SaveContactResult.InvalidDisplayName invalid => Results.Problem(
                         title: invalid.Reason, statusCode: StatusCodes.Status400BadRequest),
                     SaveContactResult.AccessDenied denied => PhoneAccessProblem.ToResult(denied.Reason),
@@ -65,10 +68,10 @@ public static partial class PhoneModule
             })
             .RequireAuthorization(WritePolicy)
             .WithName("SaveContact")
-            .WithDescription("Saves a number to a SIM's address book.");
+            .WithDescription("Saves a number to a phone's address book.");
 
-        group.MapPatch("sim-cards/{simCardId:guid}/contacts/{contactId:guid}", async (
-                Guid simCardId,
+        group.MapPatch("phones/{phoneId:guid}/apps/contacts/entries/{contactId:guid}", async (
+                Guid phoneId,
                 Guid contactId,
                 [FromBody] RenameContactRequestDto request,
                 IMediator mediator,
@@ -76,7 +79,7 @@ public static partial class PhoneModule
             {
                 var result = await mediator.Send(
                     new RenameContactCommand(
-                        new SimCardId(simCardId), new CharacterId(request.CharacterId), new ContactId(contactId), request.DisplayName),
+                        new PhoneDeviceId(phoneId), request.ToActor(), new ContactId(contactId), request.DisplayName),
                     cancellationToken);
 
                 return result switch
@@ -93,15 +96,16 @@ public static partial class PhoneModule
             .WithName("RenameContact")
             .WithDescription("Renames a saved contact.");
 
-        group.MapDelete("sim-cards/{simCardId:guid}/contacts/{contactId:guid}", async (
-                Guid simCardId,
+        group.MapDelete("phones/{phoneId:guid}/apps/contacts/entries/{contactId:guid}", async (
+                Guid phoneId,
                 Guid contactId,
                 [FromQuery] Guid characterId,
+                [FromQuery] string? pin,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
                 var result = await mediator.Send(
-                    new DeleteContactCommand(new SimCardId(simCardId), new CharacterId(characterId), new ContactId(contactId)),
+                    new DeleteContactCommand(new PhoneDeviceId(phoneId), new PhoneActor(new CharacterId(characterId), pin), new ContactId(contactId)),
                     cancellationToken);
 
                 return result switch

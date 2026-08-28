@@ -327,7 +327,7 @@ public sealed class ItemInstance
 
     /// <summary>
     /// Mints a child instance for an engine-spawned entity nested inside a granted prefab — a rifle's
-    /// magazine, a phone's SIM — declared in the <c>children</c> array of an ack
+    /// magazine, a radio's battery — declared in the <c>children</c> array of an ack
     /// (<c>POST /api/inventory/acks</c>). These entities have no backend id of their own and are not
     /// splits (Reforger has no stacks), so the ack is the only way they can ever persist; see the
     /// design spec's "Delivering a granted instance". Always parented to <paramref name="parent"/> as

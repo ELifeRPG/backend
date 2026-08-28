@@ -6,11 +6,10 @@ namespace ELifeRPG.Phone.Infrastructure.Common;
 /// One Marten session shared by every Phone repository in a DI scope.
 ///
 /// The other modules give each repository its own session, which works because none of their
-/// commands writes to two aggregates at once. Phone's do, routinely: installing a SIM appends to
-/// both the device stream and the SIM stream, and a send appends to the sender's thread and every
-/// recipient's. Separate sessions would commit those separately, and a device claiming a SIM that
-/// is not installed — or a message in the sender's history but nobody's inbox — is exactly the
-/// state this module must never reach.
+/// commands writes to two aggregates at once. Phone's do: a send appends to the sender's thread and
+/// to every reachable recipient's, and dequeues each pending delivery in the same breath. Separate
+/// sessions would commit those separately, and a message in the sender's history but nobody's inbox
+/// is exactly the state this module must never reach.
 ///
 /// The consequence to keep in mind: this is a unit of work. Calling SaveChangesAsync on any
 /// repository commits everything pending in the scope, not just that repository's writes.

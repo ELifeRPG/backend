@@ -2,17 +2,18 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ELifeRPG.Phone.Domain.Exceptions;
 
-namespace ELifeRPG.Phone.Domain.Sims;
+namespace ELifeRPG.Phone.Domain.Devices;
 
 /// <summary>
-/// A subscriber number, owned by a <see cref="SimCard"/> rather than by a device.
+/// A subscriber number. It is minted with the phone and never moves: there is no card to carry it
+/// to another handset, so the number and the device are one identity.
 ///
 /// The canonical form is bare digits. Players type numbers by hand into the Messages app, so
 /// <see cref="Parse"/> tolerates the punctuation people actually use and strips it — two spellings
 /// of the same number must not key two different threads.
 ///
 /// Serialised as a bare JSON string via <see cref="PhoneNumberJsonConverter"/> rather than as an
-/// object, so Marten can put a unique index directly on <c>SimCard.Number</c>.
+/// object, so Marten can put a unique index directly on <c>PhoneDevice.Number</c>.
 /// </summary>
 [JsonConverter(typeof(PhoneNumberJsonConverter))]
 public readonly record struct PhoneNumber

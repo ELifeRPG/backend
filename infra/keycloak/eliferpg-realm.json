@@ -1051,7 +1051,10 @@
         "gameserver:session:create",
         "basic",
         "email",
-        "bohemia-id"
+        "bohemia-id",
+        "gameserver:phone:read",
+        "gameserver:phone:write",
+        "gameserver:phone:provision"
       ],
       "optionalClientScopes": [
         "address",
@@ -1258,7 +1261,9 @@
         "profile",
         "roles",
         "basic",
-        "email"
+        "email",
+        "phone:manage",
+        "phone:enforce"
       ],
       "optionalClientScopes": [
         "address",
@@ -2085,6 +2090,51 @@
           }
         }
       ]
+    },
+    {
+      "id": "3f5d9e91-2e8a-44fd-8a93-eedffcc1e7dc",
+      "name": "gameserver:phone:read",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "eb251df5-ca3b-418b-bad1-3ba92762eadc",
+      "name": "gameserver:phone:write",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "9e1d363b-9ee7-4aec-9400-de80ca79e934",
+      "name": "gameserver:phone:provision",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "ea84303d-9d8b-4df7-b2d2-887175c45433",
+      "name": "phone:manage",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "07241270-6779-4e0b-8fbd-c4506ab0179d",
+      "name": "phone:enforce",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     }
   ],
   "defaultDefaultClientScopes": [

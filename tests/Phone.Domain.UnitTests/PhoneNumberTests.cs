@@ -1,6 +1,6 @@
 using System.Text.Json;
 using ELifeRPG.Phone.Domain.Exceptions;
-using ELifeRPG.Phone.Domain.Sims;
+using ELifeRPG.Phone.Domain.Devices;
 using Xunit;
 
 namespace ELifeRPG.Phone.Domain.UnitTests;

@@ -1,8 +1,7 @@
 using ELifeRPG.Phone.Api.Apps.Messages;
 using ELifeRPG.Phone.Api.Devices;
-using ELifeRPG.Phone.Api.Sims;
 using ELifeRPG.Phone.Application.Admin;
-using ELifeRPG.Phone.Domain.Sims;
+using ELifeRPG.Phone.Domain.Devices;
 using Mediator;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -15,36 +14,26 @@ public static partial class PhoneModule
 {
     private static void MapAdmin(RouteGroupBuilder group)
     {
-        group.MapGet("admin/sim-cards", async (
+        group.MapGet("admin/phones", async (
                 [FromQuery] string? number, IMediator mediator, CancellationToken cancellationToken) =>
             {
-                var sims = await mediator.Send(new ModerationSimCardsQuery(number), cancellationToken);
-                return Results.Ok(sims.Select(SimCardDto.Create));
+                var phones = await mediator.Send(new ModerationPhonesQuery(number), cancellationToken);
+                return Results.Ok(phones.Select(PhoneDto.Create));
             })
             .RequireAuthorization(ManagePolicy)
-            .Produces<IEnumerable<SimCardDto>>()
-            .WithName("AdminSearchSimCards")
-            .WithDescription("Staff: searches SIM cards by number fragment.");
-
-        group.MapGet("admin/phones", async (IMediator mediator, CancellationToken cancellationToken) =>
-            {
-                var devices = await mediator.Send(new ModerationDevicesQuery(), cancellationToken);
-                return Results.Ok(devices.Select(PhoneDeviceDto.Create));
-            })
-            .RequireAuthorization(ManagePolicy)
-            .Produces<IEnumerable<PhoneDeviceDto>>()
+            .Produces<IEnumerable<PhoneDto>>()
             .WithName("AdminListPhones")
-            .WithDescription("Staff: lists handsets.");
+            .WithDescription("Staff: lists phones, optionally filtered by number fragment. PINs are not returned.");
 
-        group.MapGet("admin/sim-cards/{simCardId:guid}/threads", async (
-                Guid simCardId, IMediator mediator, CancellationToken cancellationToken) =>
+        group.MapGet("admin/phones/{phoneId:guid}/threads", async (
+                Guid phoneId, IMediator mediator, CancellationToken cancellationToken) =>
             {
-                var threads = await mediator.Send(new ModerationThreadsQuery(new SimCardId(simCardId)), cancellationToken);
+                var threads = await mediator.Send(new ModerationThreadsQuery(new PhoneDeviceId(phoneId)), cancellationToken);
                 return Results.Ok(threads.Select(MessageThreadDto.Create));
             })
             .RequireAuthorization(ManagePolicy)
             .Produces<IEnumerable<MessageThreadDto>>()
-            .WithName("AdminListSimThreads")
-            .WithDescription("Staff: reads a SIM's conversations.");
+            .WithName("AdminListPhoneThreads")
+            .WithDescription("Staff: reads a phone's conversations.");
     }
 }
