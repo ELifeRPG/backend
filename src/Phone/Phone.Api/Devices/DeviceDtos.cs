@@ -67,3 +67,13 @@ public sealed record ChangePinRequestDto(Guid CharacterId, string NewPin, string
 
 /// <summary>Reason is recorded on the event so an enforcement action is auditable after the fact.</summary>
 public sealed record SuspendPhoneRequestDto(string Reason);
+
+/// <summary>
+/// An installed app as a client sees it. A named type rather than an anonymous object because the
+/// OpenAPI document only describes what has a schema — an anonymous shape reaches a generated client
+/// as an untyped stream, which makes the response unusable to every consumer but curl.
+/// </summary>
+public sealed record PhoneAppDto(string Key, string DisplayName);
+
+/// <inheritdoc cref="PhoneAppDto"/>
+public sealed record SetPhonePowerResponseDto(bool IsPoweredOn);

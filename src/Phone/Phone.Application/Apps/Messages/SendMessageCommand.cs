@@ -49,7 +49,6 @@ public sealed record MessageDelivery(PhoneDeviceId PhoneId, MessageThreadId Thre
 
 public sealed record SendMessageCommand(
     PhoneDeviceId PhoneId,
-    PhoneActor Actor,
     IReadOnlyList<PhoneNumber> To,
     string Body) : IRequest<SendMessageResult>;
 
@@ -69,7 +68,7 @@ public sealed class SendMessageHandler(
     public async ValueTask<SendMessageResult> Handle(SendMessageCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.PhoneId, request.Actor, AppKey.Messages, phoneRepository, cancellationToken);
+            request.PhoneId, AppKey.Messages, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted granted)
         {

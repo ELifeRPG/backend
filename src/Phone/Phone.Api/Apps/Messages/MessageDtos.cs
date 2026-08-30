@@ -1,3 +1,4 @@
+using ELifeRPG.Phone.Application.Apps.Messages;
 using ELifeRPG.Phone.Application.Common;
 
 namespace ELifeRPG.Phone.Api.Apps.Messages;
@@ -40,15 +41,9 @@ public sealed record MessageThreadDto(
         [.. source.Messages.Select(MessageDto.Create)]);
 }
 
-public sealed record BlockNumberRequestDto(Guid CharacterId, string Number, string? Pin = null)
-{
-    public PhoneActor ToActor() => new(new CharacterId(CharacterId), Pin);
-}
+public sealed record BlockNumberRequestDto(string Number);
 
-public sealed record SendMessageRequestDto(Guid CharacterId, IReadOnlyList<string> To, string Body, string? Pin = null)
-{
-    public PhoneActor ToActor() => new(new CharacterId(CharacterId), Pin);
-}
+public sealed record SendMessageRequestDto(IReadOnlyList<string> To, string Body);
 
 /// <summary>
 /// <paramref name="UndeliverableRecipients"/> reports only what a real network would reveal —
@@ -56,3 +51,28 @@ public sealed record SendMessageRequestDto(Guid CharacterId, IReadOnlyList<strin
 /// absent: the sender must not be able to detect a block.
 /// </summary>
 public sealed record SendMessageResponseDto(Guid ThreadId, Guid MessageId, IReadOnlyList<string> UndeliverableRecipients);
+
+/// <summary>
+/// A thread as a poll reports it: the same metadata <see cref="MessageThreadSummaryDto"/> carries,
+/// plus only those messages that arrived after the caller's cursor — not the thread's whole history.
+/// </summary>
+public sealed record MessageThreadUpdateDto(
+    Guid Id,
+    IReadOnlyList<string> Participants,
+    int UnreadCount,
+    DateTimeOffset LastMessageAt,
+    IReadOnlyList<MessageDto> Messages)
+{
+    public static MessageThreadUpdateDto Create(MessageThreadUpdate source) => new(
+        source.Thread.Id.Value,
+        [.. source.Thread.Participants.Select(number => number.Value)],
+        source.Thread.UnreadCount,
+        source.Thread.LastMessageAt,
+        [.. source.NewMessages.Select(MessageDto.Create)]);
+}
+
+/// <summary>
+/// <paramref name="PolledAt"/> is the cursor to send back as <c>since</c> on the next poll. Holding
+/// on to it is the whole protocol; a client that loses it polls without one and gets everything.
+/// </summary>
+public sealed record MessageUpdatesDto(DateTimeOffset PolledAt, IReadOnlyList<MessageThreadUpdateDto> Threads);

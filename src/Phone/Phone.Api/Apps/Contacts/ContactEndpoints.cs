@@ -23,10 +23,9 @@ public static partial class PhoneModule
     private static void MapContacts(RouteGroupBuilder group)
     {
         group.MapGet("phones/{phoneId:guid}/apps/contacts/entries", async (
-                Guid phoneId, [FromQuery] Guid characterId, [FromQuery] string? pin, IMediator mediator, CancellationToken cancellationToken) =>
+                Guid phoneId, IMediator mediator, CancellationToken cancellationToken) =>
             {
-                var result = await mediator.Send(
-                    new ContactsQuery(new PhoneDeviceId(phoneId), new PhoneActor(new CharacterId(characterId), pin)), cancellationToken);
+                var result = await mediator.Send(new ContactsQuery(new PhoneDeviceId(phoneId)), cancellationToken);
 
                 return result switch
                 {
@@ -36,6 +35,10 @@ public static partial class PhoneModule
             })
             .RequireAuthorization(ReadPolicy)
             .Produces<IEnumerable<ContactDto>>()
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("ListContacts")
             .WithDescription("Lists a phone's saved contacts.");
 
@@ -51,12 +54,12 @@ public static partial class PhoneModule
                 }
 
                 var result = await mediator.Send(
-                    new SaveContactCommand(new PhoneDeviceId(phoneId), request.ToActor(), number, request.DisplayName),
+                    new SaveContactCommand(new PhoneDeviceId(phoneId), number, request.DisplayName),
                     cancellationToken);
 
                 return result switch
                 {
-                    SaveContactResult.Saved saved => Results.Ok(new { contactId = saved.ContactId.Value }),
+                    SaveContactResult.Saved saved => Results.Ok(new SaveContactResponseDto(saved.ContactId.Value)),
                     SaveContactResult.AlreadySaved => Results.Problem(
                         title: "That number is already saved", statusCode: StatusCodes.Status409Conflict),
                     SaveContactResult.ContactLimitReached limit => Results.Problem(
@@ -67,6 +70,12 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .Produces<SaveContactResponseDto>()
             .WithName("SaveContact")
             .WithDescription("Saves a number to a phone's address book.");
 
@@ -79,7 +88,7 @@ public static partial class PhoneModule
             {
                 var result = await mediator.Send(
                     new RenameContactCommand(
-                        new PhoneDeviceId(phoneId), request.ToActor(), new ContactId(contactId), request.DisplayName),
+                        new PhoneDeviceId(phoneId), new ContactId(contactId), request.DisplayName),
                     cancellationToken);
 
                 return result switch
@@ -93,19 +102,22 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("RenameContact")
             .WithDescription("Renames a saved contact.");
 
         group.MapDelete("phones/{phoneId:guid}/apps/contacts/entries/{contactId:guid}", async (
                 Guid phoneId,
                 Guid contactId,
-                [FromQuery] Guid characterId,
-                [FromQuery] string? pin,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
                 var result = await mediator.Send(
-                    new DeleteContactCommand(new PhoneDeviceId(phoneId), new PhoneActor(new CharacterId(characterId), pin), new ContactId(contactId)),
+                    new DeleteContactCommand(new PhoneDeviceId(phoneId), new ContactId(contactId)),
                     cancellationToken);
 
                 return result switch
@@ -117,6 +129,10 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("DeleteContact")
             .WithDescription("Removes a saved contact.");
     }

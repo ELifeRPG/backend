@@ -25,10 +25,9 @@ public static partial class PhoneModule
     private static void MapMessages(RouteGroupBuilder group)
     {
         group.MapGet("phones/{phoneId:guid}/apps/messages/threads", async (
-                Guid phoneId, [FromQuery] Guid characterId, [FromQuery] string? pin, IMediator mediator, CancellationToken cancellationToken) =>
+                Guid phoneId, IMediator mediator, CancellationToken cancellationToken) =>
             {
-                var result = await mediator.Send(
-                    new ThreadsQuery(new PhoneDeviceId(phoneId), new PhoneActor(new CharacterId(characterId), pin)), cancellationToken);
+                var result = await mediator.Send(new ThreadsQuery(new PhoneDeviceId(phoneId)), cancellationToken);
 
                 return result switch
                 {
@@ -38,15 +37,18 @@ public static partial class PhoneModule
             })
             .RequireAuthorization(ReadPolicy)
             .Produces<IEnumerable<MessageThreadSummaryDto>>()
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("ListThreads")
             .WithDescription("Lists a phone's conversations, newest first. Bodies are omitted; open a thread for those.");
 
         group.MapGet("phones/{phoneId:guid}/apps/messages/threads/{threadId:guid}", async (
-                Guid phoneId, Guid threadId, [FromQuery] Guid characterId, [FromQuery] string? pin, IMediator mediator, CancellationToken cancellationToken) =>
+                Guid phoneId, Guid threadId, IMediator mediator, CancellationToken cancellationToken) =>
             {
                 var result = await mediator.Send(
-                    new ThreadQuery(new PhoneDeviceId(phoneId), new PhoneActor(new CharacterId(characterId), pin), new MessageThreadId(threadId)),
-                    cancellationToken);
+                    new ThreadQuery(new PhoneDeviceId(phoneId), new MessageThreadId(threadId)), cancellationToken);
 
                 return result switch
                 {
@@ -58,8 +60,34 @@ public static partial class PhoneModule
             })
             .RequireAuthorization(ReadPolicy)
             .Produces<MessageThreadDto>()
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("GetThread")
             .WithDescription("Gets one conversation with its retained messages.");
+
+        group.MapGet("phones/{phoneId:guid}/apps/messages/updates", async (
+                Guid phoneId, [FromQuery] DateTimeOffset? since, IMediator mediator, CancellationToken cancellationToken) =>
+            {
+                var result = await mediator.Send(new MessageUpdatesQuery(new PhoneDeviceId(phoneId), since), cancellationToken);
+
+                return result switch
+                {
+                    MessageUpdatesResult.Updates updates => Results.Ok(new MessageUpdatesDto(
+                        updates.PolledAt,
+                        [.. updates.Threads.Select(MessageThreadUpdateDto.Create)])),
+                    MessageUpdatesResult.AccessDenied denied => PhoneAccessProblem.ToResult(denied.Reason),
+                };
+            })
+            .RequireAuthorization(ReadPolicy)
+            .Produces<MessageUpdatesDto>()
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .WithName("PollMessageUpdates")
+            .WithDescription("Reports what arrived since a cursor, for clients that cannot hold a hub connection. Omit `since` to get every thread whole; then send back the `polledAt` you were given. Delivery is at-least-once — dedupe on message id.");
 
         group.MapPost("phones/{phoneId:guid}/apps/messages/send", async (
                 Guid phoneId,
@@ -74,7 +102,7 @@ public static partial class PhoneModule
                 }
 
                 var result = await mediator.Send(
-                    new SendMessageCommand(new PhoneDeviceId(phoneId), request.ToActor(), recipients, request.Body),
+                    new SendMessageCommand(new PhoneDeviceId(phoneId), recipients, request.Body),
                     cancellationToken);
 
                 // Sent is handled first because pushing needs an await, which a switch expression
@@ -117,15 +145,20 @@ public static partial class PhoneModule
             })
             .RequireAuthorization(WritePolicy)
             .Produces<SendMessageResponseDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .WithName("SendMessage")
             .WithDescription("Sends a message to one or more numbers. Unknown, suspended and retired numbers are reported back; blocked ones are not.");
 
         group.MapPost("phones/{phoneId:guid}/apps/messages/threads/{threadId:guid}/read", async (
-                Guid phoneId, Guid threadId, [FromBody] PhoneActorRequestDto request, IMediator mediator, CancellationToken cancellationToken) =>
+                Guid phoneId, Guid threadId, IMediator mediator, CancellationToken cancellationToken) =>
             {
                 var result = await mediator.Send(
-                    new MarkThreadReadCommand(new PhoneDeviceId(phoneId), request.ToActor(), new MessageThreadId(threadId)),
-                    cancellationToken);
+                    new MarkThreadReadCommand(new PhoneDeviceId(phoneId), new MessageThreadId(threadId)), cancellationToken);
 
                 return result switch
                 {
@@ -136,6 +169,10 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("MarkThreadRead")
             .WithDescription("Clears a conversation's unread count.");
         group.MapPost("phones/{phoneId:guid}/apps/messages/blocks", async (
@@ -150,7 +187,7 @@ public static partial class PhoneModule
                 }
 
                 var result = await mediator.Send(
-                    new BlockNumberCommand(new PhoneDeviceId(phoneId), request.ToActor(), number),
+                    new BlockNumberCommand(new PhoneDeviceId(phoneId), number),
                     cancellationToken);
 
                 return result switch
@@ -163,14 +200,17 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("BlockNumber")
             .WithDescription("Blocks a number. Messages from it are dropped silently — the sender still sees them as sent. Idempotent.");
 
         group.MapDelete("phones/{phoneId:guid}/apps/messages/blocks/{number}", async (
                 Guid phoneId,
                 string number,
-                [FromQuery] Guid characterId,
-                [FromQuery] string? pin,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
@@ -180,7 +220,7 @@ public static partial class PhoneModule
                 }
 
                 var result = await mediator.Send(
-                    new UnblockNumberCommand(new PhoneDeviceId(phoneId), new PhoneActor(new CharacterId(characterId), pin), parsed),
+                    new UnblockNumberCommand(new PhoneDeviceId(phoneId), parsed),
                     cancellationToken);
 
                 return result switch
@@ -191,6 +231,11 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("UnblockNumber")
             .WithDescription("Removes a number from the blocklist. Idempotent.");
     }

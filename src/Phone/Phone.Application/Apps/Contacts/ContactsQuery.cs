@@ -9,7 +9,7 @@ public union ContactsResult(ContactsResult.Contacts, ContactsResult.AccessDenied
     public record AccessDenied(PhoneAccessResult Reason);
 }
 
-public sealed record ContactsQuery(PhoneDeviceId PhoneId, PhoneActor Actor) : IRequest<ContactsResult>;
+public sealed record ContactsQuery(PhoneDeviceId PhoneId) : IRequest<ContactsResult>;
 
 public sealed class ContactsHandler(
     IPhoneDeviceRepository phoneRepository,
@@ -19,7 +19,7 @@ public sealed class ContactsHandler(
     public async ValueTask<ContactsResult> Handle(ContactsQuery request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.PhoneId, request.Actor, AppKey.Contacts, phoneRepository, cancellationToken);
+            request.PhoneId, AppKey.Contacts, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted)
         {

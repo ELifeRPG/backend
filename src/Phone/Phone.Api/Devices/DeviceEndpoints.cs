@@ -33,6 +33,8 @@ public static partial class PhoneModule
             })
             .RequireAuthorization(ProvisionPolicy)
             .Produces<ProvisionPhoneResponseDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .WithName("ProvisionPhone")
             .WithDescription("Provisions a phone with a fresh number and a PIN, registered to a character. Ships powered off, with every app installed.");
 
@@ -61,6 +63,7 @@ public static partial class PhoneModule
             })
             .RequireAuthorization(ReadPolicy)
             .Produces<PhoneDto>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .WithName("GetPhone")
             .WithDescription("Gets a phone, including its number, status and blocklist. Never its PIN.");
 
@@ -76,15 +79,18 @@ public static partial class PhoneModule
 
                 return result switch
                 {
-                    SetPhonePowerResult.PowerChanged changed => Results.Ok(new { isPoweredOn = changed.IsPoweredOn }),
+                    SetPhonePowerResult.PowerChanged changed => Results.Ok(new SetPhonePowerResponseDto(changed.IsPoweredOn)),
                     // Not an error: a bridge retrying after a dropped response is ordinary.
-                    SetPhonePowerResult.AlreadyInState already => Results.Ok(new { isPoweredOn = already.IsPoweredOn }),
+                    SetPhonePowerResult.AlreadyInState already => Results.Ok(new SetPhonePowerResponseDto(already.IsPoweredOn)),
                     SetPhonePowerResult.PhoneNotFound => Results.Problem(
                         title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
                     SetPhonePowerResult.NotAuthorized => NotAuthorized(),
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .Produces<SetPhonePowerResponseDto>()
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .WithName("SetPhonePower")
             .WithDescription("Powers a phone on or off. Powering on delivers anything queued for its number.");
 
@@ -111,6 +117,10 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("ChangePhonePin")
             .WithDescription("Sets a new PIN. Takes the owner, or the current PIN from whoever else is holding the phone.");
 
@@ -122,16 +132,16 @@ public static partial class PhoneModule
                 return result switch
                 {
                     PhoneDeviceLookupResult.Found found => Results.Ok(
-                        found.Phone.InstalledApps.Select(app => new
-                        {
-                            key = app.Key.ToString(),
-                            displayName = AppCatalog.Get(app.Key).DisplayName,
-                        })),
+                        found.Phone.InstalledApps.Select(app => new PhoneAppDto(
+                            app.Key.ToString(),
+                            AppCatalog.Get(app.Key).DisplayName))),
                     PhoneDeviceLookupResult.NotFound => Results.Problem(
                         title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
                 };
             })
             .RequireAuthorization(ReadPolicy)
+            .Produces<IEnumerable<PhoneAppDto>>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .WithName("ListPhoneApps")
             .WithDescription("Lists the apps installed on a phone.");
 
@@ -165,6 +175,10 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("InstallPhoneApp")
             .WithDescription("Installs an app. Every phone can run every app; installing Messages delivers anything queued while it was gone. Idempotent.");
 
@@ -196,6 +210,9 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(WritePolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .WithName("UninstallPhoneApp")
             .WithDescription("Uninstalls an app. Idempotent; nothing is lost, and messages queue rather than vanish.");
     }
@@ -221,6 +238,8 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(EnforcePolicy)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("SuspendPhone")
             .WithDescription("Locks a number from outside its owner's control. It can neither send nor receive, and messages to it are dropped rather than queued. Nothing stored is lost.");
 
@@ -239,6 +258,8 @@ public static partial class PhoneModule
                 };
             })
             .RequireAuthorization(EnforcePolicy)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("RestorePhone")
             .WithDescription("Lifts a suspension, handing the number back whole. A deactivated phone stays retired.");
     }

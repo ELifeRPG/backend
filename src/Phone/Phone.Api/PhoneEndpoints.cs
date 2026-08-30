@@ -22,6 +22,14 @@ public static partial class PhoneModule
     public const string PhoneManageScope = "phone:manage";
 
     /// <summary>
+    /// The gameserver-scoped twin of <see cref="PhoneEnforceScope"/>. A Bridge holds
+    /// gameserver:&lt;module&gt;:&lt;verb&gt; and staff hold the bare form, so granting a gameserver the bare
+    /// phone:enforce would put a staff scope on a machine client. Both open the same policy — the
+    /// same shape World uses for its inventory read/manage pair.
+    /// </summary>
+    public const string GameserverPhoneEnforceScope = "gameserver:phone:enforce";
+
+    /// <summary>
     /// Suspend/restore sits behind its own scope so an in-game Police/State faction can be granted
     /// exactly this later without also gaining the moderation powers of phone:manage.
     /// </summary>
@@ -44,7 +52,8 @@ public static partial class PhoneModule
             .AddPolicy(WritePolicy, policy => policy.RequireAssertion(context => HasScope(context, PhoneWriteScope)))
             .AddPolicy(ProvisionPolicy, policy => policy.RequireAssertion(context => HasScope(context, PhoneProvisionScope)))
             .AddPolicy(ManagePolicy, policy => policy.RequireAssertion(context => HasScope(context, PhoneManageScope)))
-            .AddPolicy(EnforcePolicy, policy => policy.RequireAssertion(context => HasScope(context, PhoneEnforceScope)));
+            .AddPolicy(EnforcePolicy, policy => policy.RequireAssertion(context =>
+                HasScope(context, PhoneEnforceScope) || HasScope(context, GameserverPhoneEnforceScope)));
 
         return services;
     }

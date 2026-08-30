@@ -1054,7 +1054,8 @@
         "bohemia-id",
         "gameserver:phone:read",
         "gameserver:phone:write",
-        "gameserver:phone:provision"
+        "gameserver:phone:provision",
+        "gameserver:phone:enforce"
       ],
       "optionalClientScopes": [
         "address",
@@ -2112,6 +2113,15 @@
     {
       "id": "9e1d363b-9ee7-4aec-9400-de80ca79e934",
       "name": "gameserver:phone:provision",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "id": "3f2a6c18-7d54-4b90-9c31-2ae5f0b8d417",
+      "name": "gameserver:phone:enforce",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",

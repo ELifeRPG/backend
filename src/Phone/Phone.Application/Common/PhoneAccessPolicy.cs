@@ -16,10 +16,20 @@ public sealed record PhoneActor(CharacterId CharacterId, string? Pin = null);
 /// it for the cost of a single call — which is the whole point of separating the platform from the
 /// apps that sit on it.
 ///
-/// The ownership checks read the acting character from the request rather than from the JWT,
-/// following the module-wide rule visible in WithdrawRequestDto and PurchaseListingRequestDto:
-/// eliferpg-core never authorizes gameplay mutations off JWT identity. That is also what lets the
-/// NPC service drive a phone through exactly these endpoints.
+/// Deliberately actor-less. Possession is proven once, at power-on: SetPhonePowerCommand runs
+/// <see cref="PhoneAccessPolicy.IsAuthorized"/> (owner, or the PIN from anyone else holding the
+/// handset), and every app operation then requires IsPoweredOn below. Re-checking the actor here
+/// would only re-prove what the power state already carries — and the acting character was never
+/// recorded on an app operation anyway: OutboundMessageRecorded carries a PhoneNumber, not a
+/// CharacterId, so it fed one boolean and was discarded.
+///
+/// The module-wide rule that ownership is request-borne rather than read off the JWT (see
+/// WithdrawRequestDto and PurchaseListingRequestDto) is unchanged — it is what still lets the NPC
+/// service drive a phone through these endpoints. It now applies at power-on rather than per call.
+///
+/// Known trade-off: IsPoweredOn is durable, not session-scoped, so it means "someone unlocked this
+/// at some point", not "just now". The in-game lock screen is the real gate; this chain guards the
+/// device's own state.
 ///
 /// This used to be eight steps across a SIM and a handset, checking the acting character against
 /// both so that neither a stolen card nor a stolen phone was worth anything. There is one aggregate
@@ -28,7 +38,6 @@ public sealed record PhoneActor(CharacterId CharacterId, string? Pin = null);
 public union PhoneAccessResult(
     PhoneAccessResult.Granted,
     PhoneAccessResult.PhoneNotFound,
-    PhoneAccessResult.NotAuthorized,
     PhoneAccessResult.PhoneSuspended,
     PhoneAccessResult.PhoneDeactivated,
     PhoneAccessResult.PhonePoweredOff,
@@ -37,13 +46,6 @@ public union PhoneAccessResult(
     public record Granted(PhoneDevice Phone);
 
     public record PhoneNotFound;
-
-    /// <summary>
-    /// Neither the registered owner nor a correct PIN. Deliberately one case rather than two: a
-    /// caller must not be able to tell "wrong PIN" from "not your phone", which would make the
-    /// endpoint an oracle for whose phone this is.
-    /// </summary>
-    public record NotAuthorized;
 
     public record PhoneSuspended;
 
@@ -65,7 +67,6 @@ internal static class PhoneAccessPolicy
 
     public static async ValueTask<PhoneAccessResult> AuthorizeAsync(
         PhoneDeviceId phoneId,
-        PhoneActor actor,
         AppKey appKey,
         IPhoneDeviceRepository phoneRepository,
         CancellationToken cancellationToken)
@@ -74,11 +75,6 @@ internal static class PhoneAccessPolicy
         if (phone is null)
         {
             return new PhoneAccessResult.PhoneNotFound();
-        }
-
-        if (!IsAuthorized(phone, actor))
-        {
-            return new PhoneAccessResult.NotAuthorized();
         }
 
         // Suspension is reported distinctly from deactivation so the caller can tell "locked, and it

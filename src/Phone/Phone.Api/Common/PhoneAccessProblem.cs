@@ -13,12 +13,6 @@ internal static class PhoneAccessProblem
         PhoneAccessResult.PhoneNotFound => Results.Problem(
             title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
 
-        // 403 rather than 404: the caller named a phone that exists, they simply may not use it.
-        // One status for "not yours" and "wrong PIN" together, deliberately — see the union.
-        PhoneAccessResult.NotAuthorized => Results.Problem(
-            title: "Not the phone's owner, and no matching PIN was supplied",
-            statusCode: StatusCodes.Status403Forbidden),
-
         PhoneAccessResult.PhoneSuspended => Results.Problem(
             title: "Phone is suspended", statusCode: StatusCodes.Status403Forbidden),
 

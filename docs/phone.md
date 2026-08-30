@@ -35,14 +35,25 @@ Two consequences worth internalising:
 
 Every phone is provisioned with a PIN: 4 to 8 digits, since it is typed on an in-game keypad.
 
-The owner never sends it. `PhoneAccessPolicy` grants the registered owner outright, so the mod fills
-it in implicitly for the character who owns the handset; `pin` is an optional field that anyone
-*else* holding the phone supplies. `POST /api/phones/{phoneId}/pin` changes it, and takes the owner
-or the current PIN — so whoever picks up a phone and knows the PIN can lock the previous owner out.
+**The PIN is checked once, at power-on, not on every call.** `SetPhonePowerCommand` runs
+`PhoneAccessPolicy.IsAuthorized` — the registered owner outright, or the PIN from anyone else
+holding the handset — and every app operation then requires the phone to be powered on. Re-checking
+the actor per call would only re-prove what the power state already carries, so app operations name
+no acting character at all: they address a phone, and a powered-on phone is a usable phone.
 
-Enforcement (`phone:enforce`) is the one thing the PIN does not open: suspend and restore take no
-acting character and no PIN at all, because the point of an enforcement action is that the holder
-does not consent to it.
+The five platform commands that establish or change possession still take a `characterId`, and a
+`pin` when the caller is not the owner: provision, power, PIN change, and app install/uninstall.
+`POST /api/phones/{phoneId}/pin` takes the owner or the current PIN — so whoever picks up a phone and
+knows the PIN can lock the previous owner out.
+
+The trade-off, recorded deliberately: `IsPoweredOn` is durable rather than session-scoped, so it
+means "someone unlocked this at some point", not "just now". The in-game lock screen is the real
+gate — the mod owns it, and the guard chain below protects the device's own state rather than
+policing who is looking at the screen.
+
+Enforcement (`phone:enforce`, or `gameserver:phone:enforce` for a Bridge) is the one thing the PIN
+does not open: suspend and restore take no acting character and no PIN at all, because the point of
+an enforcement action is that the holder does not consent to it.
 
 Three deliberate choices, recorded so they are not re-litigated:
 
@@ -72,15 +83,16 @@ is installed again.
 Every app command runs one shared guard chain, `PhoneAccessPolicy`:
 
 1. The phone exists.
-2. The acting character is the registered owner, **or** the supplied PIN matches.
-3. The phone is `Active` (not suspended, not deactivated).
-4. The phone is powered on, and the app is installed.
+2. The phone is `Active` (not suspended, not deactivated).
+3. The phone is powered on, and the app is installed.
 
-Adding an app buys all four for the cost of one call. See [Adding an app](#adding-an-app).
+Adding an app buys all three for the cost of one call. See [Adding an app](#adding-an-app).
 
-Platform commands deliberately run less than the whole chain. Power, apps and the PIN itself need
-step 1 and 2 but not power or an installed app — you cannot require a phone to be switched on in
-order to switch it on.
+There is no ownership step: step 3 already implies one, since powering the phone on required it.
+
+Platform commands run a *different* chain, not a shorter one. Power, apps and the PIN itself check
+ownership-or-PIN via `PhoneAccessPolicy.IsAuthorized` but not power or an installed app — you cannot
+require a phone to be switched on in order to switch it on. That is where possession is proven.
 
 Everything an app owns is rooted under `/api/phones/{phoneId}/apps/{appKey}/`, mirroring the
 `Apps/<Name>/` folders in Domain, Application and Api. A new app owns that prefix outright, so two
@@ -111,6 +123,7 @@ Contacts app        GET    /api/phones/{phoneId}/apps/contacts/entries
 
 Messages app        GET    /api/phones/{phoneId}/apps/messages/threads
                     GET    /api/phones/{phoneId}/apps/messages/threads/{threadId}
+                    GET    /api/phones/{phoneId}/apps/messages/updates
                     POST   /api/phones/{phoneId}/apps/messages/threads/{threadId}/read
                     POST   /api/phones/{phoneId}/apps/messages/send
                     POST   /api/phones/{phoneId}/apps/messages/blocks
@@ -138,7 +151,8 @@ Scopes:
 | `gameserver:phone:write` | Everything a character does with a phone, plus the SignalR hub |
 | `gameserver:phone:provision` | Creating phones — the gameserver bridge, and later the NPC service |
 | `phone:manage` | The staff moderation reads |
-| `phone:enforce` | Suspending and restoring a phone |
+| `phone:enforce` | Suspending and restoring a phone — staff |
+| `gameserver:phone:enforce` | The same, for a Bridge acting on an in-game faction's behalf |
 
 They follow the realm's split: `gameserver:<module>:<verb>` for what a gameserver's Bridge holds,
 a bare `<x>:<verb>` for staff, the same as `accounts:manage` and `inventory:manage`. They were bare
@@ -166,14 +180,18 @@ curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/power \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
   -d "{\"characterId\":\"$CHARACTER_ID\",\"isPoweredOn\":true}"
 
+# App operations name no acting character: powering the phone on is where possession was proven.
 curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/apps/messages/send \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d "{\"characterId\":\"$CHARACTER_ID\",\"to\":[\"$OTHER_NUMBER\"],\"body\":\"on my way\"}"
+  -d "{\"to\":[\"$OTHER_NUMBER\"],\"body\":\"on my way\"}"
 
-# Someone else holding the handset sends the PIN alongside their own characterId.
-curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/apps/messages/send \
-  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d "{\"characterId\":\"$OTHER_CHARACTER_ID\",\"pin\":\"1234\",\"to\":[\"$OTHER_NUMBER\"],\"body\":\"borrowed this\"}"
+# Polling for what arrived. Keep the polledAt you get back and send it as the next `since`.
+UPDATES=$(curl -s "http://localhost:5100/api/phones/$PHONE_ID/apps/messages/updates" \
+  -H "Authorization: Bearer $BRIDGE_TOKEN")
+CURSOR=$(echo "$UPDATES" | python3 -c "import json,sys; print(json.load(sys.stdin)['polledAt'])")
+
+curl -s "http://localhost:5100/api/phones/$PHONE_ID/apps/messages/updates?since=$CURSOR" \
+  -H "Authorization: Bearer $BRIDGE_TOKEN"
 ```
 
 Numbers are eight digits. They are typed by hand in game, so the API accepts spaces, dashes,
@@ -239,6 +257,22 @@ limit; that is well within what this throttle is for.
 - Events: `MessageReceived`, `ThreadUpdated`.
 - As with Shops, the hub is a delivery convenience and **never the source of truth**. Re-fetch on
   reconnect.
+
+### Polling, for clients without a socket
+
+ArmA Reforger has no SignalR client, so the gameserver Bridge cannot hold a hub connection. It polls
+`GET /api/phones/{phoneId}/apps/messages/updates` instead: omit `since` for everything, then send
+back the `polledAt` you were handed as the next `since`.
+
+- `polledAt` is stamped **before** the read, so a message committing in the same instant falls on the
+  next poll's side of the cursor rather than through it. Delivery is at-least-once — dedupe on
+  message id.
+- It runs the same guard chain as any other Messages operation, so a powered-off phone polls `409`
+  and a suspended one `403`.
+- Polling never marks anything read. `POST .../threads/{threadId}/read` remains the only thing that
+  clears an unread count.
+- Retention still applies: a message can be trimmed before a slow poller sees it, which is why the
+  hub's rule holds here too — this is delivery, and `GET .../threads/{threadId}` is the truth.
 
 ## Adding an app
 

@@ -77,7 +77,7 @@ public sealed class AppCommandTests : IAsyncLifetime
 
     private async Task<IReadOnlyList<MessageThread>> Threads(Phone phone)
     {
-        var result = await Send(new ThreadsQuery(phone.Id, phone.Actor));
+        var result = await Send(new ThreadsQuery(phone.Id));
         return result is ThreadsResult.Threads threads
             ? threads.Entries
             : throw new XunitException($"Expected Threads, got {result}");
@@ -104,10 +104,10 @@ public sealed class AppCommandTests : IAsyncLifetime
         var phone = await SetUpPhone();
         var other = await SetUpPhone();
 
-        var saved = await Send(new SaveContactCommand(phone.Id, phone.Actor, other.Number, "Dispatcher"));
+        var saved = await Send(new SaveContactCommand(phone.Id, other.Number, "Dispatcher"));
         ExpectCase(saved is SaveContactResult.Saved, "Saved", saved);
 
-        var result = await Send(new ContactsQuery(phone.Id, phone.Actor));
+        var result = await Send(new ContactsQuery(phone.Id));
         if (result is not ContactsResult.Contacts contacts)
         {
             throw new XunitException($"Expected Contacts, got {result}");
@@ -131,8 +131,8 @@ public sealed class AppCommandTests : IAsyncLifetime
             () => new UpdateHiveSettingsCommand(null, PhoneContactLimit: original),
             async () =>
             {
-                await Send(new SaveContactCommand(phone.Id, phone.Actor, first.Number, "One"));
-                return await Send(new SaveContactCommand(phone.Id, phone.Actor, second.Number, "Two"));
+                await Send(new SaveContactCommand(phone.Id, first.Number, "One"));
+                return await Send(new SaveContactCommand(phone.Id, second.Number, "Two"));
             });
 
         ExpectCase(result is SaveContactResult.ContactLimitReached, "ContactLimitReached", result);
@@ -144,7 +144,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var phone = await SetUpPhone();
         await Send(new UninstallAppCommand(phone.Id, phone.Actor, AppKey.Contacts));
 
-        var result = await Send(new ContactsQuery(phone.Id, phone.Actor));
+        var result = await Send(new ContactsQuery(phone.Id));
 
         if (result is not ContactsResult.AccessDenied denied)
         {
@@ -155,15 +155,15 @@ public sealed class AppCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Contacts_AreReachableByAHolderWithThePin()
+    public async Task Contacts_AreReachableByWhoeverHoldsThePoweredOnHandset()
     {
-        // Contacts belong to the handset now, so whoever can use the handset can read them.
-        var phone = await SetUpPhone(pin: "4711");
+        // Contacts belong to the handset, so whoever can use the handset can read them. No acting
+        // character is named at all: powering the phone on is where possession was proven.
+        var phone = await SetUpPhone();
         var other = await SetUpPhone();
-        await Send(new SaveContactCommand(phone.Id, phone.Actor, other.Number, "Dispatcher"));
+        await Send(new SaveContactCommand(phone.Id, other.Number, "Dispatcher"));
 
-        var holder = new PhoneActor(new CharacterId(Guid.NewGuid()), "4711");
-        var result = await Send(new ContactsQuery(phone.Id, holder));
+        var result = await Send(new ContactsQuery(phone.Id));
 
         if (result is not ContactsResult.Contacts contacts)
         {
@@ -181,7 +181,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
 
-        var result = await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "on my way"));
+        var result = await Send(new SendMessageCommand(sender.Id, [recipient.Number], "on my way"));
         ExpectCase(result is SendMessageResult.Sent, "Sent", result);
 
         var senderThread = Assert.Single(await Threads(sender));
@@ -201,7 +201,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var first = await SetUpPhone();
         var second = await SetUpPhone();
 
-        await Send(new SendMessageCommand(sender.Id, sender.Actor, [first.Number, second.Number], "meet at the docks"));
+        await Send(new SendMessageCommand(sender.Id, [first.Number, second.Number], "meet at the docks"));
 
         var senderThread = Assert.Single(await Threads(sender));
         var firstThread = Assert.Single(await Threads(first));
@@ -220,9 +220,9 @@ public sealed class AppCommandTests : IAsyncLifetime
         var first = await SetUpPhone();
         var second = await SetUpPhone();
 
-        await Send(new SendMessageCommand(sender.Id, sender.Actor, [first.Number, second.Number], "one"));
+        await Send(new SendMessageCommand(sender.Id, [first.Number, second.Number], "one"));
         // Same people, opposite order — the thread key must not care.
-        await Send(new SendMessageCommand(sender.Id, sender.Actor, [second.Number, first.Number], "two"));
+        await Send(new SendMessageCommand(sender.Id, [second.Number, first.Number], "two"));
 
         var thread = Assert.Single(await Threads(sender));
         Assert.Equal(2, thread.Messages.Count);
@@ -233,9 +233,9 @@ public sealed class AppCommandTests : IAsyncLifetime
     {
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
-        await Send(new BlockNumberCommand(recipient.Id, recipient.Actor, sender.Number));
+        await Send(new BlockNumberCommand(recipient.Id, sender.Number));
 
-        var result = await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "let me in"));
+        var result = await Send(new SendMessageCommand(sender.Id, [recipient.Number], "let me in"));
 
         // Reported as sent with nothing undeliverable: the sender must not be able to detect a block.
         if (result is not SendMessageResult.Sent sent)
@@ -256,7 +256,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var recipient = await SetUpPhone();
         await Send(new SuspendPhoneCommand(recipient.Id, "Police order"));
 
-        var result = await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "you there?"));
+        var result = await Send(new SendMessageCommand(sender.Id, [recipient.Number], "you there?"));
         if (result is not SendMessageResult.Sent sent)
         {
             throw new XunitException($"Expected Sent, got {result}");
@@ -274,7 +274,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var sender = await SetUpPhone();
         var nobody = PhoneNumber.Parse("99999999");
 
-        var result = await Send(new SendMessageCommand(sender.Id, sender.Actor, [nobody], "hello?"));
+        var result = await Send(new SendMessageCommand(sender.Id, [nobody], "hello?"));
         if (result is not SendMessageResult.Sent sent)
         {
             throw new XunitException($"Expected Sent, got {result}");
@@ -291,7 +291,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var recipient = await SetUpPhone();
         await Send(new SetPhonePowerCommand(recipient.Id, recipient.Actor, false));
 
-        await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "call me"));
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "call me"));
 
         await Send(new SetPhonePowerCommand(recipient.Id, recipient.Actor, true));
 
@@ -308,7 +308,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var recipient = await SetUpPhone();
         await Send(new UninstallAppCommand(recipient.Id, recipient.Actor, AppKey.Messages));
 
-        await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "where is your phone"));
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "where is your phone"));
 
         await Send(new InstallAppCommand(recipient.Id, recipient.Actor, AppKey.Messages));
 
@@ -328,7 +328,7 @@ public sealed class AppCommandTests : IAsyncLifetime
 
         foreach (var body in (string[])["one", "two", "three"])
         {
-            await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], body));
+            await Send(new SendMessageCommand(sender.Id, [recipient.Number], body));
         }
 
         Assert.Equal(3, Assert.Single(await Threads(recipient)).Messages.Count);
@@ -338,7 +338,7 @@ public sealed class AppCommandTests : IAsyncLifetime
             () => new UpdateHiveSettingsCommand(null, PhoneThreadMessageLimit: original),
             async () =>
             {
-                await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "four"));
+                await Send(new SendMessageCommand(sender.Id, [recipient.Number], "four"));
                 return Assert.Single(await Threads(recipient));
             });
 
@@ -350,13 +350,80 @@ public sealed class AppCommandTests : IAsyncLifetime
     {
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
-        await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "hey"));
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "hey"));
 
         var thread = Assert.Single(await Threads(recipient));
-        var marked = await Send(new MarkThreadReadCommand(recipient.Id, recipient.Actor, thread.Id));
+        var marked = await Send(new MarkThreadReadCommand(recipient.Id, thread.Id));
         ExpectCase(marked is MarkThreadReadResult.MarkedRead, "MarkedRead", marked);
 
         Assert.Equal(0, Assert.Single(await Threads(recipient)).UnreadCount);
+    }
+
+    // ---------- Message polling ----------
+
+    /// <summary>The mod polls rather than holding a hub connection — Reforger cannot consume SignalR.</summary>
+    private async Task<MessageUpdatesResult.Updates> Poll(Phone phone, DateTimeOffset? since)
+    {
+        var result = await Send(new MessageUpdatesQuery(phone.Id, since));
+        return result is MessageUpdatesResult.Updates updates
+            ? updates
+            : throw new XunitException($"Expected Updates, got {result}");
+    }
+
+    [Fact]
+    public async Task MessageUpdates_WithNoCursor_ReturnsEveryThreadWhole()
+    {
+        var sender = await SetUpPhone();
+        var recipient = await SetUpPhone();
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
+
+        var updates = await Poll(recipient, since: null);
+
+        Assert.Equal("first", Assert.Single(Assert.Single(updates.Threads).NewMessages).Body);
+    }
+
+    [Fact]
+    public async Task MessageUpdates_WithTheCursorFromAnEarlierPoll_ReturnsOnlyWhatArrivedSince()
+    {
+        var sender = await SetUpPhone();
+        var recipient = await SetUpPhone();
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
+
+        var first = await Poll(recipient, since: null);
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "second"));
+
+        var second = await Poll(recipient, since: first.PolledAt);
+
+        // The thread is the same one; only the message that arrived after the cursor comes back.
+        Assert.Equal("second", Assert.Single(Assert.Single(second.Threads).NewMessages).Body);
+    }
+
+    [Fact]
+    public async Task MessageUpdates_WithNothingNewSinceTheCursor_ReturnsNoThreads()
+    {
+        var sender = await SetUpPhone();
+        var recipient = await SetUpPhone();
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
+
+        var first = await Poll(recipient, since: null);
+        var second = await Poll(recipient, since: first.PolledAt);
+
+        Assert.Empty(second.Threads);
+    }
+
+    [Fact]
+    public async Task MessageUpdates_OnAPoweredOffPhone_IsRefusedLikeAnyAppOperation()
+    {
+        var phone = await ProvisionOnly();
+
+        var result = await Send(new MessageUpdatesQuery(phone.Id, null));
+
+        if (result is not MessageUpdatesResult.AccessDenied denied)
+        {
+            throw new XunitException($"Expected AccessDenied, got {result}");
+        }
+
+        ExpectCase(denied.Reason is PhoneAccessResult.PhonePoweredOff, "PhonePoweredOff", denied.Reason);
     }
 
     [Fact]
@@ -364,10 +431,10 @@ public sealed class AppCommandTests : IAsyncLifetime
     {
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
-        await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "hey"));
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "hey"));
         var recipientThread = Assert.Single(await Threads(recipient));
 
-        var result = await Send(new ThreadQuery(sender.Id, sender.Actor, recipientThread.Id));
+        var result = await Send(new ThreadQuery(sender.Id, recipientThread.Id));
 
         ExpectCase(result is ThreadResult.NotFound, "NotFound", result);
     }
@@ -379,7 +446,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var recipient = await SetUpPhone();
         await Send(new SuspendPhoneCommand(sender.Id, "Police order"));
 
-        var result = await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "still here"));
+        var result = await Send(new SendMessageCommand(sender.Id, [recipient.Number], "still here"));
 
         if (result is not SendMessageResult.AccessDenied denied)
         {
@@ -390,38 +457,23 @@ public sealed class AppCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SendMessage_ByAStrangerWithoutThePin_IsRefused()
+    public async Task SendMessage_ByAStrangerOnAPoweredOnPhone_SendsFromItsNumber()
     {
+        // Possession is proven once, at power-on — an app operation inherits it from the power state
+        // instead of re-checking the actor. A powered-on handset is a usable handset, whoever holds it.
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
 
         var result = await Send(new SendMessageCommand(
-            sender.Id, new PhoneActor(recipient.Owner), [recipient.Number], "not mine"));
-
-        if (result is not SendMessageResult.AccessDenied denied)
-        {
-            throw new XunitException($"Expected AccessDenied, got {result}");
-        }
-
-        ExpectCase(denied.Reason is PhoneAccessResult.NotAuthorized, "NotAuthorized", denied.Reason);
-    }
-
-    [Fact]
-    public async Task SendMessage_ByAStrangerHoldingThePhoneWithThePin_SendsFromItsNumber()
-    {
-        // Someone else's handset, their number on the message — which is exactly what makes a looted
-        // phone worth carrying now that the biolock is gone.
-        var sender = await SetUpPhone(pin: "4711");
-        var recipient = await SetUpPhone();
-        var holder = new PhoneActor(new CharacterId(Guid.NewGuid()), "4711");
-
-        var result = await Send(new SendMessageCommand(sender.Id, holder, [recipient.Number], "borrowed this"));
+            sender.Id, [recipient.Number], "borrowed this"));
 
         if (result is not SendMessageResult.Sent sent)
         {
             throw new XunitException($"Expected Sent, got {result}");
         }
 
+        // Someone else's handset, its number on the message — what makes a looted phone worth
+        // carrying now that the biolock is gone.
         Assert.Equal(sender.Number, sent.From);
         Assert.Equal("borrowed this", Assert.Single(Assert.Single(await Threads(recipient)).Messages).Body);
     }
@@ -431,7 +483,7 @@ public sealed class AppCommandTests : IAsyncLifetime
     {
         var sender = await SetUpPhone();
 
-        var result = await Send(new SendMessageCommand(sender.Id, sender.Actor, [sender.Number], "note to self"));
+        var result = await Send(new SendMessageCommand(sender.Id, [sender.Number], "note to self"));
 
         ExpectCase(result is SendMessageResult.NoRecipients, "NoRecipients", result);
     }
@@ -444,7 +496,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var settings = await Send(new HiveSettingsQuery());
 
         var result = await Send(new SendMessageCommand(
-            sender.Id, sender.Actor, [recipient.Number], new string('x', settings.SmsMaxBodyLength + 1)));
+            sender.Id, [recipient.Number], new string('x', settings.SmsMaxBodyLength + 1)));
 
         ExpectCase(result is SendMessageResult.BodyTooLong, "BodyTooLong", result);
     }
@@ -464,7 +516,7 @@ public sealed class AppCommandTests : IAsyncLifetime
             {
                 var third = await SetUpPhone();
                 return await Send(new SendMessageCommand(
-                    sender.Id, sender.Actor, [first.Number, second.Number, third.Number], "too many"));
+                    sender.Id, [first.Number, second.Number, third.Number], "too many"));
             });
 
         ExpectCase(result is SendMessageResult.TooManyRecipients, "TooManyRecipients", result);
@@ -483,10 +535,10 @@ public sealed class AppCommandTests : IAsyncLifetime
                 var sender = await SetUpPhone();
                 var recipient = await SetUpPhone();
 
-                var first = await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "one"));
+                var first = await Send(new SendMessageCommand(sender.Id, [recipient.Number], "one"));
                 ExpectCase(first is SendMessageResult.Sent, "Sent", first);
 
-                var second = await Send(new SendMessageCommand(sender.Id, sender.Actor, [recipient.Number], "two"));
+                var second = await Send(new SendMessageCommand(sender.Id, [recipient.Number], "two"));
                 ExpectCase(second is SendMessageResult.RateLimited, "RateLimited", second);
                 return true;
             });
@@ -499,16 +551,16 @@ public sealed class AppCommandTests : IAsyncLifetime
         var phone = await SetUpPhone();
         var nuisance = (await SetUpPhone()).Number;
 
-        var blocked = await Send(new BlockNumberCommand(phone.Id, phone.Actor, nuisance));
+        var blocked = await Send(new BlockNumberCommand(phone.Id, nuisance));
         ExpectCase(blocked is BlockNumberResult.Blocked, "Blocked", blocked);
 
-        var again = await Send(new BlockNumberCommand(phone.Id, phone.Actor, nuisance));
+        var again = await Send(new BlockNumberCommand(phone.Id, nuisance));
         ExpectCase(again is BlockNumberResult.AlreadyBlocked, "AlreadyBlocked", again);
 
-        var unblocked = await Send(new UnblockNumberCommand(phone.Id, phone.Actor, nuisance));
+        var unblocked = await Send(new UnblockNumberCommand(phone.Id, nuisance));
         ExpectCase(unblocked is UnblockNumberResult.Unblocked, "Unblocked", unblocked);
 
-        var unblockedAgain = await Send(new UnblockNumberCommand(phone.Id, phone.Actor, nuisance));
+        var unblockedAgain = await Send(new UnblockNumberCommand(phone.Id, nuisance));
         ExpectCase(unblockedAgain is UnblockNumberResult.NotBlocked, "NotBlocked", unblockedAgain);
     }
 
@@ -517,7 +569,7 @@ public sealed class AppCommandTests : IAsyncLifetime
     {
         var phone = await SetUpPhone();
 
-        var result = await Send(new BlockNumberCommand(phone.Id, phone.Actor, phone.Number));
+        var result = await Send(new BlockNumberCommand(phone.Id, phone.Number));
 
         ExpectCase(result is BlockNumberResult.CannotBlockOwnNumber, "CannotBlockOwnNumber", result);
     }
@@ -531,7 +583,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var phone = await ProvisionOnly();
         var nuisance = (await SetUpPhone()).Number;
 
-        var result = await Send(new BlockNumberCommand(phone.Id, phone.Actor, nuisance));
+        var result = await Send(new BlockNumberCommand(phone.Id, nuisance));
 
         if (result is not BlockNumberResult.AccessDenied denied)
         {
@@ -548,7 +600,7 @@ public sealed class AppCommandTests : IAsyncLifetime
         var nuisance = (await SetUpPhone()).Number;
         await Send(new UninstallAppCommand(phone.Id, phone.Actor, AppKey.Messages));
 
-        var result = await Send(new BlockNumberCommand(phone.Id, phone.Actor, nuisance));
+        var result = await Send(new BlockNumberCommand(phone.Id, nuisance));
 
         if (result is not BlockNumberResult.AccessDenied denied)
         {
@@ -565,12 +617,12 @@ public sealed class AppCommandTests : IAsyncLifetime
         // uninstall does not clear it.
         var phone = await SetUpPhone();
         var nuisance = await SetUpPhone();
-        await Send(new BlockNumberCommand(phone.Id, phone.Actor, nuisance.Number));
+        await Send(new BlockNumberCommand(phone.Id, nuisance.Number));
 
         await Send(new UninstallAppCommand(phone.Id, phone.Actor, AppKey.Messages));
         await Send(new InstallAppCommand(phone.Id, phone.Actor, AppKey.Messages));
 
-        var stillBlocked = await Send(new BlockNumberCommand(phone.Id, phone.Actor, nuisance.Number));
+        var stillBlocked = await Send(new BlockNumberCommand(phone.Id, nuisance.Number));
         ExpectCase(stillBlocked is BlockNumberResult.AlreadyBlocked, "AlreadyBlocked", stillBlocked);
     }
 }

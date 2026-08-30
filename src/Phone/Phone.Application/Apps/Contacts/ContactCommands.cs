@@ -29,7 +29,6 @@ public union SaveContactResult(
 
 public sealed record SaveContactCommand(
     PhoneDeviceId PhoneId,
-    PhoneActor Actor,
     PhoneNumber Number,
     string DisplayName) : IRequest<SaveContactResult>;
 
@@ -42,7 +41,7 @@ public sealed class SaveContactHandler(
     public async ValueTask<SaveContactResult> Handle(SaveContactCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.PhoneId, request.Actor, AppKey.Contacts, phoneRepository, cancellationToken);
+            request.PhoneId, AppKey.Contacts, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted)
         {
@@ -106,7 +105,6 @@ public union RenameContactResult(
 
 public sealed record RenameContactCommand(
     PhoneDeviceId PhoneId,
-    PhoneActor Actor,
     ContactId ContactId,
     string DisplayName) : IRequest<RenameContactResult>;
 
@@ -118,7 +116,7 @@ public sealed class RenameContactHandler(
     public async ValueTask<RenameContactResult> Handle(RenameContactCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.PhoneId, request.Actor, AppKey.Contacts, phoneRepository, cancellationToken);
+            request.PhoneId, AppKey.Contacts, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted)
         {
@@ -158,7 +156,7 @@ public union DeleteContactResult(
     public record AccessDenied(PhoneAccessResult Reason);
 }
 
-public sealed record DeleteContactCommand(PhoneDeviceId PhoneId, PhoneActor Actor, ContactId ContactId)
+public sealed record DeleteContactCommand(PhoneDeviceId PhoneId, ContactId ContactId)
     : IRequest<DeleteContactResult>;
 
 public sealed class DeleteContactHandler(
@@ -169,7 +167,7 @@ public sealed class DeleteContactHandler(
     public async ValueTask<DeleteContactResult> Handle(DeleteContactCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.PhoneId, request.Actor, AppKey.Contacts, phoneRepository, cancellationToken);
+            request.PhoneId, AppKey.Contacts, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted)
         {

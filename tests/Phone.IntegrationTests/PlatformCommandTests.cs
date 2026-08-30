@@ -222,7 +222,7 @@ public sealed class PlatformCommandTests : IAsyncLifetime
         // Powered on first, and the result checked: blocking is a Messages command now, so on a
         // phone straight out of provisioning it would be refused rather than silently do nothing.
         await Send(new SetPhonePowerCommand(phone.Id, actor, true));
-        var blocked = await Send(new BlockNumberCommand(phone.Id, actor, nuisance));
+        var blocked = await Send(new BlockNumberCommand(phone.Id, nuisance));
         ExpectCase(blocked is BlockNumberResult.Blocked, "Blocked", blocked);
 
         var suspended = await Send(new SuspendPhoneCommand(phone.Id, "Police order"));
@@ -251,7 +251,7 @@ public sealed class PlatformCommandTests : IAsyncLifetime
         await Send(new SetPhonePowerCommand(phone.Id, actor, true));
         await Send(new SuspendPhoneCommand(phone.Id, "Police order"));
 
-        var result = await Send(new ThreadsQuery(phone.Id, actor));
+        var result = await Send(new ThreadsQuery(phone.Id));
         if (result is not ThreadsResult.AccessDenied denied)
         {
             throw new XunitException($"Expected AccessDenied, got {result}");

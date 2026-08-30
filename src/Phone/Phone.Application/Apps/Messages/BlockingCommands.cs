@@ -29,7 +29,7 @@ public union BlockNumberResult(
 /// <see cref="ELifeRPG.Phone.Domain.Devices.PhoneDevice.IsBlocked"/> like the send path does: the
 /// list still lives on the aggregate, so only the guard moved, not the storage.
 /// </summary>
-public sealed record BlockNumberCommand(PhoneDeviceId PhoneId, PhoneActor Actor, PhoneNumber Number)
+public sealed record BlockNumberCommand(PhoneDeviceId PhoneId, PhoneNumber Number)
     : IRequest<BlockNumberResult>;
 
 public sealed class BlockNumberHandler(IPhoneDeviceRepository phoneRepository)
@@ -38,7 +38,7 @@ public sealed class BlockNumberHandler(IPhoneDeviceRepository phoneRepository)
     public async ValueTask<BlockNumberResult> Handle(BlockNumberCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.PhoneId, request.Actor, AppKey.Messages, phoneRepository, cancellationToken);
+            request.PhoneId, AppKey.Messages, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted granted)
         {
@@ -76,7 +76,7 @@ public union UnblockNumberResult(
     public record AccessDenied(PhoneAccessResult Reason);
 }
 
-public sealed record UnblockNumberCommand(PhoneDeviceId PhoneId, PhoneActor Actor, PhoneNumber Number)
+public sealed record UnblockNumberCommand(PhoneDeviceId PhoneId, PhoneNumber Number)
     : IRequest<UnblockNumberResult>;
 
 public sealed class UnblockNumberHandler(IPhoneDeviceRepository phoneRepository)
@@ -85,7 +85,7 @@ public sealed class UnblockNumberHandler(IPhoneDeviceRepository phoneRepository)
     public async ValueTask<UnblockNumberResult> Handle(UnblockNumberCommand request, CancellationToken cancellationToken)
     {
         var access = await PhoneAccessPolicy.AuthorizeAsync(
-            request.PhoneId, request.Actor, AppKey.Messages, phoneRepository, cancellationToken);
+            request.PhoneId, AppKey.Messages, phoneRepository, cancellationToken);
 
         if (access is not PhoneAccessResult.Granted granted)
         {
