@@ -51,6 +51,8 @@ builder.Services
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthorization();
 
+builder.Services.AddHealthChecks().AddCheck<PostgresHealthCheck>("postgres");
+
 // The single, central Mediator dispatcher for every module — see ARCHITECTURE.md §9e. Add each
 // new module's Application assembly marker here as it's built.
 builder.Services.AddMediator(options =>
@@ -214,6 +216,8 @@ app.UseAuthorization();
 // After authentication: gameserver limits partition on the client_id claim, which does not exist
 // until the token has been validated.
 app.UseRateLimiter();
+
+app.MapHealthChecks("/health").ExcludeFromDescription();
 
 app.MapAccountModule();
 app.MapWhitelistModule();
