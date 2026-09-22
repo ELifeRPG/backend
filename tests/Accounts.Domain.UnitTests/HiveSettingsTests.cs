@@ -27,6 +27,10 @@ public class HiveSettingsTests
         Assert.Equal(50, settings.PhoneContactLimit);
         Assert.Equal(30, settings.PhoneThreadMessageLimit);
         Assert.Equal(5, settings.PhoneMaxGroupParticipants);
+
+        // Not one of the three: the notification cap has no per-model ancestor, it arrived with the
+        // notification queue. 50 is a queue depth, not a retention window — see HiveSettings.
+        Assert.Equal(50, settings.PhoneNotificationLimit);
     }
 
     [Fact]
@@ -44,5 +48,6 @@ public class HiveSettingsTests
         Assert.Equal(50, stored.PhoneContactLimit);
         Assert.Equal(30, stored.PhoneThreadMessageLimit);
         Assert.Equal(5, stored.PhoneMaxGroupParticipants);
+        Assert.Equal(50, stored.PhoneNotificationLimit);
     }
 }

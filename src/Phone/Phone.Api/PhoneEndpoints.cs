@@ -68,6 +68,7 @@ public static partial class PhoneModule
         MapEnforcement(group);
         MapContacts(group);
         MapMessages(group);
+        MapNotifications(group);
         MapAdmin(group);
 
         return app;

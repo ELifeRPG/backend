@@ -3695,7 +3695,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Reports what arrived since a cursor, for clients that cannot hold a hub connection. Omit `since` to get every thread whole; then send back the `polledAt` you were given. Delivery is at-least-once — dedupe on message id.",
+        "description": "Reports every message this phone has not yet retrieved, for clients that cannot hold a hub connection. There is no cursor to hold: retrieval is a server-tracked watermark per thread, advanced by POST .../updates/ack. Delivery is at-least-once — dedupe on message id.",
         "operationId": "PollMessageUpdates",
         "parameters": [
           {
@@ -3706,14 +3706,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "since",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            }
           }
         ],
         "responses": {
@@ -3723,6 +3715,88 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MessageUpdatesDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/apps/messages/updates/ack": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Advances the retrieval watermark on the named threads to the given sequence. Idempotent — acking the same or a lower sequence twice is a no-op. A thread id this phone does not own comes back in unknownThreadIds rather than failing the whole batch.",
+        "operationId": "AckMessageUpdates",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AckMessageUpdatesRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AckMessageUpdatesResponseDto"
                 }
               }
             }
@@ -4071,6 +4145,167 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/notifications": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lists a phone's undelivered notifications, oldest first. Optionally filter to one app with ?appKey=. Reachable with the named app uninstalled — this is platform state, not app state — but refused like any other operation on a powered-off or enforced phone.",
+        "operationId": "ListNotifications",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "appKey",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneNotificationsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/notifications/ack": {
+      "post": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Removes the given notifications from the queue. Idempotent — an unknown or already-acked id is ignored rather than reported, so a caller unsure whether an earlier ack landed can simply resend it.",
+        "operationId": "AckNotifications",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AckNotificationsRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
           "403": {
             "description": "Forbidden",
             "content": {
@@ -4842,6 +5077,57 @@
           }
         }
       },
+      "AckMessageUpdatesRequestDto": {
+        "required": [
+          "threads"
+        ],
+        "type": "object",
+        "properties": {
+          "threads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AckThreadDto"
+            }
+          }
+        }
+      },
+      "AckMessageUpdatesResponseDto": {
+        "required": [
+          "threads",
+          "unknownThreadIds"
+        ],
+        "type": "object",
+        "properties": {
+          "threads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AckThreadWatermarkDto"
+            }
+          },
+          "unknownThreadIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "AckNotificationsRequestDto": {
+        "required": [
+          "ids"
+        ],
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
       "AcknowledgeSpawnsRequestDto": {
         "required": [
           "acks"
@@ -4853,6 +5139,48 @@
             "items": {
               "$ref": "#/components/schemas/InstanceAckRequestDto"
             }
+          }
+        }
+      },
+      "AckThreadDto": {
+        "required": [
+          "threadId",
+          "throughSequence"
+        ],
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "throughSequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "AckThreadWatermarkDto": {
+        "required": [
+          "threadId",
+          "retrievedThrough"
+        ],
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "retrievedThrough": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -5724,7 +6052,8 @@
           "smsMaxBodyLength",
           "phoneContactLimit",
           "phoneThreadMessageLimit",
-          "phoneMaxGroupParticipants"
+          "phoneMaxGroupParticipants",
+          "phoneNotificationLimit"
         ],
         "type": "object",
         "properties": {
@@ -5764,6 +6093,14 @@
             "format": "int32"
           },
           "phoneMaxGroupParticipants": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phoneNotificationLimit": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -6029,7 +6366,8 @@
           "from",
           "body",
           "sentAt",
-          "isOutbound"
+          "isOutbound",
+          "sequence"
         ],
         "type": "object",
         "properties": {
@@ -6049,6 +6387,14 @@
           },
           "isOutbound": {
             "type": "boolean"
+          },
+          "sequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -6131,6 +6477,8 @@
           "participants",
           "unreadCount",
           "lastMessageAt",
+          "retrievedThrough",
+          "highestSequence",
           "messages"
         ],
         "type": "object",
@@ -6157,6 +6505,22 @@
             "type": "string",
             "format": "date-time"
           },
+          "retrievedThrough": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "highestSequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
           "messages": {
             "type": "array",
             "items": {
@@ -6167,15 +6531,10 @@
       },
       "MessageUpdatesDto": {
         "required": [
-          "polledAt",
           "threads"
         ],
         "type": "object",
         "properties": {
-          "polledAt": {
-            "type": "string",
-            "format": "date-time"
-          },
           "threads": {
             "type": "array",
             "items": {
@@ -6338,6 +6697,64 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          }
+        }
+      },
+      "PhoneNotificationDto": {
+        "required": [
+          "id",
+          "appKey",
+          "category",
+          "groupKey",
+          "title",
+          "body",
+          "payload",
+          "occurredAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appKey": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "groupKey": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PhoneNotificationsDto": {
+        "required": [
+          "notifications"
+        ],
+        "type": "object",
+        "properties": {
+          "notifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneNotificationDto"
             }
           }
         }
@@ -7294,7 +7711,8 @@
           "smsMaxBodyLength",
           "phoneContactLimit",
           "phoneThreadMessageLimit",
-          "phoneMaxGroupParticipants"
+          "phoneMaxGroupParticipants",
+          "phoneNotificationLimit"
         ],
         "type": "object",
         "properties": {
@@ -7341,6 +7759,15 @@
             "format": "int32"
           },
           "phoneMaxGroupParticipants": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "phoneNotificationLimit": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "null",

@@ -127,6 +127,8 @@ curl -s "http://localhost:8180/admin/realms/eliferpg/partial-export?exportClient
 
 **Rollout note for existing local Postgres volumes (hive migration):** this change rebuilds five modules' doc-table primary keys and changes `mt_doc_gameserver`'s identity from `varchar(clientId)` to `uuid(Id)` — a table rebuild Marten cannot do in place against an existing schema. If you have a running Postgres volume from before this change, wipe it (`docker compose down -v`, see "Resetting local data" below) so the next devcontainer open starts from a clean schema. Afterward, a gameserver must be registered via `POST /api/game-servers` (see [docs/accounts.md](./docs/accounts.md#game-server-registry)) before character or shop creation will work.
 
+**Rollout note for existing local Postgres volumes (phone notifications):** `MessageThread` gained a per-message `Sequence` and a `RetrievedThrough` watermark (see [docs/phone.md](./docs/phone.md#threads)), and Marten's JSONB documents have no migration step — an existing stored thread simply deserializes both as `0`. Since the new poll endpoint reports messages with `Sequence > RetrievedThrough`, `0 > 0` is false, so every message from before this change becomes permanently invisible to `GET .../apps/messages/updates` (it remains visible via `GET .../threads/{threadId}`, which is unaffected). If you have local Phone data from before this change, wipe it (`docker compose down -v`, see "Resetting local data" below) so new threads start numbering cleanly; there is no deployed environment yet, so this only affects local scratch phones.
+
 ### Keycloak providers (theme + bohemia-gameaccount)
 
 The `keycloak` service's image combines two provider jars, each pulled from its

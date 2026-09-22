@@ -41,4 +41,13 @@ public sealed class HiveSettings
 
     /// <summary>Recipients on one message, excluding the sender. Below 2 there are no groups.</summary>
     public int PhoneMaxGroupParticipants { get; set; } = 5;
+
+    /// <summary>
+    /// Undelivered notifications one phone's queue may hold; the oldest are dropped past it. The
+    /// point is APNs' — a device that has been unreachable for a week comes back to a handful of
+    /// banners, not a week of them — so this is a cap on the queue, not a retention window. Unlike
+    /// PhoneThreadMessageLimit it is read at publish time and not carried on anything, because a
+    /// notification is delivery state rather than history worth replaying.
+    /// </summary>
+    public int PhoneNotificationLimit { get; set; } = 50;
 }
