@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Mediator.SourceGenerator">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -34,6 +38,8 @@
     <ProjectReference Include="..\..\src\Items\Items.Infrastructure\Items.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Shops\Shops.Application\Shops.Application.csproj" />
     <ProjectReference Include="..\..\src\Shops\Shops.Infrastructure\Shops.Infrastructure.csproj" />
+    <!-- Shops.Api grants this assembly InternalsVisibleTo so TryParseOwnerType can be tested. -->
+    <ProjectReference Include="..\..\src\Shops\Shops.Api\Shops.Api.csproj" />
     <ProjectReference Include="..\..\src\World\World.Application\World.Application.csproj" />
     <ProjectReference Include="..\..\src\World\World.Infrastructure\World.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Shared\Shared.Integration\Shared.Integration.csproj" />

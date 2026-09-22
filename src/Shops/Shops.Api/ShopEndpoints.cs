@@ -44,11 +44,9 @@ public static class ShopModule
                 ICurrentGameServer currentGameServer,
                 CancellationToken cancellationToken) =>
             {
-                if (!Enum.TryParse<ShopOwnerType>(request.OwnerType, out var ownerType))
+                if (!TryParseOwnerType(request.OwnerType, out var ownerType, out var ownerTypeProblem))
                 {
-                    return Results.Problem(
-                        title: $"ownerType must be one of: {string.Join(", ", Enum.GetNames<ShopOwnerType>())}",
-                        statusCode: StatusCodes.Status400BadRequest);
+                    return ownerTypeProblem;
                 }
 
                 var hasCharacterId = request.OwnerCharacterId is not null;
@@ -294,6 +292,23 @@ public static class ShopModule
             .WithDescription("Purchases a quantity of a shop listing, settling payment via Banking and granting the item into World.");
 
         return app;
+    }
+
+    // Enum.TryParse also accepts the numeric form of a value, so IsDefined is what rejects one that
+    // names no member. Same shape as ItemEndpoints' TryParsePersistence.
+    internal static bool TryParseOwnerType(string? raw, out ShopOwnerType ownerType, out IResult? problem)
+    {
+        if (Enum.TryParse(raw, ignoreCase: true, out ownerType) && Enum.IsDefined(ownerType))
+        {
+            problem = null;
+            return true;
+        }
+
+        ownerType = default;
+        problem = Results.Problem(
+            title: $"ownerType must be one of: {string.Join(", ", Enum.GetNames<ShopOwnerType>())}",
+            statusCode: StatusCodes.Status400BadRequest);
+        return false;
     }
 
     private static bool HasScope(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext context, string scope)
