@@ -25,7 +25,7 @@ public sealed class GrantSkillXpHandler(ICharacterRepository characterRepository
             return new GrantSkillXpResult.CharacterNotFound();
         }
 
-        if (!Enum.TryParse<SkillType>(request.Skill, out var skill) || !Enum.IsDefined(skill))
+        if (!WireEnum.TryParse<SkillType>(request.Skill, out var skill))
         {
             return new GrantSkillXpResult.UnknownSkill();
         }
