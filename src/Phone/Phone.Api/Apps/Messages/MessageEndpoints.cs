@@ -2,6 +2,7 @@ using ELifeRPG.Phone.Api;
 using ELifeRPG.Phone.Api.Apps.Messages;
 using ELifeRPG.Phone.Api.Common;
 using ELifeRPG.Phone.Api.Devices;
+using ELifeRPG.Phone.Api.Notifications;
 using ELifeRPG.Phone.Application.Apps.Messages;
 using ELifeRPG.Phone.Application.Common;
 using ELifeRPG.Phone.Domain.Apps.Messages;
@@ -68,15 +69,14 @@ public static partial class PhoneModule
             .WithDescription("Gets one conversation with its retained messages.");
 
         group.MapGet("phones/{phoneId:guid}/apps/messages/updates", async (
-                Guid phoneId, [FromQuery] DateTimeOffset? since, IMediator mediator, CancellationToken cancellationToken) =>
+                Guid phoneId, IMediator mediator, CancellationToken cancellationToken) =>
             {
-                var result = await mediator.Send(new MessageUpdatesQuery(new PhoneDeviceId(phoneId), since), cancellationToken);
+                var result = await mediator.Send(new MessageUpdatesQuery(new PhoneDeviceId(phoneId)), cancellationToken);
 
                 return result switch
                 {
-                    MessageUpdatesResult.Updates updates => Results.Ok(new MessageUpdatesDto(
-                        updates.PolledAt,
-                        [.. updates.Threads.Select(MessageThreadUpdateDto.Create)])),
+                    MessageUpdatesResult.Updates updates => Results.Ok(
+                        new MessageUpdatesDto([.. updates.Threads.Select(MessageThreadUpdateDto.Create)])),
                     MessageUpdatesResult.AccessDenied denied => PhoneAccessProblem.ToResult(denied.Reason),
                 };
             })
@@ -87,7 +87,33 @@ public static partial class PhoneModule
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("PollMessageUpdates")
-            .WithDescription("Reports what arrived since a cursor, for clients that cannot hold a hub connection. Omit `since` to get every thread whole; then send back the `polledAt` you were given. Delivery is at-least-once — dedupe on message id.");
+            .WithDescription("Reports every message this phone has not yet retrieved, for clients that cannot hold a hub connection. There is no cursor to hold: retrieval is a server-tracked watermark per thread, advanced by POST .../updates/ack. Delivery is at-least-once — dedupe on message id.");
+
+        group.MapPost("phones/{phoneId:guid}/apps/messages/updates/ack", async (
+                Guid phoneId, [FromBody] AckMessageUpdatesRequestDto request, IMediator mediator, CancellationToken cancellationToken) =>
+            {
+                var acks = request.Threads
+                    .Select(t => new ThreadRetrievalAck(new MessageThreadId(t.ThreadId), t.ThroughSequence))
+                    .ToList();
+
+                var result = await mediator.Send(new AckMessageUpdatesCommand(new PhoneDeviceId(phoneId), acks), cancellationToken);
+
+                return result switch
+                {
+                    AckMessageUpdatesResult.Acknowledged acknowledged => Results.Ok(new AckMessageUpdatesResponseDto(
+                        [.. acknowledged.Watermarks.Select(w => new AckThreadWatermarkDto(w.ThreadId.Value, w.RetrievedThrough))],
+                        [.. acknowledged.UnknownThreadIds.Select(id => id.Value)])),
+                    AckMessageUpdatesResult.AccessDenied denied => PhoneAccessProblem.ToResult(denied.Reason),
+                };
+            })
+            .RequireAuthorization(WritePolicy)
+            .Produces<AckMessageUpdatesResponseDto>()
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .WithName("AckMessageUpdates")
+            .WithDescription("Advances the retrieval watermark on the named threads to the given sequence. Idempotent — acking the same or a lower sequence twice is a no-op. A thread id this phone does not own comes back in unknownThreadIds rather than failing the whole batch.");
 
         group.MapPost("phones/{phoneId:guid}/apps/messages/send", async (
                 Guid phoneId,
@@ -260,7 +286,12 @@ public static partial class PhoneModule
             await notifier.NotifyMessageReceivedAsync(
                 delivery.PhoneId.Value,
                 delivery.ThreadId.Value,
-                new MessageDto(sent.MessageId.Value, sent.From.Value, body, sent.SentAt, IsOutbound: false),
+                new MessageDto(sent.MessageId.Value, sent.From.Value, body, sent.SentAt, IsOutbound: false, delivery.Sequence),
+                cancellationToken);
+
+            await notifier.NotifyNotificationPostedAsync(
+                delivery.PhoneId.Value,
+                PhoneNotificationDto.Create(delivery.Notification),
                 cancellationToken);
         }
     }

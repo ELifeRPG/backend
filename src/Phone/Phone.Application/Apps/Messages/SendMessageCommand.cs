@@ -1,5 +1,6 @@
 using ELifeRPG.Accounts.Application.Hive;
 using ELifeRPG.Phone.Application.Common;
+using ELifeRPG.Phone.Application.Notifications;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
 using ELifeRPG.Phone.Domain.Devices;
 
@@ -44,8 +45,14 @@ public union SendMessageResult(
     public record AccessDenied(PhoneAccessResult Reason);
 }
 
-/// <summary>One append that actually landed, for the Api layer's live push.</summary>
-public sealed record MessageDelivery(PhoneDeviceId PhoneId, MessageThreadId ThreadId);
+/// <summary>
+/// One append that actually landed, for the Api layer's live push. <paramref name="Sequence"/> is
+/// the number the append was given, so the hub frame can carry it without a second lookup.
+/// <paramref name="Notification"/> is the banner published alongside it — see
+/// <see cref="Notifications.PhoneNotifications"/> — so the same push that tells a connected client
+/// about the message can also relay <c>NotificationPosted</c>.
+/// </summary>
+public sealed record MessageDelivery(PhoneDeviceId PhoneId, MessageThreadId ThreadId, int Sequence, PhoneNotification Notification);
 
 public sealed record SendMessageCommand(
     PhoneDeviceId PhoneId,
@@ -60,6 +67,7 @@ public sealed record SendMessageCommand(
 public sealed class SendMessageHandler(
     IPhoneDeviceRepository phoneRepository,
     IMessageThreadRepository threadRepository,
+    IPhoneNotificationRepository notificationRepository,
     IPhoneSendWindowRepository sendWindowRepository,
     TimeProvider timeProvider,
     IMediator mediator)
@@ -165,11 +173,26 @@ public sealed class SendMessageHandler(
                 threadRepository, recipient.Id, recipient.Number, recipientParticipants,
                 settings.PhoneMaxGroupParticipants, cancellationToken);
 
-            threadRepository.Append(
-                recipientThread.Id,
-                recipientThread.RecordInbound(messageId, sender.Number, request.Body, now, retentionLimit));
+            var inboundEvent = recipientThread.RecordInbound(messageId, sender.Number, request.Body, now, retentionLimit);
+            threadRepository.Append(recipientThread.Id, inboundEvent);
 
-            deliveries.Add(new MessageDelivery(recipient.Id, recipientThread.Id));
+            // No install-or-power guard here: reaching this line already proved the recipient is
+            // Active, powered on and has Messages installed — the branch above queued anyone for
+            // whom that was not true, and blocked senders never reach here at all.
+            var notification = PhoneNotification.Create(
+                recipient.Id,
+                AppKey.Messages,
+                category: "message.received",
+                groupKey: recipientThread.Id.Value.ToString(),
+                title: sender.Number.Value,
+                body: request.Body,
+                payload: new Dictionary<string, string> { ["threadId"] = recipientThread.Id.Value.ToString(), ["messageId"] = messageId.Value.ToString() },
+                occurredAt: now);
+
+            await PhoneNotifications.PublishAsync(
+                notificationRepository, recipient.Id, [notification], settings.PhoneNotificationLimit, cancellationToken);
+
+            deliveries.Add(new MessageDelivery(recipient.Id, recipientThread.Id, inboundEvent.Sequence, notification));
         }
 
         // Appended regardless of what happened downstream: texting a dead, blocked or suspended

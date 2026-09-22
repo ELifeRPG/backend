@@ -362,51 +362,65 @@ public sealed class AppCommandTests : IAsyncLifetime
     // ---------- Message polling ----------
 
     /// <summary>The mod polls rather than holding a hub connection — Reforger cannot consume SignalR.</summary>
-    private async Task<MessageUpdatesResult.Updates> Poll(Phone phone, DateTimeOffset? since)
+    private async Task<MessageUpdatesResult.Updates> Poll(Phone phone)
     {
-        var result = await Send(new MessageUpdatesQuery(phone.Id, since));
+        var result = await Send(new MessageUpdatesQuery(phone.Id));
         return result is MessageUpdatesResult.Updates updates
             ? updates
             : throw new XunitException($"Expected Updates, got {result}");
     }
 
+    private async Task<AckMessageUpdatesResult.Acknowledged> Ack(Phone phone, params (MessageThreadId ThreadId, int Through)[] acks)
+    {
+        var result = await Send(new AckMessageUpdatesCommand(
+            phone.Id, [.. acks.Select(ack => new ThreadRetrievalAck(ack.ThreadId, ack.Through))]));
+        return result is AckMessageUpdatesResult.Acknowledged acknowledged
+            ? acknowledged
+            : throw new XunitException($"Expected Acknowledged, got {result}");
+    }
+
     [Fact]
-    public async Task MessageUpdates_WithNoCursor_ReturnsEveryThreadWhole()
+    public async Task MessageUpdates_BeforeAnyAck_ReturnsEveryRetainedMessage()
     {
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
         await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
 
-        var updates = await Poll(recipient, since: null);
+        var updates = await Poll(recipient);
 
         Assert.Equal("first", Assert.Single(Assert.Single(updates.Threads).NewMessages).Body);
     }
 
     [Fact]
-    public async Task MessageUpdates_WithTheCursorFromAnEarlierPoll_ReturnsOnlyWhatArrivedSince()
+    public async Task MessageUpdates_AfterAckingTheHighestSequence_ReturnsOnlyWhatArrivedSince()
     {
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
         await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
 
-        var first = await Poll(recipient, since: null);
+        var first = await Poll(recipient);
+        var update = Assert.Single(first.Threads);
+        await Ack(recipient, (update.Thread.Id, update.NewMessages.Max(message => message.Sequence)));
+
         await Send(new SendMessageCommand(sender.Id, [recipient.Number], "second"));
+        var second = await Poll(recipient);
 
-        var second = await Poll(recipient, since: first.PolledAt);
-
-        // The thread is the same one; only the message that arrived after the cursor comes back.
+        // The thread is the same one; only the message that arrived after the ack comes back.
         Assert.Equal("second", Assert.Single(Assert.Single(second.Threads).NewMessages).Body);
     }
 
     [Fact]
-    public async Task MessageUpdates_WithNothingNewSinceTheCursor_ReturnsNoThreads()
+    public async Task MessageUpdates_AfterAckingEverything_ReturnsNoThreads()
     {
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
         await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
 
-        var first = await Poll(recipient, since: null);
-        var second = await Poll(recipient, since: first.PolledAt);
+        var first = await Poll(recipient);
+        var update = Assert.Single(first.Threads);
+        await Ack(recipient, (update.Thread.Id, update.NewMessages.Max(message => message.Sequence)));
+
+        var second = await Poll(recipient);
 
         Assert.Empty(second.Threads);
     }
@@ -416,7 +430,7 @@ public sealed class AppCommandTests : IAsyncLifetime
     {
         var phone = await ProvisionOnly();
 
-        var result = await Send(new MessageUpdatesQuery(phone.Id, null));
+        var result = await Send(new MessageUpdatesQuery(phone.Id));
 
         if (result is not MessageUpdatesResult.AccessDenied denied)
         {
@@ -424,6 +438,78 @@ public sealed class AppCommandTests : IAsyncLifetime
         }
 
         ExpectCase(denied.Reason is PhoneAccessResult.PhonePoweredOff, "PhonePoweredOff", denied.Reason);
+    }
+
+    [Fact]
+    public async Task AckMessageUpdates_ALowerSequenceAfterAHigherAck_DoesNotRewindTheWatermark()
+    {
+        var sender = await SetUpPhone();
+        var recipient = await SetUpPhone();
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "second"));
+
+        var update = Assert.Single((await Poll(recipient)).Threads);
+        var highest = update.NewMessages.Max(message => message.Sequence);
+
+        await Ack(recipient, (update.Thread.Id, highest));
+        var acknowledged = await Ack(recipient, (update.Thread.Id, 1));
+
+        Assert.Equal(highest, Assert.Single(acknowledged.Watermarks).RetrievedThrough);
+    }
+
+    [Fact]
+    public async Task AckMessageUpdates_AThreadBelongingToAnotherPhone_ReportsItAsUnknown()
+    {
+        var sender = await SetUpPhone();
+        var recipient = await SetUpPhone();
+        var stranger = await SetUpPhone();
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
+
+        var threadId = Assert.Single((await Poll(recipient)).Threads).Thread.Id;
+
+        var acknowledged = await Ack(stranger, (threadId, 1));
+
+        Assert.Empty(acknowledged.Watermarks);
+        Assert.Equal(threadId, Assert.Single(acknowledged.UnknownThreadIds));
+    }
+
+    [Fact]
+    public async Task AckMessageUpdates_PastTheHighestIssuedSequence_Clamps()
+    {
+        var sender = await SetUpPhone();
+        var recipient = await SetUpPhone();
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
+
+        var update = Assert.Single((await Poll(recipient)).Threads);
+
+        var acknowledged = await Ack(recipient, (update.Thread.Id, int.MaxValue));
+
+        Assert.Equal(
+            update.NewMessages.Max(message => message.Sequence),
+            Assert.Single(acknowledged.Watermarks).RetrievedThrough);
+    }
+
+    /// <summary>
+    /// The pair this whole design rests on: retrieved and read are independent axes.  An ack is the
+    /// mod saying "I pulled this down" and must not touch the unread badge; MarkThreadRead is the
+    /// player opening the thread and must not touch the retrieval watermark an ack already set.
+    /// </summary>
+    [Fact]
+    public async Task AckingAThread_DoesNotClearItsUnreadCount_AndMarkingItRead_DoesNotAffectRetrieval()
+    {
+        var sender = await SetUpPhone();
+        var recipient = await SetUpPhone();
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
+
+        var update = Assert.Single((await Poll(recipient)).Threads);
+        var threadId = update.Thread.Id;
+        await Ack(recipient, (threadId, update.NewMessages.Max(message => message.Sequence)));
+
+        Assert.Equal(1, Assert.Single(await Threads(recipient)).UnreadCount);
+
+        await Send(new MarkThreadReadCommand(recipient.Id, threadId));
+
+        Assert.Empty((await Poll(recipient)).Threads);
     }
 
     [Fact]

@@ -3,8 +3,10 @@ using ELifeRPG.Phone.Domain.Apps.Contacts;
 using ELifeRPG.Phone.Domain.Apps.Contacts.Events;
 using ELifeRPG.Phone.Domain.Apps.Messages;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
+using ELifeRPG.Phone.Domain.Apps;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Domain.Devices.Events;
+using ELifeRPG.Phone.Domain.Notifications;
 using ELifeRPG.Shared.Kernel;
 using ELifeRPG.Phone.Domain.Exceptions;
 using Marten;
@@ -128,6 +130,48 @@ public sealed class MartenMessageThreadRepository(IPhoneSession phoneSession) : 
     public void StorePending(PendingDelivery delivery) => _session.Store(delivery);
 
     public void DeletePending(Guid deliveryId) => _session.Delete<PendingDelivery>(deliveryId);
+
+    public async ValueTask SaveChangesAsync(CancellationToken cancellationToken)
+        => await _session.SaveChangesAsync(cancellationToken);
+}
+
+/// <summary>
+/// Joins the shared <see cref="IPhoneSession"/>, like every repository above: a publish commits with
+/// the append that caused it.
+///
+/// Gotcha to keep in mind if this repository ever grows an in-place update: Marten silently drops a
+/// <c>Store</c> for an id also <c>Delete</c>d in the same <c>SaveChangesAsync</c>. Not triggered
+/// today — <see cref="MartenPhoneNotificationRepository"/> never stores and deletes the same id in
+/// one commit — but it is the first document type in this module doing both a store and a bulk
+/// delete on one shared unit of work, so the next person to touch this needs to know the trap exists.
+/// </summary>
+public sealed class MartenPhoneNotificationRepository(IPhoneSession phoneSession) : IPhoneNotificationRepository
+{
+    private readonly IDocumentSession _session = phoneSession.Session;
+
+    public async ValueTask<IReadOnlyList<PhoneNotification>> FindForPhoneAsync(PhoneDeviceId phoneId, AppKey? appKey, CancellationToken cancellationToken)
+    {
+        var query = _session.Query<PhoneNotification>().Where(n => n.PhoneIdValue == phoneId.Value);
+
+        if (appKey is { } key)
+        {
+            query = query.Where(n => n.AppKey == key);
+        }
+
+        return await query
+            .OrderBy(n => n.OccurredAt)
+            .ThenBy(n => n.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public void Store(PhoneNotification notification) => _session.Store(notification);
+
+    public void Delete(PhoneDeviceId phoneId, IReadOnlyList<Guid> ids)
+        => _session.DeleteWhere<PhoneNotification>(n => n.PhoneIdValue == phoneId.Value && ids.Contains(n.Id));
+
+    public void DeleteForGroup(PhoneDeviceId phoneId, AppKey appKey, string groupKey)
+        => _session.DeleteWhere<PhoneNotification>(n =>
+            n.PhoneIdValue == phoneId.Value && n.AppKey == appKey && n.GroupKey == groupKey);
 
     public async ValueTask SaveChangesAsync(CancellationToken cancellationToken)
         => await _session.SaveChangesAsync(cancellationToken);
