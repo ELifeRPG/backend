@@ -152,7 +152,7 @@ public static class ItemModule
             return true;
         }
 
-        if (Enum.TryParse(raw, ignoreCase: true, out persistence) && Enum.IsDefined(persistence))
+        if (WireEnum.TryParse(raw, out persistence))
         {
             problem = null;
             return true;
@@ -160,7 +160,7 @@ public static class ItemModule
 
         persistence = ItemPersistence.Despawns;
         problem = Results.Problem(
-            title: $"persistence must be one of: {string.Join(", ", Enum.GetNames<ItemPersistence>())}",
+            title: WireEnum.MustBeOneOf<ItemPersistence>("persistence"),
             statusCode: StatusCodes.Status400BadRequest);
         return false;
     }

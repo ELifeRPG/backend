@@ -294,11 +294,9 @@ public static class ShopModule
         return app;
     }
 
-    // Enum.TryParse also accepts the numeric form of a value, so IsDefined is what rejects one that
-    // names no member. Same shape as ItemEndpoints' TryParsePersistence.
     internal static bool TryParseOwnerType(string? raw, out ShopOwnerType ownerType, out IResult? problem)
     {
-        if (Enum.TryParse(raw, ignoreCase: true, out ownerType) && Enum.IsDefined(ownerType))
+        if (WireEnum.TryParse(raw, out ownerType))
         {
             problem = null;
             return true;
@@ -306,7 +304,7 @@ public static class ShopModule
 
         ownerType = default;
         problem = Results.Problem(
-            title: $"ownerType must be one of: {string.Join(", ", Enum.GetNames<ShopOwnerType>())}",
+            title: WireEnum.MustBeOneOf<ShopOwnerType>("ownerType"),
             statusCode: StatusCodes.Status400BadRequest);
         return false;
     }

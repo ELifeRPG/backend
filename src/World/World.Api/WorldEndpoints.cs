@@ -576,7 +576,7 @@ public static partial class WorldModule
     // here. Same convention as ItemEndpoints' persistence parsing and ShopEndpoints' ownerType.
     private static bool TryParseSpawnFailureReason(string? raw, out SpawnFailureReason reason, out IResult? problem)
     {
-        if (Enum.TryParse(raw, ignoreCase: true, out reason) && Enum.IsDefined(reason))
+        if (WireEnum.TryParse(raw, out reason))
         {
             problem = null;
             return true;
@@ -584,7 +584,7 @@ public static partial class WorldModule
 
         reason = default;
         problem = Results.Problem(
-            title: $"reason must be one of: {string.Join(", ", Enum.GetNames<SpawnFailureReason>())}",
+            title: WireEnum.MustBeOneOf<SpawnFailureReason>("reason"),
             statusCode: StatusCodes.Status400BadRequest,
             extensions: NotRetryableExtensions());
         return false;
@@ -613,9 +613,9 @@ public static partial class WorldModule
             return false;
         }
 
-        if (!Enum.TryParse<SnapshotScopeKind>(request.Scope.Kind, ignoreCase: true, out var scopeKind) || !Enum.IsDefined(scopeKind))
+        if (!WireEnum.TryParse<SnapshotScopeKind>(request.Scope.Kind, out var scopeKind))
         {
-            problem = BadRequest($"scope.kind must be one of: {string.Join(", ", Enum.GetNames<SnapshotScopeKind>())}");
+            problem = BadRequest(WireEnum.MustBeOneOf<SnapshotScopeKind>("scope.kind"));
             return false;
         }
 
@@ -655,9 +655,9 @@ public static partial class WorldModule
             return false;
         }
 
-        if (!Enum.TryParse<SnapshotMode>(request.Mode, ignoreCase: true, out var mode) || !Enum.IsDefined(mode))
+        if (!WireEnum.TryParse<SnapshotMode>(request.Mode, out var mode))
         {
-            problem = BadRequest($"mode must be one of: {string.Join(", ", Enum.GetNames<SnapshotMode>())}");
+            problem = BadRequest(WireEnum.MustBeOneOf<SnapshotMode>("mode"));
             return false;
         }
 
@@ -750,9 +750,9 @@ public static partial class WorldModule
                 return false;
             }
 
-            if (!Enum.TryParse<DeleteReason>(delete.Reason, ignoreCase: true, out var reason) || !Enum.IsDefined(reason))
+            if (!WireEnum.TryParse<DeleteReason>(delete.Reason, out var reason))
             {
-                problem = BadRequest($"deletes[].reason must be one of: {string.Join(", ", Enum.GetNames<DeleteReason>())}");
+                problem = BadRequest(WireEnum.MustBeOneOf<DeleteReason>("deletes[].reason"));
                 return false;
             }
 
@@ -792,9 +792,9 @@ public static partial class WorldModule
         containerInstanceId = null;
         transform = null;
 
-        if (!Enum.TryParse(parent.Kind, ignoreCase: true, out kind) || !Enum.IsDefined(kind))
+        if (!WireEnum.TryParse(parent.Kind, out kind))
         {
-            problem = BadRequest($"parent.kind must be one of: {string.Join(", ", Enum.GetNames<ParentKind>())}");
+            problem = BadRequest(WireEnum.MustBeOneOf<ParentKind>("parent.kind"));
             return false;
         }
 
