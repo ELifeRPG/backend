@@ -62,16 +62,13 @@ Keycloak runs a **custom image** carrying two provider jars — the realm declar
 `link-bohemia-gameaccount` required action and the backend calls this realm's
 `/bohemia-gameaccount/pin` endpoint, neither of which exists on stock Keycloak, and the `eliferpg`
 theme styles the account/admin/email pages.
-[infra/keycloak/Dockerfile](./infra/keycloak/Dockerfile) composes it: a stock Keycloak server plus
-one `COPY` per provider jar, each lifted from that plugin's published image at a pinned version.
-Compose builds it for you on the first devcontainer open — nothing to build by hand.
-
-Adding another provider is an `ARG`, a `FROM`, and a `COPY` in that Dockerfile; bumping one is a
-single version change there. Because Compose only builds when the image is missing, rebuild
-explicitly after either:
+That image is [`ghcr.io/eliferpg/keycloak`](https://github.com/ELifeRPG/keycloak) — the same one
+production runs. Its repo installs each provider's release jar, and Renovate bumps Keycloak and
+the provider versions there; nothing is built in this repo. Compose pulls it on the first
+devcontainer open, and only then, so fetch a newer `latest` explicitly:
 
 ```sh
-docker compose up -d --build keycloak
+docker compose pull keycloak && docker compose up -d keycloak
 ```
 
 ### Host ports
@@ -129,22 +126,9 @@ curl -s "http://localhost:8180/admin/realms/eliferpg/partial-export?exportClient
 
 ### Keycloak providers (theme + bohemia-gameaccount)
 
-The `keycloak` service's image combines two provider jars, each pulled from its
-own published `ghcr.io` image via a multi-stage `infra/keycloak/Dockerfile`:
-
-```dockerfile
-FROM ghcr.io/eliferpg/keycloak-theme-eliferpg:1.0.1 AS theme
-FROM ghcr.io/eliferpg/keycloak-bohemia-gameaccount:1.0.0 AS bohemia
-
-FROM quay.io/keycloak/keycloak:26.0
-COPY --from=theme /opt/keycloak/providers/ /opt/keycloak/providers/
-COPY --from=bohemia /opt/keycloak/providers/ /opt/keycloak/providers/
-```
-
-Opening the devcontainer builds the `keycloak` service for you — there's nothing
-to fetch separately. To pick up a newer release of either one, bump that stage's
-version tag in `infra/keycloak/Dockerfile`, then
-`docker compose up -d --build keycloak`.
+The `keycloak` service's image, [`ghcr.io/eliferpg/keycloak`](https://github.com/ELifeRPG/keycloak),
+carries both provider jars at the versions pinned in that repo's `Dockerfile` (see
+[Keycloak's custom image](#keycloaks-custom-image) for how to pick up a newer one).
 
 **[`eliferpg` theme](https://github.com/ELifeRPG/keycloak-theme-eliferpg)** —
 ships login, account, admin, and email variants, configured via
