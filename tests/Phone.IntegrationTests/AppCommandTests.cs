@@ -1,6 +1,7 @@
 using ELifeRPG.Accounts.Application.Hive;
 using ELifeRPG.Phone.Application.Apps.Contacts;
 using ELifeRPG.Phone.Application.Apps.Messages;
+using ELifeRPG.Phone.Application.Apps.Store;
 using ELifeRPG.Phone.Application.Common;
 using ELifeRPG.Phone.Application.Devices;
 using ELifeRPG.Phone.Domain.Apps;
@@ -15,8 +16,9 @@ using Xunit.Sdk;
 namespace ELifeRPG.Phone.IntegrationTests;
 
 /// <summary>
-/// Requires the local infra stack. Covers the two apps end to end: the Contacts book, and the
-/// send/deliver path with its blocklist, queueing, enforcement and throttling.
+/// Requires the local infra stack. Covers the apps end to end: the Contacts book, the
+/// send/deliver path with its blocklist, queueing, enforcement and throttling, and the store's
+/// listing of what a phone may still install.
 /// </summary>
 public sealed class AppCommandTests : IAsyncLifetime
 {
@@ -73,6 +75,14 @@ public sealed class AppCommandTests : IAsyncLifetime
     private sealed record Phone(CharacterId Owner, PhoneDeviceId Id, PhoneNumber Number)
     {
         public PhoneActor Actor => new(Owner);
+    }
+
+    private async Task<IReadOnlyList<StoreApp>> StoreApps(Phone phone)
+    {
+        var result = await Send(new StoreAppsQuery(phone.Id));
+        return result is StoreAppsResult.Apps apps
+            ? apps.Entries
+            : throw new XunitException($"Expected Apps, got {result}");
     }
 
     private async Task<IReadOnlyList<MessageThread>> Threads(Phone phone)
@@ -136,22 +146,6 @@ public sealed class AppCommandTests : IAsyncLifetime
             });
 
         ExpectCase(result is SaveContactResult.ContactLimitReached, "ContactLimitReached", result);
-    }
-
-    [Fact]
-    public async Task ContactsApp_WhenUninstalled_IsRefusedByTheGuardChain()
-    {
-        var phone = await SetUpPhone();
-        await Send(new UninstallAppCommand(phone.Id, phone.Actor, AppKey.Contacts));
-
-        var result = await Send(new ContactsQuery(phone.Id));
-
-        if (result is not ContactsResult.AccessDenied denied)
-        {
-            throw new XunitException($"Expected AccessDenied, got {result}");
-        }
-
-        ExpectCase(denied.Reason is PhoneAccessResult.AppNotInstalled, "AppNotInstalled", denied.Reason);
     }
 
     [Fact]
@@ -297,23 +291,6 @@ public sealed class AppCommandTests : IAsyncLifetime
 
         var thread = Assert.Single(await Threads(recipient));
         Assert.Equal("call me", Assert.Single(thread.Messages).Body);
-    }
-
-    [Fact]
-    public async Task SendMessage_WithMessagesUninstalled_QueuesUntilItIsInstalledAgain()
-    {
-        // The second of the two moments a number becomes reachable again, and the replacement for
-        // what seating a SIM used to do.
-        var sender = await SetUpPhone();
-        var recipient = await SetUpPhone();
-        await Send(new UninstallAppCommand(recipient.Id, recipient.Actor, AppKey.Messages));
-
-        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "where is your phone"));
-
-        await Send(new InstallAppCommand(recipient.Id, recipient.Actor, AppKey.Messages));
-
-        var thread = Assert.Single(await Threads(recipient));
-        Assert.Equal("where is your phone", Assert.Single(thread.Messages).Body);
     }
 
     [Fact]
@@ -679,36 +656,52 @@ public sealed class AppCommandTests : IAsyncLifetime
         ExpectCase(denied.Reason is PhoneAccessResult.PhonePoweredOff, "PhonePoweredOff", denied.Reason);
     }
 
+    // ---------- Store ----------
+
     [Fact]
-    public async Task BlockNumber_WithMessagesUninstalled_IsRefused()
+    public async Task StoreApps_ListTheStoreAppsWithTheirInstallState()
     {
         var phone = await SetUpPhone();
-        var nuisance = (await SetUpPhone()).Number;
-        await Send(new UninstallAppCommand(phone.Id, phone.Actor, AppKey.Messages));
 
-        var result = await Send(new BlockNumberCommand(phone.Id, nuisance));
+        var offered = await StoreApps(phone);
+        Assert.Equal([AppKey.Bank, AppKey.Map], offered.Select(app => app.Definition.Key));
+        Assert.DoesNotContain(true, offered.Select(app => app.IsInstalled));
 
-        if (result is not BlockNumberResult.AccessDenied denied)
+        await Send(new InstallAppCommand(phone.Id, phone.Actor, AppKey.Bank));
+
+        var afterInstall = await StoreApps(phone);
+        Assert.True(afterInstall.Single(app => app.Definition.Key == AppKey.Bank).IsInstalled);
+        Assert.False(afterInstall.Single(app => app.Definition.Key == AppKey.Map).IsInstalled);
+    }
+
+    [Fact]
+    public async Task StoreApps_OmitSystemApps()
+    {
+        // A system app can be neither installed nor removed from here, so an entry for one would
+        // carry no action.
+        var phone = await SetUpPhone();
+
+        var keys = (await StoreApps(phone)).Select(app => app.Definition.Key).ToList();
+
+        foreach (var definition in AppCatalog.SystemApps)
+        {
+            Assert.DoesNotContain(definition.Key, keys);
+        }
+    }
+
+    [Fact]
+    public async Task StoreApps_OnAPoweredOffPhone_IsRefusedLikeAnyAppOperation()
+    {
+        // Browsing the store happens on the handset, so it runs the same guard chain as a send.
+        var phone = await ProvisionOnly();
+
+        var result = await Send(new StoreAppsQuery(phone.Id));
+
+        if (result is not StoreAppsResult.AccessDenied denied)
         {
             throw new XunitException($"Expected AccessDenied, got {result}");
         }
 
-        ExpectCase(denied.Reason is PhoneAccessResult.AppNotInstalled, "AppNotInstalled", denied.Reason);
-    }
-
-    [Fact]
-    public async Task Blocklist_SurvivesUninstallingAndReinstallingMessages()
-    {
-        // Only the guard moved into the app; the list itself still lives on the phone, so an
-        // uninstall does not clear it.
-        var phone = await SetUpPhone();
-        var nuisance = await SetUpPhone();
-        await Send(new BlockNumberCommand(phone.Id, nuisance.Number));
-
-        await Send(new UninstallAppCommand(phone.Id, phone.Actor, AppKey.Messages));
-        await Send(new InstallAppCommand(phone.Id, phone.Actor, AppKey.Messages));
-
-        var stillBlocked = await Send(new BlockNumberCommand(phone.Id, nuisance.Number));
-        ExpectCase(stillBlocked is BlockNumberResult.AlreadyBlocked, "AlreadyBlocked", stillBlocked);
+        ExpectCase(denied.Reason is PhoneAccessResult.PhonePoweredOff, "PhonePoweredOff", denied.Reason);
     }
 }

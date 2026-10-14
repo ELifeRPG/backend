@@ -1,4 +1,3 @@
-using ELifeRPG.Phone.Application.Apps.Messages;
 using ELifeRPG.Phone.Application.Common;
 
 namespace ELifeRPG.Phone.Application.Devices;
@@ -31,7 +30,7 @@ public union InstallAppResult(
 public sealed record InstallAppCommand(PhoneDeviceId PhoneId, PhoneActor Actor, AppKey AppKey)
     : IRequest<InstallAppResult>;
 
-public sealed class InstallAppHandler(IPhoneDeviceRepository phoneRepository, IMediator mediator)
+public sealed class InstallAppHandler(IPhoneDeviceRepository phoneRepository)
     : IRequestHandler<InstallAppCommand, InstallAppResult>
 {
     public async ValueTask<InstallAppResult> Handle(InstallAppCommand request, CancellationToken cancellationToken)
@@ -65,13 +64,9 @@ public sealed class InstallAppHandler(IPhoneDeviceRepository phoneRepository, IM
         phoneRepository.Append(request.PhoneId, phone.InstallApp(request.AppKey));
         await phoneRepository.SaveChangesAsync(cancellationToken);
 
-        if (request.AppKey == AppKey.Messages)
-        {
-            // The second moment a number becomes reachable again, alongside powering on: anything
-            // that queued while Messages was uninstalled arrives now rather than staying lost.
-            await mediator.Send(new FlushPendingDeliveriesCommand(request.PhoneId), cancellationToken);
-        }
-
+        // No pending-delivery flush here any more. Messages is a system app, so every phone already
+        // has it and this path could only ever no-op; powering on remains the one moment a queued
+        // message is handed over. See SetPhonePowerHandler.
         return new InstallAppResult.Installed();
     }
 }
@@ -79,12 +74,15 @@ public sealed class InstallAppHandler(IPhoneDeviceRepository phoneRepository, IM
 public union UninstallAppResult(
     UninstallAppResult.Uninstalled,
     UninstallAppResult.NotInstalled,
+    UninstallAppResult.SystemApp,
     UninstallAppResult.PhoneNotFound,
     UninstallAppResult.NotAuthorized)
 {
     public record Uninstalled;
 
     public record NotInstalled;
+
+    public record SystemApp;
 
     public record PhoneNotFound;
 
@@ -93,7 +91,11 @@ public union UninstallAppResult(
 
 /// <summary>
 /// Uninstalling loses nothing: contacts and threads are the phone's, not the app's, so reinstalling
-/// brings them straight back — along with anything that queued in the meantime.
+/// brings them straight back.
+///
+/// Only a store app can be uninstalled at all. The domain enforces that too, but the check is
+/// repeated here so the endpoint gets a case to switch on rather than an exception to catch — the
+/// module-wide shape (ARCHITECTURE.md §9e).
 /// </summary>
 public sealed record UninstallAppCommand(PhoneDeviceId PhoneId, PhoneActor Actor, AppKey AppKey)
     : IRequest<UninstallAppResult>;
@@ -112,6 +114,11 @@ public sealed class UninstallAppHandler(IPhoneDeviceRepository phoneRepository)
         if (!PhoneAccessPolicy.IsAuthorized(phone, request.Actor))
         {
             return new UninstallAppResult.NotAuthorized();
+        }
+
+        if (AppCatalog.IsSystemApp(request.AppKey))
+        {
+            return new UninstallAppResult.SystemApp();
         }
 
         if (!phone.HasApp(request.AppKey))

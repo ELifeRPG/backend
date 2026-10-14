@@ -69,6 +69,7 @@ public static partial class PhoneModule
         MapContacts(group);
         MapMessages(group);
         MapNotifications(group);
+        MapStore(group);
         MapAdmin(group);
 
         return app;
@@ -79,7 +80,7 @@ public static partial class PhoneModule
 
     private static bool TryParseApp(string raw, out AppKey key, out IResult? problem)
     {
-        if (Enum.TryParse(raw, ignoreCase: true, out key) && AppCatalog.Contains(key))
+        if (WireEnum.TryParse(raw, out key) && AppCatalog.Contains(key))
         {
             problem = null;
             return true;

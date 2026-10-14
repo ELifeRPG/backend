@@ -116,8 +116,8 @@ public class PhoneDevice
 
     /// <summary>
     /// Every phone runs every app in the catalog — there are no models and no capability tiers, so
-    /// installing one is a player's choice rather than a permission. What it still governs is
-    /// delivery: uninstalling Messages queues incoming messages instead of dropping them.
+    /// installing one is a player's choice rather than a permission. Allowed for a system app too —
+    /// see <see cref="AppDefinition"/>.
     /// </summary>
     public AppInstalled InstallApp(AppKey key)
     {
@@ -133,8 +133,19 @@ public class PhoneDevice
         return domainEvent;
     }
 
+    /// <summary>
+    /// A system app is the phone's own software and can never leave it — see
+    /// <see cref="AppDefinition"/>. Checked ahead of <see cref="HasApp"/> so a phone provisioned
+    /// before the app existed still answers "not removable" rather than "not installed".
+    /// </summary>
     public AppUninstalled UninstallApp(AppKey key)
     {
+        if (AppCatalog.IsSystemApp(key))
+        {
+            throw new SystemAppNotRemovableException(
+                $"App '{key}' is part of the phone's software and can not be uninstalled.");
+        }
+
         if (!HasApp(key))
         {
             throw new AppNotInstalledException($"App '{key}' is not installed on device {Id}.");

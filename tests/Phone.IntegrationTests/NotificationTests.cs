@@ -322,15 +322,43 @@ public sealed class NotificationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Notifications_WithMessagesUninstalled_AreStillReadable()
+    public async Task GuardChains_DifferOnlyByTheInstallCheck()
     {
-        // The regression test for the app-less guard chain: notifications are platform state, so
-        // uninstalling the app that published one must not make the queue itself unreachable.
+        // The two chains differ by one question, asked both ways against one phone at one moment.
+        // AppKey.Bank because a store app is the only kind a phone can lack — this was written by
+        // uninstalling Messages until Messages became a system app and that silently stopped doing
+        // anything.
+        var phone = await SetUpPhone();
+
+        await using var scope = _provider.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IPhoneDeviceRepository>();
+
+        var device = await PhoneAccessPolicy.AuthorizeAsync(phone.Id, repository, CancellationToken.None);
+        ExpectCase(device is PhoneAccessResult.Granted, "Granted", device);
+
+        var app = await PhoneAccessPolicy.AuthorizeAsync(
+            phone.Id, AppKey.Bank, repository, CancellationToken.None);
+        ExpectCase(app is PhoneAccessResult.AppNotInstalled, "AppNotInstalled", app);
+    }
+
+    [Fact]
+    public async Task Notifications_AreReadableOnAPhoneMissingAStoreApp()
+    {
+        // The same property through the real query rather than the policy, so rewiring
+        // PhoneNotificationsQuery's chain is caught even if the test above is left alone. The
+        // recipient has never installed Bank or Map; its queue reads regardless, because the device
+        // chain names no app at all.
         var sender = await SetUpPhone();
         var recipient = await SetUpPhone();
-        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
+        var lookup = await Send(new PhoneDeviceLookupQuery(recipient.Id));
+        if (lookup is not PhoneDeviceLookupResult.Found found)
+        {
+            throw new XunitException($"Expected Found, got {lookup}");
+        }
 
-        await Send(new UninstallAppCommand(recipient.Id, recipient.Actor, AppKey.Messages));
+        Assert.False(found.Phone.HasApp(AppKey.Bank));
+
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "first"));
 
         Assert.Single(await Notifications(recipient));
     }

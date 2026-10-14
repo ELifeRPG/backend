@@ -40,11 +40,25 @@ public sealed class ShopEndpointContractTests
         AssertIsOwnerTypeBadRequest(problem);
     }
 
-    // Deliberate, and matching every other parse site: IsDefined admits a real member's ordinal.
+    // This used to assert the opposite: IsDefined admits a real member's ordinal, so "0" and "1"
+    // parsed. WireEnum now requires a name, because an ordinal is the stored form of an enum here
+    // (ARCHITECTURE.md §9e) and accepting one over HTTP tied every client to Postgres's numbering —
+    // Phone renumbered AppKey and ?appKey=3 silently changed which app it meant.
     [Theory]
-    [InlineData("0", ShopOwnerType.Personal)]
-    [InlineData("1", ShopOwnerType.Corporate)]
-    public void TryParseOwnerType_StillAcceptsTheOrdinalOfARealMember(string raw, ShopOwnerType expected)
+    [InlineData("0")]
+    [InlineData("1")]
+    public void TryParseOwnerType_RefusesTheOrdinalOfARealMember(string raw)
+    {
+        Assert.False(ShopModule.TryParseOwnerType(raw, out _, out var problem));
+        AssertIsOwnerTypeBadRequest(problem);
+    }
+
+    // A name still parses case-insensitively, and leading whitespace is tolerated — only the
+    // numeric form is refused.
+    [Theory]
+    [InlineData("personal", ShopOwnerType.Personal)]
+    [InlineData("  Corporate", ShopOwnerType.Corporate)]
+    public void TryParseOwnerType_AcceptsAMemberName(string raw, ShopOwnerType expected)
     {
         Assert.True(ShopModule.TryParseOwnerType(raw, out var ownerType, out _));
         Assert.Equal(expected, ownerType);

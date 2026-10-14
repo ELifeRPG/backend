@@ -182,24 +182,36 @@ public class PhoneDeviceTests
     [Fact]
     public void UninstallApp_RemovesIt()
     {
+        // A store app throughout: a system app can not be uninstalled at all.
         var phone = Phone();
-        phone.InstallApp(AppKey.Messages);
+        phone.InstallApp(AppKey.Bank);
 
-        phone.UninstallApp(AppKey.Messages);
+        phone.UninstallApp(AppKey.Bank);
 
-        Assert.False(phone.HasApp(AppKey.Messages));
+        Assert.False(phone.HasApp(AppKey.Bank));
     }
 
     [Fact]
     public void UninstallApp_ThatIsNotInstalled_ThrowsAppNotInstalled()
     {
-        Assert.Throws<AppNotInstalledException>(() => Phone().UninstallApp(AppKey.Messages));
+        Assert.Throws<AppNotInstalledException>(() => Phone().UninstallApp(AppKey.Bank));
+    }
+
+    [Fact]
+    public void UninstallApp_ForASystemApp_ThrowsSystemAppNotRemovable()
+    {
+        var phone = Phone();
+
+        Assert.Throws<SystemAppNotRemovableException>(() => phone.UninstallApp(AppKey.Settings));
+
+        phone.InstallApp(AppKey.Settings);
+        Assert.Throws<SystemAppNotRemovableException>(() => phone.UninstallApp(AppKey.Settings));
     }
 
     [Fact]
     public void HasApp_ForAnUninstalledApp_IsFalse()
     {
-        Assert.False(Phone().HasApp(AppKey.Messages));
+        Assert.False(Phone().HasApp(AppKey.Bank));
     }
 
     // --- Enforcement -----------------------------------------------------------------------

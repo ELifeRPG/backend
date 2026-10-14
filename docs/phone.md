@@ -1,7 +1,8 @@
 # Phone
 
-A device platform. Texting and the address book are the first two **apps** on it; banking, company
-management or a camera would be later ones, and none of them should need the platform reworked. See
+A device platform. Seven **apps** run on it: the dialer, texting, the address book, settings and the
+store are the phone's own software, and Bank and Map are installed from the store. A camera or
+company management would be later ones, and none of them should need the platform reworked. See
 [MIGRATION.md](../MIGRATION.md) for how this fits the overall migration plan. Alongside the apps sits
 one platform-level, app-independent notification queue — see [Notifications](#notifications) — so
 `Notifications/` in the source tree is not itself an app.
@@ -79,11 +80,34 @@ alternative is a `DELETE` with a body — which every other delete in this codeb
 `AppCatalog` in `Phone.Domain/Apps` is the backend's list of what apps exist, so adding or
 rebalancing one needs no mod redeploy — the same reasoning [Skills](./skills.md) applies to its
 action-to-XP map. Every phone can run every entry: with models gone, installing an app is a player's
-choice rather than a permission the handset grants. A phone ships with all of them installed.
+choice rather than a permission the handset grants.
 
-What installing still governs is delivery. Uninstalling Messages does not lose anything — contacts
-and threads belong to the phone — and incoming messages queue rather than vanish, arriving when it
-is installed again.
+One flag divides the catalog. An `AppDefinition` with `IsSystemApp` is the phone's own software:
+
+| | Apps | Ships on a new phone | Can be uninstalled | Offered by the store |
+| --- | --- | --- | --- | --- |
+| **System** | Settings, Store, Phone, Messages, Contacts | yes | **no** | no |
+| **Store** | Bank, Map | no | yes | yes |
+
+Listed in `AppKey` order, which is the order a new phone installs them and the order
+`GET .../apps` returns them.
+
+A system app is refused by `PhoneDevice.UninstallApp`: deleting the dialer, the settings or the store
+itself would leave a handset nobody could repair from inside the game. **Installing one is still
+allowed**, and deliberately — it is the only route by which a phone provisioned before an app existed
+ever receives it, and it is idempotent, so a bridge may call it freely.
+
+Uninstalling a store app loses nothing: contacts and threads belong to the phone, not to an app, so
+reinstalling brings them straight back.
+
+> **Phone data from before this change has to be wiped, not migrated.** `AppKey` was renumbered to
+> leave 0 unassigned, so the ordinals already in Postgres mean something else now: a stored `0`
+> (Messages) names no app at all and makes `AppCatalog.Get` throw, and a stored `1` (Contacts) reads
+> as `Settings`. Older phones also only ever got `AppInstalled` events for two of the seven apps.
+> Drop the schema — `docker exec backend-postgres-1 psql -U postgres -c "DROP SCHEMA IF EXISTS phone
+> CASCADE;"`, or `docker compose down -v` for everything. There is no deployed environment, so this
+> costs local scratch phones only. A `phone:manage` backfill command would have covered the missing
+> apps, but not the renumbering, which is why it is not the answer here.
 
 `PhoneAccessPolicy` is three chains now, not two, each built for a different kind of surface:
 
@@ -92,8 +116,10 @@ is installed again.
    the cost of one call. See [Adding an app](#adding-an-app).
 2. **The device chain** — the app chain minus the install step, for platform surfaces that belong to
    the handset rather than to anything running on it. The notification queue is the first of these:
-   a notification is reachable with every app uninstalled, and refused only when the phone itself is
-   not usable. The app chain is a thin wrapper over this one, adding only the install check.
+   it names no app, so a phone that never installed Bank still reads its queue, and it is refused
+   only when the phone itself is not usable. That is also what will let a Bank notification outlive
+   Bank being uninstalled. The app chain is a thin wrapper over this one, adding only the install
+   check.
 3. **The possession check**, `PhoneAccessPolicy.IsAuthorized` — ownership-or-PIN, used by the five
    platform commands (provision, power, PIN change, app install/uninstall) instead of either chain
    above. It checks neither power nor an installed app, deliberately: you cannot require a phone to
@@ -107,6 +133,12 @@ Everything an app owns is rooted under `/api/phones/{phoneId}/apps/{appKey}/`, m
 `Apps/<Name>/` folders in Domain, Application and Api. A new app owns that prefix outright, so two
 apps can never race each other for the same noun. The blocklist is under Messages for that reason:
 it is one app's list, and its URL and its guard chain agree about which.
+
+The store is the one app whose routes are not under `/apps/{its key}/`, at
+`/api/phones/{phoneId}/app-store/`. It reads across the whole catalog rather than owning a noun, so
+it has no prefix of its own to sit under — `/apps/store/apps` only repeated the word. It is still the
+Store app, unlike the notification queue below: its guard chain runs against `AppKey.Store` like any
+other app operation, so the phone must be powered on and the store installed.
 
 ## Notifications
 
@@ -140,11 +172,18 @@ what lets a client ack a batch of ids with no version field to race.
 - **The cap drops oldest first**, no TTL — `hiveSettings.PhoneNotificationLimit`, checked at publish
   time. This is the "we do not accumulate a backlog" property APNs has, not a retention policy.
 - **The guard chain is the device half of `PhoneAccessPolicy`**, not the app half — see
-  [Apps](#apps). A notification is reachable with the publishing app uninstalled, refused only when
-  the phone itself is not usable: a powered-off phone's queue is `409`, a suspended one `403`.
+  [Apps](#apps). The queue asks about no app, so an app the phone has not installed does not make it
+  unreachable; it is refused only when the phone itself is not usable, a powered-off phone's queue
+  being `409` and a suspended one `403`.
 - **Publication is the publishing app's job**, on the same `IPhoneSession` as whatever caused it, so
   the notification commits atomically with the change it describes. The platform never composes one
   itself and stores no opinion about what any app's `Category` or `Payload` mean.
+- **Proving the chain is app-less needs a store app, not an uninstall.** This independence used to
+  be demonstrable by uninstalling Messages and reading the queue anyway. Messages is a system app
+  now, so that refuses and asserts nothing, and every app with routes of its own is likewise
+  permanent — so the test uses `AppKey.Bank`, which a phone has simply never installed. See
+  `GuardChains_DifferOnlyByTheInstallCheck`, which is also the only thing exercising
+  `PhoneAccessResult.AppNotInstalled` at all.
 - **Titles carry the bare sender number, not a resolved name.** Messages deliberately does not read
   Contacts (see [Threads](#threads)) — a banner is not a reason to reverse that, so the mod resolves
   a display name itself, the same call it already makes to draw a thread.
@@ -162,6 +201,8 @@ Platform            POST   /api/phones
                     GET    /api/phones/{phoneId}/apps
                     PUT    /api/phones/{phoneId}/apps/{appKey}
                     DELETE /api/phones/{phoneId}/apps/{appKey}
+
+App store           GET    /api/phones/{phoneId}/app-store/apps
 
 Enforcement         POST   /api/phones/{phoneId}/suspend
                     POST   /api/phones/{phoneId}/restore
@@ -234,7 +275,7 @@ PHONE=$(curl -s -X POST http://localhost:5100/api/phones \
 PHONE_ID=$(echo "$PHONE" | python3 -c "import json,sys; print(json.load(sys.stdin)['phoneId'])")
 NUMBER=$(echo "$PHONE" | python3 -c "import json,sys; print(json.load(sys.stdin)['number'])")
 
-# A phone ships with every app installed, and powered off.
+# A phone ships with its system apps installed, and powered off.
 curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/power \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
   -d "{\"characterId\":\"$CHARACTER_ID\",\"isPoweredOn\":true}"
@@ -283,7 +324,7 @@ Per recipient:
 | Unknown number, or phone `Deactivated` | Undeliverable, reported back to the sender |
 | Phone `Suspended` | Undeliverable, reported back — and **not** queued |
 | Sender's number is on the recipient's blocklist | Dropped silently, **not** reported |
-| Phone powered off, or Messages uninstalled | Queued as a `PendingDelivery` |
+| Phone powered off | Queued as a `PendingDelivery` |
 | Otherwise | Appended to the recipient's thread |
 
 Two of those are deliberate and easy to get wrong later:
@@ -298,9 +339,11 @@ Two of those are deliberate and easy to get wrong later:
 The sender's own thread is appended regardless. Texting a dead, blocked or suspended number still
 reads as sent from their side, exactly like SMS.
 
-Queued messages are delivered when the number becomes reachable again: powering the phone on, or
-installing Messages. Both are safe to repeat — a still-unreachable phone simply leaves everything
-queued, and each delivery leaves the queue in the same commit that appends it to the thread.
+Queued messages are delivered when the number becomes reachable again, which means powering the
+phone on. Safe to repeat — a still-unreachable phone simply leaves everything queued, and each
+delivery leaves the queue in the same commit that appends it to the thread. Installing Messages used
+to be a second such moment, back when it could be uninstalled; now that it is a system app, every
+phone has it and power is the only gate.
 
 **Every append to a recipient's thread also posts a notification**, in that same commit — see
 [Notifications](#notifications). Undeliverable, queued and blocked recipients get none: a
@@ -381,7 +424,8 @@ not something Messages owns, even though Messages is the only publisher today.
 
 ## Adding an app
 
-1. One `AppKey` member and one `AppDefinition` in `AppCatalog`.
+1. One `AppKey` member and one `AppDefinition` in `AppCatalog`, deciding `IsSystemApp` — whether it
+   ships with the handset and can never be removed, or is one the store offers.
 2. `Apps/<Name>/` folders in `Phone.Domain`, `Phone.Application` and `Phone.Api`.
 3. Routes under `/api/phones/{phoneId}/apps/<key>/`, which is yours alone — no coordination with
    any other app about names.
@@ -397,11 +441,22 @@ not something Messages owns, even though Messages is the only publisher today.
 Nothing under `Devices/` is touched. `AppKey` is an **append-only** enum: ordinals are persisted in
 Marten payloads, so inserting a member mid-list remaps every stored value — and it now reaches two
 document types, `PhoneDevice`'s installed-app list and every `PhoneNotification`, so the blast radius
-of breaking that rule is wider than it used to be.
+of breaking that rule is wider than it used to be. `PhoneNotification` is the sharp edge: it is a
+plain document with no stream behind it, and the repository both filters and *deletes* on the
+ordinal, so a remap there changes which rows are removed rather than merely how they read.
 
-A Banking app is also where `ICrossModuleTransaction` would finally earn its place in this module,
-spanning the Phone and Banking stores the way `PurchaseListingHandler` already spans Shops and
-Banking.
+**Nothing sits at `AppKey` 0**, so a payload that is missing the field names no app instead of
+quietly naming whichever one sat there. This departs from ARCHITECTURE.md §9e's "make member 0 the
+safest real default" — see the reasoning on `AppKey` itself: there is no safe answer to "which app
+does this notification belong to", so an undefined value beats a plausible one. Your new member goes
+at the next free number, never at 0.
+
+`Bank`, `Map`, `Settings`, `Store` and `Phone` are in the catalog but only `Store` has routes of its
+own so far: the rest are installable, listable and guard-checked, and own no nouns yet. Step 2
+onwards is what each still needs.
+
+`Bank` is also where `ICrossModuleTransaction` would finally earn its place in this module, spanning
+the Phone and Banking stores the way `PurchaseListingHandler` already spans Shops and Banking.
 
 ## TODO: inventory, and where phones come from
 

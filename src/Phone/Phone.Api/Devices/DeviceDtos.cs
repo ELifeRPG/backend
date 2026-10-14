@@ -73,7 +73,14 @@ public sealed record SuspendPhoneRequestDto(string Reason);
 /// OpenAPI document only describes what has a schema — an anonymous shape reaches a generated client
 /// as an untyped stream, which makes the response unusable to every consumer but curl.
 /// </summary>
-public sealed record PhoneAppDto(string Key, string DisplayName);
+public sealed record PhoneAppDto(string Key, string DisplayName, bool IsSystemApp)
+{
+    public static PhoneAppDto Create(InstalledApp source)
+    {
+        var definition = AppCatalog.Get(source.Key);
+        return new PhoneAppDto(definition.Key.ToString(), definition.DisplayName, definition.IsSystemApp);
+    }
+}
 
 /// <inheritdoc cref="PhoneAppDto"/>
 public sealed record SetPhonePowerResponseDto(bool IsPoweredOn);
