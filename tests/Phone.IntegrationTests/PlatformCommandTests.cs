@@ -59,7 +59,7 @@ public sealed class PlatformCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ProvisionPhone_ShipsWithEveryAppAndPoweredOff()
+    public async Task ProvisionPhone_ShipsWithItsSystemAppsAndPoweredOff()
     {
         var owner = new CharacterId(Guid.NewGuid());
         var phone = await ProvisionPhone(owner);
@@ -70,9 +70,15 @@ public sealed class PlatformCommandTests : IAsyncLifetime
         Assert.Equal(PhoneStatus.Active, loaded.Status);
         Assert.Equal(owner, loaded.RegisteredTo);
         Assert.Equal(phone.Number, loaded.Number);
-        foreach (var key in AppCatalog.Entries.Keys)
+        foreach (var definition in AppCatalog.SystemApps)
         {
-            Assert.True(loaded.HasApp(key), $"AppKey.{key} should ship installed.");
+            Assert.True(loaded.HasApp(definition.Key), $"AppKey.{definition.Key} should ship installed.");
+        }
+
+        // The store's whole purpose: these arrive by a player's choice, not with the handset.
+        foreach (var definition in AppCatalog.StoreApps)
+        {
+            Assert.False(loaded.HasApp(definition.Key), $"AppKey.{definition.Key} should not ship installed.");
         }
     }
 
@@ -191,20 +197,51 @@ public sealed class PlatformCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UninstallApp_ThenReinstall_IsAllowed()
+    public async Task InstallStoreApp_ThenUninstall_ThenReinstall_IsAllowed()
+    {
+        // The full lifecycle a store app has and a system app does not. Bank does not ship with the
+        // handset, so this starts from absent.
+        var owner = new CharacterId(Guid.NewGuid());
+        var phone = await ProvisionPhone(owner);
+        var actor = new PhoneActor(owner);
+
+        var installed = await Send(new InstallAppCommand(phone.Id, actor, AppKey.Bank));
+        ExpectCase(installed is InstallAppResult.Installed, "Installed", installed);
+
+        var uninstalled = await Send(new UninstallAppCommand(phone.Id, actor, AppKey.Bank));
+        ExpectCase(uninstalled is UninstallAppResult.Uninstalled, "Uninstalled", uninstalled);
+
+        var repeat = await Send(new UninstallAppCommand(phone.Id, actor, AppKey.Bank));
+        ExpectCase(repeat is UninstallAppResult.NotInstalled, "NotInstalled", repeat);
+
+        var reinstalled = await Send(new InstallAppCommand(phone.Id, actor, AppKey.Bank));
+        ExpectCase(reinstalled is InstallAppResult.Installed, "Installed", reinstalled);
+    }
+
+    [Fact]
+    public async Task UninstallApp_ForASystemApp_IsRefused()
     {
         var owner = new CharacterId(Guid.NewGuid());
         var phone = await ProvisionPhone(owner);
         var actor = new PhoneActor(owner);
 
-        var uninstalled = await Send(new UninstallAppCommand(phone.Id, actor, AppKey.Contacts));
-        ExpectCase(uninstalled is UninstallAppResult.Uninstalled, "Uninstalled", uninstalled);
+        var result = await Send(new UninstallAppCommand(phone.Id, actor, AppKey.Settings));
 
-        var repeat = await Send(new UninstallAppCommand(phone.Id, actor, AppKey.Contacts));
-        ExpectCase(repeat is UninstallAppResult.NotInstalled, "NotInstalled", repeat);
+        ExpectCase(result is UninstallAppResult.SystemApp, "SystemApp", result);
+        Assert.True((await Load(phone.Id)).HasApp(AppKey.Settings));
+    }
 
-        var reinstalled = await Send(new InstallAppCommand(phone.Id, actor, AppKey.Contacts));
-        ExpectCase(reinstalled is InstallAppResult.Installed, "Installed", reinstalled);
+    [Fact]
+    public async Task InstallApp_ForASystemApp_StaysAllowed()
+    {
+        // Deliberate: this is the only route by which a phone provisioned before an app existed ever
+        // receives it, so refusing it would strand every phone older than the app.
+        var owner = new CharacterId(Guid.NewGuid());
+        var phone = await ProvisionPhone(owner);
+
+        var result = await Send(new InstallAppCommand(phone.Id, new PhoneActor(owner), AppKey.Settings));
+
+        ExpectCase(result is InstallAppResult.AlreadyInstalled, "AlreadyInstalled", result);
     }
 
     // --- Enforcement ------------------------------------------------------------------------

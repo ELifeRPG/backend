@@ -2659,7 +2659,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Provisions a phone with a fresh number and a PIN, registered to a character. Ships powered off, with every app installed.",
+        "description": "Provisions a phone with a fresh number and a PIN, registered to a character. Ships powered off, with its system apps installed.",
         "operationId": "ProvisionPhone",
         "requestBody": {
           "content": {
@@ -2921,7 +2921,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Lists the apps installed on a phone.",
+        "description": "Lists the apps installed on a phone, and which of them are system apps that can not be removed.",
         "operationId": "ListPhoneApps",
         "parameters": [
           {
@@ -2966,7 +2966,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Installs an app. Every phone can run every app; installing Messages delivers anything queued while it was gone. Idempotent.",
+        "description": "Installs an app. Every phone can run every app, system apps included — installing one is how a phone provisioned before that app existed receives it. Idempotent.",
         "operationId": "InstallPhoneApp",
         "parameters": [
           {
@@ -3044,7 +3044,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Uninstalls an app. Idempotent; nothing is lost, and messages queue rather than vanish.",
+        "description": "Uninstalls a store app. Idempotent, and nothing stored is lost. A system app is refused: it is the phone's own software.",
         "operationId": "UninstallPhoneApp",
         "parameters": [
           {
@@ -3104,6 +3104,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4306,6 +4316,81 @@
           "required": true
         },
         "responses": {
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/app-store/apps": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Lists the apps the store offers, and whether this phone already has each one. The phone's own system apps are not offered — they can be neither installed nor removed from here.",
+        "operationId": "ListStoreApps",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StoreAppDto"
+                  }
+                }
+              }
+            }
+          },
           "403": {
             "description": "Forbidden",
             "content": {
@@ -6646,7 +6731,8 @@
       "PhoneAppDto": {
         "required": [
           "key",
-          "displayName"
+          "displayName",
+          "isSystemApp"
         ],
         "type": "object",
         "properties": {
@@ -6655,6 +6741,9 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "isSystemApp": {
+            "type": "boolean"
           }
         }
       },
@@ -7519,6 +7608,25 @@
         "properties": {
           "outcome": {
             "type": "string"
+          }
+        }
+      },
+      "StoreAppDto": {
+        "required": [
+          "key",
+          "displayName",
+          "isInstalled"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "isInstalled": {
+            "type": "boolean"
           }
         }
       },

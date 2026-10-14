@@ -8,4 +8,9 @@ public enum AppKey
 {
     Messages = 0,
     Contacts = 1,
+    Settings = 2,
+    Store = 3,
+    Phone = 4,
+    Bank = 5,
+    Map = 6,
 }

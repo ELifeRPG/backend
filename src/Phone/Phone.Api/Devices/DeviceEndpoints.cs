@@ -36,7 +36,7 @@ public static partial class PhoneModule
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .WithName("ProvisionPhone")
-            .WithDescription("Provisions a phone with a fresh number and a PIN, registered to a character. Ships powered off, with every app installed.");
+            .WithDescription("Provisions a phone with a fresh number and a PIN, registered to a character. Ships powered off, with its system apps installed.");
 
         group.MapGet("characters/{characterId:guid}/phones", async (
                 Guid characterId, IMediator mediator, CancellationToken cancellationToken) =>
@@ -132,9 +132,7 @@ public static partial class PhoneModule
                 return result switch
                 {
                     PhoneDeviceLookupResult.Found found => Results.Ok(
-                        found.Phone.InstalledApps.Select(app => new PhoneAppDto(
-                            app.Key.ToString(),
-                            AppCatalog.Get(app.Key).DisplayName))),
+                        found.Phone.InstalledApps.Select(PhoneAppDto.Create)),
                     PhoneDeviceLookupResult.NotFound => Results.Problem(
                         title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
                 };
@@ -143,7 +141,7 @@ public static partial class PhoneModule
             .Produces<IEnumerable<PhoneAppDto>>()
             .ProducesProblem(StatusCodes.Status404NotFound)
             .WithName("ListPhoneApps")
-            .WithDescription("Lists the apps installed on a phone.");
+            .WithDescription("Lists the apps installed on a phone, and which of them are system apps that can not be removed.");
 
         group.MapPut("phones/{phoneId:guid}/apps/{appKey}", async (
                 Guid phoneId,
@@ -180,7 +178,7 @@ public static partial class PhoneModule
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status410Gone)
             .WithName("InstallPhoneApp")
-            .WithDescription("Installs an app. Every phone can run every app; installing Messages delivers anything queued while it was gone. Idempotent.");
+            .WithDescription("Installs an app. Every phone can run every app, system apps included — installing one is how a phone provisioned before that app existed receives it. Idempotent.");
 
         group.MapDelete("phones/{phoneId:guid}/apps/{appKey}", async (
                 Guid phoneId,
@@ -204,6 +202,9 @@ public static partial class PhoneModule
                     // Uninstalling loses nothing — contacts and threads are the phone's — so a repeat is fine.
                     UninstallAppResult.Uninstalled => Results.NoContent(),
                     UninstallAppResult.NotInstalled => Results.NoContent(),
+                    UninstallAppResult.SystemApp => Results.Problem(
+                        title: "App is part of the phone's software and can not be uninstalled",
+                        statusCode: StatusCodes.Status409Conflict),
                     UninstallAppResult.PhoneNotFound => Results.Problem(
                         title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
                     UninstallAppResult.NotAuthorized => NotAuthorized(),
@@ -213,8 +214,9 @@ public static partial class PhoneModule
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("UninstallPhoneApp")
-            .WithDescription("Uninstalls an app. Idempotent; nothing is lost, and messages queue rather than vanish.");
+            .WithDescription("Uninstalls a store app. Idempotent, and nothing stored is lost. A system app is refused: it is the phone's own software.");
     }
 
     private static void MapEnforcement(RouteGroupBuilder group)

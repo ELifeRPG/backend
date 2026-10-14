@@ -69,6 +69,7 @@ public static partial class PhoneModule
         MapContacts(group);
         MapMessages(group);
         MapNotifications(group);
+        MapStore(group);
         MapAdmin(group);
 
         return app;
