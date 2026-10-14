@@ -3,7 +3,6 @@ using ELifeRPG.Phone.Application.Common;
 namespace ELifeRPG.Phone.Application.Apps.Store;
 
 /// <summary>
-/// A catalog entry as the store presents it: what it is, plus whether this phone already has it.
 /// The install state is the phone's, not the catalog's, which is why the store is a per-phone read
 /// rather than a static list.
 /// </summary>

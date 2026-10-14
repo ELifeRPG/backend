@@ -82,7 +82,6 @@ public union UninstallAppResult(
 
     public record NotInstalled;
 
-    /// <summary>The phone's own software, which no actor may remove — see <c>AppDefinition</c>.</summary>
     public record SystemApp;
 
     public record PhoneNotFound;

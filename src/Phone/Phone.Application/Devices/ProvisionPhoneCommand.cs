@@ -67,8 +67,7 @@ public sealed class ProvisionPhoneHandler(IPhoneDeviceRepository phoneRepository
             phoneRepository.StartStream(phone, provisioned);
 
             // A phone ships with its system apps, the way a real one arrives with its stock
-            // software: the dialer, texting, the address book, settings and the store. Bank and Map
-            // are the store's business, so a player installs those deliberately.
+            // software. Bank and Map are the store's business, so a player installs those.
             foreach (var definition in AppCatalog.SystemApps)
             {
                 phoneRepository.Append(phoneId, phone.InstallApp(definition.Key));

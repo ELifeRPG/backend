@@ -324,15 +324,9 @@ public sealed class NotificationTests : IAsyncLifetime
     [Fact]
     public async Task GuardChains_DifferOnlyByTheInstallCheck()
     {
-        // The regression test for the app-less guard chain, and the only one that can be: the two
-        // chains differ by exactly one question, and this asks it both ways against one phone at one
-        // moment. Granted from the device chain and AppNotInstalled from the app chain are mutually
-        // exclusive answers about the same handset — which is the point, and what makes this fail if
-        // the notification queue is ever rewired onto the app half.
-        //
-        // AppKey.Bank because a store app is the only kind a phone can lack. This used to be written
-        // by uninstalling Messages; Messages is a system app now, so that would refuse and assert
-        // nothing. A phone has never installed Bank, which gets to the same state without removing
+        // The two chains differ by one question, asked both ways against one phone at one moment.
+        // AppKey.Bank because a store app is the only kind a phone can lack — this was written by
+        // uninstalling Messages until Messages became a system app and that silently stopped doing
         // anything.
         var phone = await SetUpPhone();
 

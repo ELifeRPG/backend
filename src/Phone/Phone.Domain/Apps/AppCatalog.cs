@@ -20,21 +20,24 @@ public sealed record AppDefinition(AppKey Key, string DisplayName, bool IsSystem
 /// </summary>
 public static class AppCatalog
 {
+    /// <summary>
+    /// Declaration order is iteration order for <see cref="SystemApps"/> and <see cref="StoreApps"/>,
+    /// which is what a new phone installs in and what <c>GET /apps</c> returns — so it is kept in
+    /// step with <see cref="AppKey"/>'s ordinals rather than left to chance.
+    /// </summary>
     public static readonly IReadOnlyDictionary<AppKey, AppDefinition> Entries = new Dictionary<AppKey, AppDefinition>
     {
-        [AppKey.Messages] = new(AppKey.Messages, "Messages", IsSystemApp: true),
-        [AppKey.Contacts] = new(AppKey.Contacts, "Contacts", IsSystemApp: true),
         [AppKey.Settings] = new(AppKey.Settings, "Settings", IsSystemApp: true),
         [AppKey.Store] = new(AppKey.Store, "App Store", IsSystemApp: true),
         [AppKey.Phone] = new(AppKey.Phone, "Phone", IsSystemApp: true),
+        [AppKey.Messages] = new(AppKey.Messages, "Messages", IsSystemApp: true),
+        [AppKey.Contacts] = new(AppKey.Contacts, "Contacts", IsSystemApp: true),
         [AppKey.Bank] = new(AppKey.Bank, "Bank", IsSystemApp: false),
         [AppKey.Map] = new(AppKey.Map, "Map", IsSystemApp: false),
     };
 
-    /// <summary>What a new phone ships with — see <see cref="AppDefinition"/>.</summary>
     public static IEnumerable<AppDefinition> SystemApps => Entries.Values.Where(entry => entry.IsSystemApp);
 
-    /// <summary>What the store offers. The complement of <see cref="SystemApps"/>, by definition.</summary>
     public static IEnumerable<AppDefinition> StoreApps => Entries.Values.Where(entry => !entry.IsSystemApp);
 
     public static bool Contains(AppKey key) => Entries.ContainsKey(key);

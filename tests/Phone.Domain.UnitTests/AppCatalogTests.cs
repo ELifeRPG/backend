@@ -28,11 +28,9 @@ public class AppCatalogTests
     [Fact]
     public void SystemApps_AreTheOsApps()
     {
-        // Pinned as a set rather than checked per app: the flag decides whether an app can be
-        // removed from a handset at all, so flipping one by accident must fail a test rather than
-        // quietly make the dialer deletable — or Messages undeletable.
+        // Pinned as a set so flipping a flag by accident fails here rather than in the game.
         Assert.Equal(
-            [AppKey.Messages, AppKey.Contacts, AppKey.Settings, AppKey.Store, AppKey.Phone],
+            [AppKey.Settings, AppKey.Store, AppKey.Phone, AppKey.Messages, AppKey.Contacts],
             AppCatalog.SystemApps.Select(definition => definition.Key));
     }
 
@@ -46,8 +44,6 @@ public class AppCatalogTests
     [Fact]
     public void IsSystemApp_WithAnUndefinedKey_IsFalse()
     {
-        // Total where Get throws, because the uninstall path consults it and must not blow up on a
-        // key that names no app — it falls through to "not installed" instead.
         Assert.False(AppCatalog.IsSystemApp((AppKey)999));
     }
 

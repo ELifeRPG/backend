@@ -200,8 +200,6 @@ public class PhoneDeviceTests
     [Fact]
     public void UninstallApp_ForASystemApp_ThrowsSystemAppNotRemovable()
     {
-        // Thrown ahead of the installed check, so a phone provisioned before the app existed still
-        // hears "not removable" rather than "not installed".
         var phone = Phone();
 
         Assert.Throws<SystemAppNotRemovableException>(() => phone.UninstallApp(AppKey.Settings));

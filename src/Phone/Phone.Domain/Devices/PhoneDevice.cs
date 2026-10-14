@@ -116,9 +116,8 @@ public class PhoneDevice
 
     /// <summary>
     /// Every phone runs every app in the catalog — there are no models and no capability tiers, so
-    /// installing one is a player's choice rather than a permission. Allowed for a system app too,
-    /// and deliberately: it is the only route by which a phone provisioned before an app existed
-    /// ever receives it.
+    /// installing one is a player's choice rather than a permission. Allowed for a system app too —
+    /// see <see cref="AppDefinition"/>.
     /// </summary>
     public AppInstalled InstallApp(AppKey key)
     {

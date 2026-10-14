@@ -86,8 +86,11 @@ One flag divides the catalog. An `AppDefinition` with `IsSystemApp` is the phone
 
 | | Apps | Ships on a new phone | Can be uninstalled | Offered by the store |
 | --- | --- | --- | --- | --- |
-| **System** | Phone, Messages, Contacts, Settings, Store | yes | **no** | no |
+| **System** | Settings, Store, Phone, Messages, Contacts | yes | **no** | no |
 | **Store** | Bank, Map | no | yes | yes |
+
+Listed in `AppKey` order, which is the order a new phone installs them and the order
+`GET .../apps` returns them.
 
 A system app is refused by `PhoneDevice.UninstallApp`: deleting the dialer, the settings or the store
 itself would leave a handset nobody could repair from inside the game. **Installing one is still
@@ -97,11 +100,14 @@ ever receives it, and it is idempotent, so a bridge may call it freely.
 Uninstalling a store app loses nothing: contacts and threads belong to the phone, not to an app, so
 reinstalling brings them straight back.
 
-> **Phones provisioned before this split have only Messages and Contacts.** `AppInstalled` events
-> were never written for the other five, and nothing backfills them — so an older phone answers 409
-> `AppNotInstalled` on `GET /api/phones/{phoneId}/app-store/apps` until Store is installed on it via
-> `PUT /api/phones/{phoneId}/apps/store`. A `phone:manage` backfill command would be the fix if this
-> ever becomes a nuisance.
+> **Phone data from before this change has to be wiped, not migrated.** `AppKey` was renumbered to
+> leave 0 unassigned, so the ordinals already in Postgres mean something else now: a stored `0`
+> (Messages) names no app at all and makes `AppCatalog.Get` throw, and a stored `1` (Contacts) reads
+> as `Settings`. Older phones also only ever got `AppInstalled` events for two of the seven apps.
+> Drop the schema — `docker exec backend-postgres-1 psql -U postgres -c "DROP SCHEMA IF EXISTS phone
+> CASCADE;"`, or `docker compose down -v` for everything. There is no deployed environment, so this
+> costs local scratch phones only. A `phone:manage` backfill command would have covered the missing
+> apps, but not the renumbering, which is why it is not the answer here.
 
 `PhoneAccessPolicy` is three chains now, not two, each built for a different kind of surface:
 
@@ -435,7 +441,15 @@ not something Messages owns, even though Messages is the only publisher today.
 Nothing under `Devices/` is touched. `AppKey` is an **append-only** enum: ordinals are persisted in
 Marten payloads, so inserting a member mid-list remaps every stored value — and it now reaches two
 document types, `PhoneDevice`'s installed-app list and every `PhoneNotification`, so the blast radius
-of breaking that rule is wider than it used to be.
+of breaking that rule is wider than it used to be. `PhoneNotification` is the sharp edge: it is a
+plain document with no stream behind it, and the repository both filters and *deletes* on the
+ordinal, so a remap there changes which rows are removed rather than merely how they read.
+
+**Nothing sits at `AppKey` 0**, so a payload that is missing the field names no app instead of
+quietly naming whichever one sat there. This departs from ARCHITECTURE.md §9e's "make member 0 the
+safest real default" — see the reasoning on `AppKey` itself: there is no safe answer to "which app
+does this notification belong to", so an undefined value beats a plausible one. Your new member goes
+at the next free number, never at 0.
 
 `Bank`, `Map`, `Settings`, `Store` and `Phone` are in the catalog but only `Store` has routes of its
 own so far: the rest are installable, listable and guard-checked, and own no nouns yet. Step 2

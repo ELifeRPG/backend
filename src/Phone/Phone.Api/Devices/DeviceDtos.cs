@@ -72,9 +72,6 @@ public sealed record SuspendPhoneRequestDto(string Reason);
 /// An installed app as a client sees it. A named type rather than an anonymous object because the
 /// OpenAPI document only describes what has a schema — an anonymous shape reaches a generated client
 /// as an untyped stream, which makes the response unusable to every consumer but curl.
-///
-/// <paramref name="IsSystemApp"/> is what tells a client which of these rows it may offer to remove,
-/// without a second call to the store to find out by omission.
 /// </summary>
 public sealed record PhoneAppDto(string Key, string DisplayName, bool IsSystemApp)
 {
