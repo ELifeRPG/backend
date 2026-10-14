@@ -66,6 +66,33 @@ public interface IMessageThreadRepository
 }
 
 /// <summary>
+/// The platform notification queue. Shares the module's ambient <c>IPhoneSession</c> like every
+/// other Phone repository, so an app can publish a notification on the same commit as the append
+/// that caused it — see <see cref="Apps.Messages.SendMessageCommand"/>.
+///
+/// <c>Delete</c> and <c>DeleteForGroup</c> both take <paramref name="phoneId" /> deliberately: they
+/// scope the bulk delete to one phone's own rows, so an id supplied by the caller can never reach
+/// (and clear) another phone's queue.
+/// </summary>
+public interface IPhoneNotificationRepository
+{
+    /// <summary>Oldest first, matching the order a client should render banners in.</summary>
+    ValueTask<IReadOnlyList<PhoneNotification>> FindForPhoneAsync(PhoneDeviceId phoneId, AppKey? appKey, CancellationToken cancellationToken);
+
+    void Store(PhoneNotification notification);
+
+    void Delete(PhoneDeviceId phoneId, IReadOnlyList<Guid> ids);
+
+    /// <summary>
+    /// Everything in one (phone, app, group) — used when a thread is marked read, since reading a
+    /// conversation clears its banners even though acking a poll deliberately does not.
+    /// </summary>
+    void DeleteForGroup(PhoneDeviceId phoneId, AppKey appKey, string groupKey);
+
+    ValueTask SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// Deliberately separate from <see cref="IMessageThreadRepository"/>: the throttle counter does not
 /// need to commit atomically with delivery. If the count lands and the send then fails, the caller
 /// has spent one message's worth of quota — which fails closed, the safe direction for a throttle.

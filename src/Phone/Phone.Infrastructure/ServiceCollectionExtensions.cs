@@ -2,6 +2,7 @@ using ELifeRPG.Phone.Application.Common;
 using ELifeRPG.Phone.Domain.Apps.Contacts;
 using ELifeRPG.Phone.Domain.Apps.Messages;
 using ELifeRPG.Phone.Domain.Devices;
+using ELifeRPG.Phone.Domain.Notifications;
 using ELifeRPG.Phone.Infrastructure.Common;
 using ELifeRPG.Shared.Infrastructure;
 using JasperFx.Events.Projections;
@@ -35,6 +36,10 @@ public static class PhoneInfrastructureExtensions
 
             // A thread is looked up on exactly this pair on the hot path of every send.
             options.Schema.For<MessageThread>().Index(x => x.ThreadKey);
+
+            // Unlike PendingDelivery (read once, on power-on), this table is read by every phone on
+            // every poll — it cannot afford to be unindexed.
+            options.Schema.For<PhoneNotification>().Index(x => x.PhoneIdValue);
         });
 
         // Injected rather than called statically so the rate-limit window is testable without waiting
@@ -47,6 +52,7 @@ public static class PhoneInfrastructureExtensions
         services.TryAddScoped<IPhoneDeviceRepository, MartenPhoneDeviceRepository>();
         services.TryAddScoped<IContactBookRepository, MartenContactBookRepository>();
         services.TryAddScoped<IMessageThreadRepository, MartenMessageThreadRepository>();
+        services.TryAddScoped<IPhoneNotificationRepository, MartenPhoneNotificationRepository>();
         services.TryAddScoped<IPhoneSendWindowRepository, MartenPhoneSendWindowRepository>();
         services.TryAddScoped<IPhoneModerationRepository, MartenPhoneModerationRepository>();
 

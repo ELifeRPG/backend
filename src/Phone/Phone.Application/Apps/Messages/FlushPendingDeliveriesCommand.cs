@@ -1,5 +1,6 @@
 using ELifeRPG.Accounts.Application.Hive;
 using ELifeRPG.Phone.Application.Common;
+using ELifeRPG.Phone.Application.Notifications;
 using ELifeRPG.Phone.Domain.Devices;
 
 namespace ELifeRPG.Phone.Application.Apps.Messages;
@@ -19,6 +20,7 @@ public sealed record FlushPendingDeliveriesCommand(PhoneDeviceId PhoneId) : IReq
 public sealed class FlushPendingDeliveriesHandler(
     IPhoneDeviceRepository phoneRepository,
     IMessageThreadRepository threadRepository,
+    IPhoneNotificationRepository notificationRepository,
     IMediator mediator)
     : IRequestHandler<FlushPendingDeliveriesCommand, FlushPendingDeliveriesResult>
 {
@@ -41,6 +43,12 @@ public sealed class FlushPendingDeliveriesHandler(
 
         var settings = await mediator.Send(new HiveSettingsQuery(), cancellationToken);
 
+        // Accumulated across the whole flush and published once below, not per delivery: several
+        // pending messages for this one phone must be fitted against the cap together, and
+        // PhoneNotifications.PublishAsync only sees what a single commit is about to add if it is
+        // handed the whole batch at once — see its own doc comment.
+        var notifications = new List<PhoneNotification>();
+
         foreach (var delivery in pending)
         {
             var thread = await MessageThreads.FindOrStartAsync(
@@ -53,10 +61,23 @@ public sealed class FlushPendingDeliveriesHandler(
                     delivery.MessageId, delivery.From, delivery.Body, delivery.SentAt, settings.PhoneThreadMessageLimit));
 
             threadRepository.DeletePending(delivery.Id);
+
+            notifications.Add(PhoneNotification.Create(
+                phone.Id,
+                AppKey.Messages,
+                category: "message.received",
+                groupKey: thread.Id.Value.ToString(),
+                title: delivery.From.Value,
+                body: delivery.Body,
+                payload: new Dictionary<string, string> { ["threadId"] = thread.Id.Value.ToString(), ["messageId"] = delivery.MessageId.Value.ToString() },
+                occurredAt: delivery.SentAt));
         }
 
-        // One commit for the appends and the dequeues together, so a message can never be both
-        // delivered and still waiting — nor dropped without ever arriving.
+        await PhoneNotifications.PublishAsync(
+            notificationRepository, phone.Id, notifications, settings.PhoneNotificationLimit, cancellationToken);
+
+        // One commit for the appends, the dequeues and the notifications together, so a message can
+        // never be both delivered and still waiting — nor dropped without ever arriving.
         await threadRepository.SaveChangesAsync(cancellationToken);
 
         return new FlushPendingDeliveriesResult(pending.Count, 0);

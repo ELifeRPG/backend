@@ -229,6 +229,45 @@ public sealed class PhonePersistenceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task MessageThread_SequenceAndRetrievedThrough_SurviveAReload()
+    {
+        // The inline projection re-declares no Apply of its own (see Phone.Infrastructure's
+        // Projections.cs) — Marten's generator finds MessageThread.Apply directly. This is the only
+        // thing that proves it actually picked up Apply(ThreadRetrievedThrough) rather than silently
+        // ignoring an event it has no handler for, which is the real failure mode: a stale document,
+        // not an exception.
+        var phoneId = new PhoneDeviceId(Guid.NewGuid());
+        var participant = UniqueNumber();
+        var started = MessageThread.Start(
+            new MessageThreadId(Guid.NewGuid()), phoneId, UniqueNumber(), [participant], MaxGroupParticipants);
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
+            var thread = MessageThread.Create(started);
+            repository.StartStream(thread, started);
+
+            repository.Append(thread.Id, thread.RecordInbound(
+                new MessageId(Guid.NewGuid()), participant, "one", DateTimeOffset.UtcNow, RetentionLimit));
+            repository.Append(thread.Id, thread.RecordInbound(
+                new MessageId(Guid.NewGuid()), participant, "two", DateTimeOffset.UtcNow, RetentionLimit));
+            repository.Append(thread.Id, thread.MarkRetrievedThrough(1));
+
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IMessageThreadRepository>();
+            var reloaded = await repository.FindByIdAsync(started.Id, CancellationToken.None);
+
+            Assert.Equal([1, 2], reloaded!.Messages.Select(message => message.Sequence));
+            Assert.Equal(3, reloaded.NextSequence);
+            Assert.Equal(1, reloaded.RetrievedThrough);
+        }
+    }
+
+    [Fact]
     public async Task PendingDeliveries_AreStoredQueriedAndDeleted()
     {
         var phoneId = new PhoneDeviceId(Guid.NewGuid());

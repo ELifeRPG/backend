@@ -65,22 +65,22 @@ public sealed class ThreadHandler(
 }
 
 /// <summary>
-/// One thread's metadata paired with just the messages the caller has not seen. The thread itself is
-/// a Marten-projected aggregate with private setters, so "the same thread carrying fewer messages"
-/// cannot be expressed as a copy of it — and should not be: a poll answers "what is new", which is a
-/// different question from "what does this thread hold".
+/// One thread's metadata paired with just the messages the caller has not retrieved yet. The thread
+/// itself is a Marten-projected aggregate with private setters, so "the same thread carrying fewer
+/// messages" cannot be expressed as a copy of it — and should not be: a poll answers "what is new",
+/// which is a different question from "what does this thread hold".
 /// </summary>
 public sealed record MessageThreadUpdate(MessageThread Thread, IReadOnlyList<Message> NewMessages);
 
 public union MessageUpdatesResult(MessageUpdatesResult.Updates, MessageUpdatesResult.AccessDenied)
 {
     /// <summary>
-    /// <paramref name="PolledAt"/> is the cursor to send on the next call. It is stamped before the
-    /// read, so a message committed in the same instant lands on the next poll's side of the cursor
-    /// instead of falling through it. Delivery is therefore at-least-once and a caller dedupes on
-    /// <see cref="MessageId"/> — the safe direction, since the alternative is silently losing one.
+    /// Only threads with at least one message above their own <see cref="MessageThread.RetrievedThrough"/>
+    /// are reported. There is no cursor to hand back here: retrieval is a server-tracked watermark
+    /// per thread now, advanced explicitly through <see cref="AckMessageUpdatesCommand"/> — polling
+    /// itself moves nothing.
     /// </summary>
-    public record Updates(IReadOnlyList<MessageThreadUpdate> Threads, DateTimeOffset PolledAt);
+    public record Updates(IReadOnlyList<MessageThreadUpdate> Threads);
 
     public record AccessDenied(PhoneAccessResult Reason);
 }
@@ -91,24 +91,19 @@ public union MessageUpdatesResult(MessageUpdatesResult.Updates, MessageUpdatesRe
 /// delivery convenience and never the source of truth — retention trimming (see MessageThread.Append)
 /// can evict a message before a slow poller sees it, and ThreadQuery remains the authority.
 ///
-/// A null <paramref name="Since"/> means "everything", which is what a client sends on connect.
-/// Polling never marks anything read; MarkThreadReadCommand stays the only thing that does.
+/// Polling never marks anything read *or* retrieved: <see cref="MarkThreadReadCommand"/> is the only
+/// thing that clears <see cref="MessageThread.UnreadCount"/>, and only
+/// <see cref="AckMessageUpdatesCommand"/> advances <see cref="MessageThread.RetrievedThrough"/>.
 /// </summary>
-public sealed record MessageUpdatesQuery(PhoneDeviceId PhoneId, DateTimeOffset? Since)
-    : IRequest<MessageUpdatesResult>;
+public sealed record MessageUpdatesQuery(PhoneDeviceId PhoneId) : IRequest<MessageUpdatesResult>;
 
 public sealed class MessageUpdatesHandler(
     IPhoneDeviceRepository phoneRepository,
-    IMessageThreadRepository threadRepository,
-    TimeProvider timeProvider)
+    IMessageThreadRepository threadRepository)
     : IRequestHandler<MessageUpdatesQuery, MessageUpdatesResult>
 {
     public async ValueTask<MessageUpdatesResult> Handle(MessageUpdatesQuery request, CancellationToken cancellationToken)
     {
-        // Stamped before the read, deliberately: a message that commits between here and the query
-        // must fall after the cursor we hand back, not be skipped by it.
-        var polledAt = timeProvider.GetUtcNow();
-
         var access = await PhoneAccessPolicy.AuthorizeAsync(
             request.PhoneId, AppKey.Messages, phoneRepository, cancellationToken);
 
@@ -119,24 +114,96 @@ public sealed class MessageUpdatesHandler(
 
         var threads = await threadRepository.FindByPhoneAsync(request.PhoneId, cancellationToken);
 
-        if (request.Since is not { } since)
-        {
-            return new MessageUpdatesResult.Updates(
-                [.. threads.Select(thread => new MessageThreadUpdate(thread, thread.Messages))],
-                polledAt);
-        }
-
         // Filtered in memory rather than in the query: FindByPhoneAsync already loads this phone's
         // whole set for ThreadsHandler, and a phone holds few enough threads for that to be the
         // simpler trade.
         var changed = threads
-            .Where(thread => thread.LastMessageAt > since)
             .Select(thread => new MessageThreadUpdate(
                 thread,
-                [.. thread.Messages.Where(message => message.SentAt > since)]))
+                [.. thread.Messages.Where(message => message.Sequence > thread.RetrievedThrough)]))
+            .Where(update => update.NewMessages.Count > 0)
             .ToList();
 
-        return new MessageUpdatesResult.Updates(changed, polledAt);
+        return new MessageUpdatesResult.Updates(changed);
+    }
+}
+
+/// <summary>One thread's high-water sequence to ack, as sent by the client.</summary>
+public sealed record ThreadRetrievalAck(MessageThreadId ThreadId, int ThroughSequence);
+
+/// <summary>One thread's watermark as it stands after the ack, echoed back so a client can see the
+/// clamp take effect without a second call.</summary>
+public sealed record ThreadWatermark(MessageThreadId ThreadId, int RetrievedThrough);
+
+public union AckMessageUpdatesResult(AckMessageUpdatesResult.Acknowledged, AckMessageUpdatesResult.AccessDenied)
+{
+    /// <summary>
+    /// <paramref name="UnknownThreadIds"/> covers a thread id this phone does not own, the same way
+    /// <see cref="ThreadQuery"/> reports a foreign thread as not-found rather than forbidden: whether
+    /// some other number holds a given thread id is not this caller's business.
+    /// </summary>
+    public record Acknowledged(IReadOnlyList<ThreadWatermark> Watermarks, IReadOnlyList<MessageThreadId> UnknownThreadIds);
+
+    public record AccessDenied(PhoneAccessResult Reason);
+}
+
+/// <summary>
+/// Advances the retrieval watermark on each named thread. A half-processed batch is safe to send as
+/// is — a thread is simply left off <paramref name="Acks"/> until the caller has actually finished
+/// with it — and re-sending the same ack twice is a no-op, because
+/// <see cref="MessageThread.MarkRetrievedThrough"/> applies as a max.
+/// </summary>
+public sealed record AckMessageUpdatesCommand(PhoneDeviceId PhoneId, IReadOnlyList<ThreadRetrievalAck> Acks)
+    : IRequest<AckMessageUpdatesResult>;
+
+public sealed class AckMessageUpdatesHandler(
+    IPhoneDeviceRepository phoneRepository,
+    IMessageThreadRepository threadRepository)
+    : IRequestHandler<AckMessageUpdatesCommand, AckMessageUpdatesResult>
+{
+    public async ValueTask<AckMessageUpdatesResult> Handle(AckMessageUpdatesCommand request, CancellationToken cancellationToken)
+    {
+        var access = await PhoneAccessPolicy.AuthorizeAsync(
+            request.PhoneId, AppKey.Messages, phoneRepository, cancellationToken);
+
+        if (access is not PhoneAccessResult.Granted)
+        {
+            return new AckMessageUpdatesResult.AccessDenied(access);
+        }
+
+        var watermarks = new List<ThreadWatermark>();
+        var unknown = new List<MessageThreadId>();
+
+        // Take the highest per thread id first: a caller sending the same thread twice in one batch
+        // (a client bug, or two merged polls) must not have the lower entry silently win by running
+        // last.
+        var highestPerThread = request.Acks
+            .GroupBy(ack => ack.ThreadId)
+            .Select(group => group.OrderByDescending(ack => ack.ThroughSequence).First());
+
+        foreach (var ack in highestPerThread)
+        {
+            var thread = await threadRepository.FindByIdAsync(ack.ThreadId, cancellationToken);
+            if (thread is null || thread.OwnerPhoneId != request.PhoneId)
+            {
+                unknown.Add(ack.ThreadId);
+                continue;
+            }
+
+            // Load-bearing, not an optimisation: without this, a client polling on an idle timer and
+            // acking unconditionally would append one ThreadRetrievedThrough event per poll, forever,
+            // even though MarkRetrievedThrough's own Apply is a safe no-op either way.
+            if (ack.ThroughSequence > thread.RetrievedThrough)
+            {
+                threadRepository.Append(thread.Id, thread.MarkRetrievedThrough(ack.ThroughSequence));
+            }
+
+            watermarks.Add(new ThreadWatermark(thread.Id, thread.RetrievedThrough));
+        }
+
+        await threadRepository.SaveChangesAsync(cancellationToken);
+
+        return new AckMessageUpdatesResult.Acknowledged(watermarks, unknown);
     }
 }
 
@@ -157,7 +224,8 @@ public sealed record MarkThreadReadCommand(PhoneDeviceId PhoneId, MessageThreadI
 
 public sealed class MarkThreadReadHandler(
     IPhoneDeviceRepository phoneRepository,
-    IMessageThreadRepository threadRepository)
+    IMessageThreadRepository threadRepository,
+    IPhoneNotificationRepository notificationRepository)
     : IRequestHandler<MarkThreadReadCommand, MarkThreadReadResult>
 {
     public async ValueTask<MarkThreadReadResult> Handle(MarkThreadReadCommand request, CancellationToken cancellationToken)
@@ -177,6 +245,12 @@ public sealed class MarkThreadReadHandler(
         }
 
         threadRepository.Append(request.ThreadId, thread.MarkRead());
+
+        // Reading a conversation clears its banners even though acking a poll deliberately does not
+        // — see PhoneNotification's own doc comment. One commit for the append and the notification
+        // delete together, on the shared IPhoneSession.
+        notificationRepository.DeleteForGroup(request.PhoneId, AppKey.Messages, request.ThreadId.Value.ToString());
+
         await threadRepository.SaveChangesAsync(cancellationToken);
 
         return new MarkThreadReadResult.MarkedRead();

@@ -2,7 +2,9 @@
 
 A device platform. Texting and the address book are the first two **apps** on it; banking, company
 management or a camera would be later ones, and none of them should need the platform reworked. See
-[MIGRATION.md](../MIGRATION.md) for how this fits the overall migration plan.
+[MIGRATION.md](../MIGRATION.md) for how this fits the overall migration plan. Alongside the apps sits
+one platform-level, app-independent notification queue — see [Notifications](#notifications) — so
+`Notifications/` in the source tree is not itself an app.
 
 Phone data is hive-wide: a number reaches its owner regardless of which gameserver they are on, the
 same model [Shops](./shops.md) and the whitelist moved to on 2026-08-22. Nothing here carries a
@@ -22,12 +24,15 @@ tiering went with it: there is no `PhoneModel` catalog any more, and every phone
 
 Two consequences worth internalising:
 
-- **Limits are hive-wide, not per handset.** `PhoneContactLimit`, `PhoneThreadMessageLimit` and
-  `PhoneMaxGroupParticipants` live on `hiveSettings` next to `smsPerMinutePerPhone` and
-  `smsMaxBodyLength`, and are editable at runtime through `PATCH /api/hive/settings`. Retention is
-  applied when a message arrives and the limit that applied rides on the event, so replaying a
-  stream rebuilds exactly the history that existed — and lowering the cap costs a thread its backlog
-  on its *next* message rather than at once.
+- **Limits are hive-wide, not per handset.** `PhoneContactLimit`, `PhoneThreadMessageLimit`,
+  `PhoneMaxGroupParticipants` and `PhoneNotificationLimit` live on `hiveSettings` next to
+  `smsPerMinutePerPhone` and `smsMaxBodyLength`, and are editable at runtime through
+  `PATCH /api/hive/settings`. Retention is applied when a message arrives and the limit that applied
+  rides on the event, so replaying a stream rebuilds exactly the history that existed — and lowering
+  the cap costs a thread its backlog on its *next* message rather than at once.
+  `PhoneNotificationLimit` is a queue depth, not a retention window: it caps what a phone's
+  notification queue may hold, oldest dropped first, and is read fresh at publish time rather than
+  carried on anything.
 - **The PIN replaced the biolock.** A handset used to be bound to one character forever, which made
   a dropped or looted phone a brick. Now possession plus the PIN is enough. See below.
 
@@ -80,24 +85,69 @@ What installing still governs is delivery. Uninstalling Messages does not lose a
 and threads belong to the phone — and incoming messages queue rather than vanish, arriving when it
 is installed again.
 
-Every app command runs one shared guard chain, `PhoneAccessPolicy`:
+`PhoneAccessPolicy` is three chains now, not two, each built for a different kind of surface:
 
-1. The phone exists.
-2. The phone is `Active` (not suspended, not deactivated).
-3. The phone is powered on, and the app is installed.
+1. **The app chain** — every app command runs this. The phone exists; it is `Active` (not suspended,
+   not deactivated); it is powered on; the named app is installed. Adding an app buys all four for
+   the cost of one call. See [Adding an app](#adding-an-app).
+2. **The device chain** — the app chain minus the install step, for platform surfaces that belong to
+   the handset rather than to anything running on it. The notification queue is the first of these:
+   a notification is reachable with every app uninstalled, and refused only when the phone itself is
+   not usable. The app chain is a thin wrapper over this one, adding only the install check.
+3. **The possession check**, `PhoneAccessPolicy.IsAuthorized` — ownership-or-PIN, used by the five
+   platform commands (provision, power, PIN change, app install/uninstall) instead of either chain
+   above. It checks neither power nor an installed app, deliberately: you cannot require a phone to
+   be switched on in order to switch it on. This is where possession is proven, and the other two
+   chains lean on it having already run.
 
-Adding an app buys all three for the cost of one call. See [Adding an app](#adding-an-app).
-
-There is no ownership step: step 3 already implies one, since powering the phone on required it.
-
-Platform commands run a *different* chain, not a shorter one. Power, apps and the PIN itself check
-ownership-or-PIN via `PhoneAccessPolicy.IsAuthorized` but not power or an installed app — you cannot
-require a phone to be switched on in order to switch it on. That is where possession is proven.
+There is no ownership step on the app or device chains: being powered on already implies one, since
+powering the phone on is where the possession check ran.
 
 Everything an app owns is rooted under `/api/phones/{phoneId}/apps/{appKey}/`, mirroring the
 `Apps/<Name>/` folders in Domain, Application and Api. A new app owns that prefix outright, so two
 apps can never race each other for the same noun. The blocklist is under Messages for that reason:
 it is one app's list, and its URL and its guard chain agree about which.
+
+## Notifications
+
+A platform-level, app-independent banner queue — the APNs/FCM idea, grafted onto a phone that has no
+OS of its own. `PhoneNotification` in `Phone.Domain/Notifications` is a plain document, not an
+event: like `PendingDelivery`, this is delivery state rather than history worth replaying, and it is
+**immutable once written** — nothing is ever updated in place, only stored or deleted whole. That is
+what lets a client ack a batch of ids with no version field to race.
+
+| iOS/Android | Here |
+| --- | --- |
+| One OS-level push channel; apps do not each hold a connection | `GET`/`POST /api/phones/{phoneId}/notifications*`, outside `/apps/` |
+| Routed by device token + app id | `phoneId` + `AppKey` |
+| Alert payload renders without the OS knowing the app | Fat payload: title, body, category, ready to render with no second call |
+| `category` picks icon/sound within an app | `Category`, a free-form string — `"message.received"` today |
+| `thread-id` groups banners ("3 from Jane") | `GroupKey` — the recipient's own thread id, for Messages |
+| Badge is app-owned, set explicitly | `UnreadCount` / `MarkThreadRead`, untouched by any of this |
+| Push is best-effort; the app's own sync is the truth | The queue is delivery; `GET .../threads/{id}` stays truth |
+
+- **Explicit ack, not implicit-on-read.** `GET /api/phones/{phoneId}/notifications` never removes
+  anything on its own — a lost response must not lose a notification. `POST
+  /api/phones/{phoneId}/notifications/ack` with `{"ids": [...]}` is what deletes them, and it is
+  idempotent: an id already gone (already acked, already trimmed by the cap) is silently ignored
+  rather than reported, so a caller unsure whether an earlier ack landed can just resend it.
+- **`?appKey=` filters** a `GET`, using the same `AppKey` values as everywhere else in this module.
+- **Reading a thread clears its banners; acking one does not.** `MarkThreadReadCommand` deletes that
+  thread's queued notifications (matched on `GroupKey`) in the same commit that clears
+  `UnreadCount` — the real-phone rule. Acking a poll only removes rows the caller named; it says "I
+  saw this banner", not "I opened the conversation", and the two are deliberately independent (see
+  [Threads](#threads) for the message-side version of the same split).
+- **The cap drops oldest first**, no TTL — `hiveSettings.PhoneNotificationLimit`, checked at publish
+  time. This is the "we do not accumulate a backlog" property APNs has, not a retention policy.
+- **The guard chain is the device half of `PhoneAccessPolicy`**, not the app half — see
+  [Apps](#apps). A notification is reachable with the publishing app uninstalled, refused only when
+  the phone itself is not usable: a powered-off phone's queue is `409`, a suspended one `403`.
+- **Publication is the publishing app's job**, on the same `IPhoneSession` as whatever caused it, so
+  the notification commits atomically with the change it describes. The platform never composes one
+  itself and stores no opinion about what any app's `Category` or `Payload` mean.
+- **Titles carry the bare sender number, not a resolved name.** Messages deliberately does not read
+  Contacts (see [Threads](#threads)) — a banner is not a reason to reverse that, so the mod resolves
+  a display name itself, the same call it already makes to draw a thread.
 
 ## Routes
 
@@ -116,6 +166,9 @@ Platform            POST   /api/phones
 Enforcement         POST   /api/phones/{phoneId}/suspend
                     POST   /api/phones/{phoneId}/restore
 
+Notifications       GET    /api/phones/{phoneId}/notifications
+                    POST   /api/phones/{phoneId}/notifications/ack
+
 Contacts app        GET    /api/phones/{phoneId}/apps/contacts/entries
                     POST   /api/phones/{phoneId}/apps/contacts/entries
                     PATCH  /api/phones/{phoneId}/apps/contacts/entries/{contactId}
@@ -124,6 +177,7 @@ Contacts app        GET    /api/phones/{phoneId}/apps/contacts/entries
 Messages app        GET    /api/phones/{phoneId}/apps/messages/threads
                     GET    /api/phones/{phoneId}/apps/messages/threads/{threadId}
                     GET    /api/phones/{phoneId}/apps/messages/updates
+                    POST   /api/phones/{phoneId}/apps/messages/updates/ack
                     POST   /api/phones/{phoneId}/apps/messages/threads/{threadId}/read
                     POST   /api/phones/{phoneId}/apps/messages/send
                     POST   /api/phones/{phoneId}/apps/messages/blocks
@@ -134,7 +188,8 @@ Staff               GET    /api/admin/phones
 ```
 
 `send` is a verb rather than a POST to a collection on purpose: a send is not the creation of one
-thing, it fans out across the sender's thread and every reachable recipient's.
+thing, it fans out across the sender's thread and every reachable recipient's. `updates` no longer
+takes a `since` query parameter — see [Polling, for clients without a socket](#polling-for-clients-without-a-socket).
 
 ## Authorization
 
@@ -163,6 +218,10 @@ break. They are registered now, on `gameserver-dev` and `staff-admin-dev` respec
 `phone:enforce` is deliberately its own scope rather than part of `phone:manage`, so an in-game
 Police/State faction can be granted exactly that later without also gaining moderation powers.
 
+The notification routes need no scope of their own: `gameserver:phone:read` and
+`gameserver:phone:write` already cover them, and `infra/keycloak/eliferpg-realm.json` did not
+change for this — a `gameserver:phone:notify` scope would be redundant, not an oversight.
+
 ## Walkthrough
 
 Needs `$BRIDGE_TOKEN` (see [Accounts](./accounts.md)) and a `characterId` from
@@ -185,13 +244,26 @@ curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/apps/messages/send \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
   -d "{\"to\":[\"$OTHER_NUMBER\"],\"body\":\"on my way\"}"
 
-# Polling for what arrived. Keep the polledAt you get back and send it as the next `since`.
+# Polling for what arrived. There is no cursor to hold onto any more — retrieval is a
+# server-tracked watermark per thread, advanced explicitly by acking what you actually processed.
 UPDATES=$(curl -s "http://localhost:5100/api/phones/$PHONE_ID/apps/messages/updates" \
   -H "Authorization: Bearer $BRIDGE_TOKEN")
-CURSOR=$(echo "$UPDATES" | python3 -c "import json,sys; print(json.load(sys.stdin)['polledAt'])")
+THREAD_ID=$(echo "$UPDATES" | python3 -c "import json,sys; print(json.load(sys.stdin)['threads'][0]['id'])")
+HIGHEST=$(echo "$UPDATES" | python3 -c "import json,sys; print(json.load(sys.stdin)['threads'][0]['highestSequence'])")
 
-curl -s "http://localhost:5100/api/phones/$PHONE_ID/apps/messages/updates?since=$CURSOR" \
-  -H "Authorization: Bearer $BRIDGE_TOKEN"
+curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/apps/messages/updates/ack \
+  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
+  -d "{\"threads\":[{\"threadId\":\"$THREAD_ID\",\"throughSequence\":$HIGHEST}]}"
+
+# The same message also posted a notification, app-independent of Messages — reachable through the
+# platform queue rather than /apps/messages/.
+NOTIFICATIONS=$(curl -s "http://localhost:5100/api/phones/$PHONE_ID/notifications" \
+  -H "Authorization: Bearer $BRIDGE_TOKEN")
+NOTIFICATION_ID=$(echo "$NOTIFICATIONS" | python3 -c "import json,sys; print(json.load(sys.stdin)['notifications'][0]['id'])")
+
+curl -s -X POST http://localhost:5100/api/phones/$PHONE_ID/notifications/ack \
+  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
+  -d "{\"ids\":[\"$NOTIFICATION_ID\"]}"
 ```
 
 Numbers are eight digits. They are typed by hand in game, so the API accepts spaces, dashes,
@@ -230,12 +302,30 @@ Queued messages are delivered when the number becomes reachable again: powering 
 installing Messages. Both are safe to repeat — a still-unreachable phone simply leaves everything
 queued, and each delivery leaves the queue in the same commit that appends it to the thread.
 
+**Every append to a recipient's thread also posts a notification**, in that same commit — see
+[Notifications](#notifications). Undeliverable, queued and blocked recipients get none: a
+notification is a consequence of an append, and none of those three append anything.
+
 ## Threads
 
 A thread is keyed by *(phone, participant set)*. There is no group object to create, name or
 administer — addressing two people simply lands in the thread for those two people, and addressing
 them again in the other order lands in the same one. From a recipient's side the thread is "everyone
-else", meaning the sender plus the other recipients.
+else", meaning the sender plus the other recipients. Threads store bare numbers; resolving a display
+name is the Contacts app's job, on the client — Messages deliberately does not read Contacts, and a
+notification's title does not either, for the same reason (see [Notifications](#notifications)).
+
+Every message carries a per-thread `Sequence`: an ever-increasing counter, not the message's position
+in the retained list. It has to be a counter rather than an index because retention trims the front
+of that list — an index would be reused by whatever slides into the gap, silently colliding with
+history. `RetrievedThrough` is the high-water sequence a poller has told the thread it retrieved.
+
+**Retrieved and read are deliberately independent axes.** Retrieved means the mod pulled the content
+down — advanced only by acking `GET .../apps/messages/updates` (see
+[Polling](#polling-for-clients-without-a-socket)). Read means the player opened the thread — the only
+thing `POST .../threads/{threadId}/read` still does, exactly as before. Acking a poll never touches
+`UnreadCount`, and marking a thread read never touches `RetrievedThrough`: a background poll must not
+silently clear a player's unread badge, and opening a thread is not the same fact as a sync finishing.
 
 ## Rate limiting
 
@@ -254,25 +344,40 @@ limit; that is well within what this throttle is for.
   takes *ownership*, not the PIN — a live subscription is a standing grant rather than a single act,
   so it is deliberately narrower than what the guard chain allows a borrower to do.
 - Groups are keyed by phone, so one subscription carries every app's events.
-- Events: `MessageReceived`, `ThreadUpdated`.
+- Events: `MessageReceived`, `ThreadUpdated`, `NotificationPosted`.
 - As with Shops, the hub is a delivery convenience and **never the source of truth**. Re-fetch on
   reconnect.
+- `NotificationPosted` is pushed from the send path only, not from the power-on flush that delivers a
+  queued backlog. The flush pushes nothing over this hub today, and wiring it in would mean threading
+  a result through three more layers to feed a hub that is never the source of truth anyway, for a
+  phone that is about to `GET /notifications` as part of booting regardless.
 
 ### Polling, for clients without a socket
 
 ArmA Reforger has no SignalR client, so the gameserver Bridge cannot hold a hub connection. It polls
-`GET /api/phones/{phoneId}/apps/messages/updates` instead: omit `since` for everything, then send
-back the `polledAt` you were handed as the next `since`.
+two independent surfaces instead, both delivery rather than truth:
 
-- `polledAt` is stamped **before** the read, so a message committing in the same instant falls on the
-  next poll's side of the cursor rather than through it. Delivery is at-least-once — dedupe on
-  message id.
+**Messages** — `GET /api/phones/{phoneId}/apps/messages/updates` reports every message this phone has
+not yet retrieved. There is no cursor to hold: retrieval is a server-tracked watermark per thread
+(see [Threads](#threads)), advanced only by `POST /api/phones/{phoneId}/apps/messages/updates/ack`
+with the per-thread sequence you actually finished processing.
+
+- Delivery is at-least-once — dedupe on message id. A half-processed batch is safe to ack partially:
+  a thread you have not finished with is simply left off the ack, and re-sending the same ack twice
+  is a no-op.
 - It runs the same guard chain as any other Messages operation, so a powered-off phone polls `409`
   and a suspended one `403`.
-- Polling never marks anything read. `POST .../threads/{threadId}/read` remains the only thing that
-  clears an unread count.
+- Polling marks nothing — neither read nor retrieved. `POST .../threads/{threadId}/read` remains the
+  only thing that clears an unread count, and only the ack above advances `RetrievedThrough`.
 - Retention still applies: a message can be trimmed before a slow poller sees it, which is why the
   hub's rule holds here too — this is delivery, and `GET .../threads/{threadId}` is the truth.
+- Acking requires the phone powered on, like any Messages operation. A power-cycle between polls
+  therefore re-delivers whatever the last poll returned but never got acked — at-least-once, the safe
+  direction, not a bug.
+
+**Notifications** — `GET /api/phones/{phoneId}/notifications` and its `ack`, covered in
+[Notifications](#notifications). A separate surface on purpose: it is app-independent platform state,
+not something Messages owns, even though Messages is the only publisher today.
 
 ## Adding an app
 
@@ -283,9 +388,16 @@ back the `polledAt` you were handed as the next `since`.
 4. Call `PhoneAccessPolicy` with the new key and inherit phone status, ownership-or-PIN, power state
    and the install check unchanged.
 5. New hub event names on the existing per-phone group.
+6. Optionally, publish into the notification queue through `IPhoneNotificationRepository` on the
+   same session as whatever caused it — your own `Category`, your own `GroupKey` (the client-side
+   grouping key for your app's banners), and whatever `Payload` your app's clients need to act on
+   one. See [Notifications](#notifications) for the contract you are expected to honour: immutable
+   once posted, no display names resolved server-side, and respect `PhoneNotificationLimit`.
 
 Nothing under `Devices/` is touched. `AppKey` is an **append-only** enum: ordinals are persisted in
-Marten payloads, so inserting a member mid-list remaps every stored value.
+Marten payloads, so inserting a member mid-list remaps every stored value — and it now reaches two
+document types, `PhoneDevice`'s installed-app list and every `PhoneNotification`, so the blast radius
+of breaking that rule is wider than it used to be.
 
 A Banking app is also where `ICrossModuleTransaction` would finally earn its place in this module,
 spanning the Phone and Banking stores the way `PurchaseListingHandler` already spans Shops and

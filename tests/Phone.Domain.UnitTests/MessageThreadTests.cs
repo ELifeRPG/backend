@@ -174,12 +174,84 @@ public class MessageThreadTests
         var thread = new MessageThread();
 
         thread.Apply(new MessageThreadStarted(threadId, new PhoneDeviceId(Guid.NewGuid()), [Dispatcher], MessageThread.BuildThreadKey([Dispatcher])));
-        thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "one", At, 2));
-        thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "two", At.AddMinutes(1), 2));
-        thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "three", At.AddMinutes(2), 2));
+        thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "one", At, 2, Sequence: 1));
+        thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "two", At.AddMinutes(1), 2, Sequence: 2));
+        thread.Apply(new InboundMessageRecorded(threadId, AMessage(), Dispatcher, "three", At.AddMinutes(2), 2, Sequence: 3));
         thread.Apply(new ThreadMarkedRead(threadId));
+        thread.Apply(new ThreadRetrievedThrough(threadId, Sequence: 2));
 
         Assert.Equal(["two", "three"], thread.Messages.Select(message => message.Body));
         Assert.Equal(0, thread.UnreadCount);
+
+        // RetrievedThrough survives the replay just like UnreadCount and the trimmed message list —
+        // it is ordinary aggregate state, reconstructed the same way as everything else here.
+        Assert.Equal(2, thread.RetrievedThrough);
+    }
+
+    [Fact]
+    public void RecordInbound_And_RecordOutbound_AssignEverIncreasingSequences()
+    {
+        var thread = Thread();
+
+        var first = thread.RecordOutbound(AMessage(), Owner, "one", At, RetentionLimit);
+        var second = thread.RecordInbound(AMessage(), Dispatcher, "two", At.AddMinutes(1), RetentionLimit);
+        var third = thread.RecordOutbound(AMessage(), Owner, "three", At.AddMinutes(2), RetentionLimit);
+
+        Assert.Equal([first.Sequence, second.Sequence, third.Sequence], thread.Messages.Select(m => m.Sequence));
+        Assert.Equal([1, 2, 3], thread.Messages.Select(m => m.Sequence));
+    }
+
+    [Fact]
+    public void Append_TrimmingByRetention_DoesNotResetOrReuseASequence()
+    {
+        // Sequence must be a counter, not a list index: retention trims the front of Messages, and
+        // an index would be reused by whatever slides into the gap, silently colliding with history.
+        var thread = Thread();
+
+        thread.RecordInbound(AMessage(), Dispatcher, "one", At, retentionLimit: 2);
+        thread.RecordInbound(AMessage(), Dispatcher, "two", At.AddMinutes(1), retentionLimit: 2);
+        thread.RecordInbound(AMessage(), Dispatcher, "three", At.AddMinutes(2), retentionLimit: 2);
+
+        Assert.Equal(["two", "three"], thread.Messages.Select(m => m.Body));
+        Assert.Equal([2, 3], thread.Messages.Select(m => m.Sequence));
+    }
+
+    [Fact]
+    public void MarkRetrievedThrough_ALowerOrEqualValue_DoesNotRewindTheWatermark()
+    {
+        var thread = Thread();
+        thread.RecordInbound(AMessage(), Dispatcher, "one", At, RetentionLimit);
+        thread.RecordInbound(AMessage(), Dispatcher, "two", At.AddMinutes(1), RetentionLimit);
+
+        thread.MarkRetrievedThrough(2);
+        thread.MarkRetrievedThrough(1);
+
+        Assert.Equal(2, thread.RetrievedThrough);
+    }
+
+    [Fact]
+    public void MarkRetrievedThrough_PastTheHighestIssuedSequence_Clamps()
+    {
+        var thread = Thread();
+        thread.RecordInbound(AMessage(), Dispatcher, "one", At, RetentionLimit);
+        thread.RecordInbound(AMessage(), Dispatcher, "two", At.AddMinutes(1), RetentionLimit);
+
+        var domainEvent = thread.MarkRetrievedThrough(int.MaxValue);
+
+        Assert.Equal(2, domainEvent.Sequence);
+        Assert.Equal(2, thread.RetrievedThrough);
+    }
+
+    [Fact]
+    public void Apply_ThreadRetrievedThrough_OutOfOrderReplay_KeepsTheMax()
+    {
+        var threadId = new MessageThreadId(Guid.NewGuid());
+        var thread = new MessageThread();
+        thread.Apply(new MessageThreadStarted(threadId, new PhoneDeviceId(Guid.NewGuid()), [Dispatcher], MessageThread.BuildThreadKey([Dispatcher])));
+
+        thread.Apply(new ThreadRetrievedThrough(threadId, 5));
+        thread.Apply(new ThreadRetrievedThrough(threadId, 3));
+
+        Assert.Equal(5, thread.RetrievedThrough);
     }
 }

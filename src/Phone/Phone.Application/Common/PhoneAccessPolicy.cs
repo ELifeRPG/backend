@@ -65,9 +65,18 @@ internal static class PhoneAccessPolicy
     public static bool IsAuthorized(PhoneDevice phone, PhoneActor actor) =>
         phone.RegisteredTo == actor.CharacterId || phone.HasPin(actor.Pin);
 
+    /// <summary>
+    /// The device half of the chain, for platform surfaces that belong to the handset rather than to
+    /// anything installed on it — the notification queue is the first. It never returns
+    /// AppNotInstalled, because it names no app.
+    ///
+    /// The asymmetry is deliberate and worth stating: a notification is readable with every app
+    /// uninstalled, but not while the phone is off. Notifications are the platform telling the
+    /// holder that something happened, so an uninstalled app is no reason to withhold one — but a
+    /// powered-off handset shows nobody anything, and that is the line the power state draws.
+    /// </summary>
     public static async ValueTask<PhoneAccessResult> AuthorizeAsync(
         PhoneDeviceId phoneId,
-        AppKey appKey,
         IPhoneDeviceRepository phoneRepository,
         CancellationToken cancellationToken)
     {
@@ -94,11 +103,24 @@ internal static class PhoneAccessPolicy
             return new PhoneAccessResult.PhonePoweredOff();
         }
 
-        if (!phone.HasApp(appKey))
-        {
-            return new PhoneAccessResult.AppNotInstalled();
-        }
-
         return new PhoneAccessResult.Granted(phone);
+    }
+
+    /// <summary>
+    /// The app chain: the device chain above, plus the install check. Expressed as a delegation
+    /// rather than a copy so the two can never drift — an app operation is a device operation with
+    /// one more question asked, and that is exactly what this reads as.
+    /// </summary>
+    public static async ValueTask<PhoneAccessResult> AuthorizeAsync(
+        PhoneDeviceId phoneId,
+        AppKey appKey,
+        IPhoneDeviceRepository phoneRepository,
+        CancellationToken cancellationToken)
+    {
+        var access = await AuthorizeAsync(phoneId, phoneRepository, cancellationToken);
+
+        return access is PhoneAccessResult.Granted granted && !granted.Phone.HasApp(appKey)
+            ? new PhoneAccessResult.AppNotInstalled()
+            : access;
     }
 }
