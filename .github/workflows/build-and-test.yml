@@ -35,3 +35,29 @@ jobs:
           for proj in $(find tests -iname "*.Domain.UnitTests.csproj"); do
             dotnet test "$proj" --no-build --configuration Release
           done
+
+
+  image:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/eliferpg/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: docker build -t "$IMAGE:latest" -t "$IMAGE:sha-${GITHUB_SHA::7}" .
+
+      - name: Push image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker push --all-tags "$IMAGE"

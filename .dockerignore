@@ -1,0 +1,13 @@
+**/bin
+**/obj
+.git
+.github
+.devcontainer
+.vscode
+.claude
+.serena
+.superpowers
+.worktrees
+.env
+docs
+tests
