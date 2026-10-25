@@ -14,16 +14,46 @@ public sealed record PhoneDto(
     string Status,
     bool IsPoweredOn,
     IReadOnlyList<string> BlockedNumbers,
-    IReadOnlyList<string> InstalledApps)
+    IReadOnlyList<string> InstalledApps,
+    PhonePreferencesDto Preferences)
 {
-    public static PhoneDto Create(PhoneDevice source) => new(
+    public static PhoneDto Create(PhoneDevice source, PhonePreferences preferences) => new(
         source.Id.Value,
         source.Number.Value,
         source.RegisteredTo.Value,
         source.Status.ToString(),
         source.IsPoweredOn,
         [.. source.BlockedNumbers.Select(number => number.Value)],
-        [.. source.InstalledApps.Select(app => app.Key.ToString())]);
+        [.. source.InstalledApps.Select(app => app.Key.ToString())],
+        PhonePreferencesDto.Create(preferences));
+
+    public static PhoneDto Create(PhoneDetails source) => Create(source.Phone, source.Preferences);
+}
+
+/// <summary>
+/// Opaque to the backend: <c>homeLayout</c> and <c>wallpaper</c> are the mod's own formats, stored
+/// as-is. Empty values mean "use the mod's defaults", which is what a new phone starts with.
+/// </summary>
+public sealed record PhonePreferencesDto(int LayoutVersion, string HomeLayout, string Wallpaper, bool DoNotDisturb)
+{
+    public static PhonePreferencesDto Create(PhonePreferences source) =>
+        new(source.LayoutVersion, source.HomeLayout, source.Wallpaper, source.DoNotDisturb);
+}
+
+/// <summary>
+/// Omitted (null) fields are left unchanged; send <c>""</c> to clear one back to the mod's default.
+/// <c>homeLayout</c> and <c>layoutVersion</c> must be sent together.
+/// </summary>
+public sealed record UpdatePhonePreferencesRequestDto(
+    Guid CharacterId,
+    string? Pin = null,
+    int? LayoutVersion = null,
+    string? HomeLayout = null,
+    string? Wallpaper = null,
+    bool? DoNotDisturb = null)
+{
+    public UpdatePhonePreferencesCommand ToCommand(PhoneDeviceId phoneId) =>
+        new(phoneId, new PhoneActor(new CharacterId(CharacterId), Pin), LayoutVersion, HomeLayout, Wallpaper, DoNotDisturb);
 }
 
 public sealed record ProvisionPhoneRequestDto(Guid CharacterId, string Pin)

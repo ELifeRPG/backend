@@ -244,6 +244,100 @@ public sealed class PlatformCommandTests : IAsyncLifetime
         ExpectCase(result is InstallAppResult.AlreadyInstalled, "AlreadyInstalled", result);
     }
 
+    // --- Preferences ------------------------------------------------------------------------
+
+    private async Task<PhonePreferences> LoadPreferences(PhoneDeviceId phoneId)
+    {
+        var lookup = await Send(new PhoneDeviceLookupQuery(phoneId));
+        return lookup is PhoneDeviceLookupResult.Found found
+            ? found.Preferences
+            : throw new XunitException($"Expected Found, got {lookup}");
+    }
+
+    [Fact]
+    public async Task Preferences_OfAFreshPhone_AreTheEmptyDefaults()
+    {
+        var phone = await ProvisionPhone(new CharacterId(Guid.NewGuid()));
+
+        var preferences = await LoadPreferences(phone.Id);
+
+        Assert.Equal(0, preferences.LayoutVersion);
+        Assert.Equal(string.Empty, preferences.HomeLayout);
+        Assert.Equal(string.Empty, preferences.Wallpaper);
+        Assert.False(preferences.DoNotDisturb);
+    }
+
+    [Fact]
+    public async Task UpdatePreferences_IsPartial_AndSurvivesAReload()
+    {
+        // What the issue is for: a phone rebuilt after a game server restart comes back as it was left.
+        var owner = new CharacterId(Guid.NewGuid());
+        var phone = await ProvisionPhone(owner);
+        var actor = new PhoneActor(owner);
+
+        var first = await Send(new UpdatePhonePreferencesCommand(phone.Id, actor, 1, "layout", "Night", null));
+        ExpectCase(first is UpdatePhonePreferencesResult.Updated, "Updated", first);
+        var second = await Send(new UpdatePhonePreferencesCommand(phone.Id, actor, null, null, null, true));
+        ExpectCase(second is UpdatePhonePreferencesResult.Updated, "Updated", second);
+
+        var preferences = await LoadPreferences(phone.Id);
+        Assert.Equal(1, preferences.LayoutVersion);
+        Assert.Equal("layout", preferences.HomeLayout);
+        Assert.Equal("Night", preferences.Wallpaper);
+        Assert.True(preferences.DoNotDisturb);
+    }
+
+    [Fact]
+    public async Task UpdatePreferences_ByAnotherCharacter_TakesThePin()
+    {
+        var phone = await ProvisionPhone(new CharacterId(Guid.NewGuid()), pin: "4711");
+        var stranger = new CharacterId(Guid.NewGuid());
+
+        var refused = await Send(new UpdatePhonePreferencesCommand(phone.Id, new PhoneActor(stranger, "0000"), null, null, null, true));
+        ExpectCase(refused is UpdatePhonePreferencesResult.NotAuthorized, "NotAuthorized", refused);
+        Assert.False((await LoadPreferences(phone.Id)).DoNotDisturb);
+
+        var allowed = await Send(new UpdatePhonePreferencesCommand(phone.Id, new PhoneActor(stranger, "4711"), null, null, null, true));
+        ExpectCase(allowed is UpdatePhonePreferencesResult.Updated, "Updated", allowed);
+        Assert.True((await LoadPreferences(phone.Id)).DoNotDisturb);
+    }
+
+    [Fact]
+    public async Task UpdatePreferences_WithALayoutOverTheLimit_IsRejected()
+    {
+        var owner = new CharacterId(Guid.NewGuid());
+        var phone = await ProvisionPhone(owner);
+
+        var result = await Send(new UpdatePhonePreferencesCommand(
+            phone.Id, new PhoneActor(owner), 1, new string('x', PhonePreferences.MaxHomeLayoutLength + 1), null, null));
+
+        ExpectCase(result is UpdatePhonePreferencesResult.Invalid, "Invalid", result);
+    }
+
+    [Fact]
+    public async Task UpdatePreferences_OfAnUnknownPhone_IsNotFound()
+    {
+        var result = await Send(new UpdatePhonePreferencesCommand(
+            new PhoneDeviceId(Guid.NewGuid()), new PhoneActor(new CharacterId(Guid.NewGuid())), null, null, null, true));
+
+        ExpectCase(result is UpdatePhonePreferencesResult.PhoneNotFound, "PhoneNotFound", result);
+    }
+
+    [Fact]
+    public async Task CharacterPhones_CarryEachPhonesOwnPreferences()
+    {
+        // The list pairs preferences in one batched load; a phone without a document gets defaults.
+        var owner = new CharacterId(Guid.NewGuid());
+        var customised = await ProvisionPhone(owner);
+        var untouched = await ProvisionPhone(owner);
+        await Send(new UpdatePhonePreferencesCommand(customised.Id, new PhoneActor(owner), null, null, "Night", null));
+
+        var phones = await Send(new CharacterPhonesQuery(owner));
+
+        Assert.Equal("Night", phones.Single(details => details.Phone.Id == customised.Id).Preferences.Wallpaper);
+        Assert.Equal(string.Empty, phones.Single(details => details.Phone.Id == untouched.Id).Preferences.Wallpaper);
+    }
+
     // --- Enforcement ------------------------------------------------------------------------
 
     [Fact]

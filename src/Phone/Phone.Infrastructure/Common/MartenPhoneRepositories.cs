@@ -80,6 +80,22 @@ public sealed class MartenPhoneDeviceRepository(IPhoneSession phoneSession) : IP
     };
 }
 
+public sealed class MartenPhonePreferencesRepository(IPhoneSession phoneSession) : IPhonePreferencesRepository
+{
+    private readonly IDocumentSession _session = phoneSession.Session;
+
+    public async ValueTask<PhonePreferences?> FindAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
+        => await _session.LoadAsync<PhonePreferences>(phoneId.Value, cancellationToken);
+
+    public async ValueTask<IReadOnlyList<PhonePreferences>> FindManyAsync(IReadOnlyList<PhoneDeviceId> phoneIds, CancellationToken cancellationToken)
+        => await _session.LoadManyAsync<PhonePreferences>(cancellationToken, phoneIds.Select(id => id.Value));
+
+    public void Store(PhonePreferences preferences) => _session.Store(preferences);
+
+    public async ValueTask SaveChangesAsync(CancellationToken cancellationToken)
+        => await _session.SaveChangesAsync(cancellationToken);
+}
+
 public sealed class MartenContactBookRepository(IPhoneSession phoneSession) : IContactBookRepository
 {
     private readonly IDocumentSession _session = phoneSession.Session;
