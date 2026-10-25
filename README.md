@@ -94,16 +94,9 @@ These mappings are for tools running on your **host** machine — a browser, `ps
 The `eliferpg` realm (this local instance's one dev tenant — see [ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-identity-provider-keycloak) for the one-realm-per-tenant model) is auto-imported on container start from [infra/keycloak/eliferpg-realm.json](./infra/keycloak/eliferpg-realm.json). It comes preconfigured with:
 
 - `gameserver-dev` — stands in for one gameserver's Bridge client (Client Credentials, `gameserver:session:create` + `gameserver:characters:write` + `gameserver:banking:manage` + `gameserver:banking:write` + `gameserver:companies:write` + `gameserver:skills:write` scopes, `impersonation` role). Secret: `local-dev-only-not-a-real-secret`.
-- `loginTheme` is **`eliferpg-reforger`**, not `eliferpg`, even though this image now
-  layers both provider jars. `eliferpg-reforger` (from keycloak-bohemia-gameaccount) is
-  the only theme here that carries `link-bohemia-gameaccount.ftl`, and
-  `keycloak-theme-eliferpg` 1.0.1's `eliferpg` login theme declares `parent=keycloak`, so
-  it neither ships that template nor inherits it. Pointing `loginTheme` at `eliferpg`
-  makes the required-action page fail with a FreeMarker `TemplateNotFoundException`
-  (HTTP 500). The other three theme fields stay on `eliferpg` — account, admin, and email
-  need no template from the provider. Once `eliferpg`'s login theme reparents onto
-  `eliferpg-reforger` (or ships the template itself), `loginTheme` can move back to
-  `eliferpg` and the login page gets the styled theme too.
+- All four theme fields (`loginTheme`, `accountTheme`, `adminTheme`, `emailTheme`) are `eliferpg`.
+  The Link Bohemia Game Account page (`link-bohemia-gameaccount.ftl`) ships via
+  `theme-resources` since keycloak-bohemia-gameaccount 1.1.0, so it renders under any login theme.
 - `account-service` — used to provision Keycloak users for new accounts (Client Credentials, `manage-users` + `view-realm` roles on `realm-management`). Secret: `account-service-secret`.
 
 These are throwaway local-dev values, intentionally committed in plaintext — same posture as the Postgres/Grafana/Keycloak-admin credentials above. If you change anything in the realm via the admin console and want to persist it, re-export and patch the client secrets back in (Keycloak redacts them on export):
@@ -137,8 +130,7 @@ carries both provider jars at the versions pinned in that repo's `Dockerfile` (s
 **[`eliferpg` theme](https://github.com/ELifeRPG/keycloak-theme-eliferpg)** —
 ships login, account, admin, and email variants, configured via
 `loginTheme`/`accountTheme`/`adminTheme`/`emailTheme` in
-`infra/keycloak/eliferpg-realm.json`. This realm uses it for all but `loginTheme`, which
-stays on `eliferpg-reforger` — see the realm notes above for why.
+`infra/keycloak/eliferpg-realm.json`. This realm uses it for all four.
 
 **[`keycloak-bohemia-gameaccount`](https://github.com/ELifeRPG/keycloak-bohemia-gameaccount)**
 — a required action, registered in `eliferpg-realm.json`'s `requiredActions` as
