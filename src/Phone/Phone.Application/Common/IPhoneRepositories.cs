@@ -27,6 +27,22 @@ public interface IPhoneDeviceRepository
     ValueTask SaveChangesAsync(CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// A missing document means the phone still has its defaults — the callers fall back to
+/// <see cref="PhonePreferences.Default"/> rather than anything being written at provisioning.
+/// </summary>
+public interface IPhonePreferencesRepository
+{
+    ValueTask<PhonePreferences?> FindAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken);
+
+    /// <summary>Only the phones that have a document come back; the rest are on their defaults.</summary>
+    ValueTask<IReadOnlyList<PhonePreferences>> FindManyAsync(IReadOnlyList<PhoneDeviceId> phoneIds, CancellationToken cancellationToken);
+
+    void Store(PhonePreferences preferences);
+
+    ValueTask SaveChangesAsync(CancellationToken cancellationToken);
+}
+
 public interface IContactBookRepository
 {
     ValueTask<ContactBook?> FindByPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken);

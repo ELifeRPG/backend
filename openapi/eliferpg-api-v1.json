@@ -2745,7 +2745,7 @@
         "tags": [
           "Phone"
         ],
-        "description": "Gets a phone, including its number, status and blocklist. Never its PIN.",
+        "description": "Gets a phone, including its number, status, blocklist and preferences. Never its PIN.",
         "operationId": "GetPhone",
         "parameters": [
           {
@@ -2771,6 +2771,128 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{phoneId}/preferences": {
+      "get": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Gets a phone's home screen layout, wallpaper and Do Not Disturb. Empty values mean the mod's defaults.",
+        "operationId": "GetPhonePreferences",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhonePreferencesDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Phone"
+        ],
+        "description": "Partially updates a phone's preferences; omitted fields are left unchanged. homeLayout (at most 1024 characters) and layoutVersion must be sent together. Takes the owner, or the PIN from whoever else is holding the phone.",
+        "operationId": "UpdatePhonePreferences",
+        "parameters": [
+          {
+            "name": "phoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePhonePreferencesRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhonePreferencesDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6755,7 +6877,8 @@
           "status",
           "isPoweredOn",
           "blockedNumbers",
-          "installedApps"
+          "installedApps",
+          "preferences"
         ],
         "type": "object",
         "properties": {
@@ -6787,6 +6910,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/PhonePreferencesDto"
           }
         }
       },
@@ -6845,6 +6971,34 @@
             "items": {
               "$ref": "#/components/schemas/PhoneNotificationDto"
             }
+          }
+        }
+      },
+      "PhonePreferencesDto": {
+        "required": [
+          "layoutVersion",
+          "homeLayout",
+          "wallpaper",
+          "doNotDisturb"
+        ],
+        "type": "object",
+        "properties": {
+          "layoutVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "homeLayout": {
+            "type": "string"
+          },
+          "wallpaper": {
+            "type": "string"
+          },
+          "doNotDisturb": {
+            "type": "boolean"
           }
         }
       },
@@ -7913,6 +8067,51 @@
           "actingCharacterId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "UpdatePhonePreferencesRequestDto": {
+        "required": [
+          "characterId"
+        ],
+        "type": "object",
+        "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pin": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "layoutVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "homeLayout": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "wallpaper": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "doNotDisturb": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },

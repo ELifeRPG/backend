@@ -56,7 +56,7 @@ public static partial class PhoneModule
 
                 return result switch
                 {
-                    PhoneDeviceLookupResult.Found found => Results.Ok(PhoneDto.Create(found.Phone)),
+                    PhoneDeviceLookupResult.Found found => Results.Ok(PhoneDto.Create(found.Phone, found.Preferences)),
                     PhoneDeviceLookupResult.NotFound => Results.Problem(
                         title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
                 };
@@ -65,7 +65,54 @@ public static partial class PhoneModule
             .Produces<PhoneDto>()
             .ProducesProblem(StatusCodes.Status404NotFound)
             .WithName("GetPhone")
-            .WithDescription("Gets a phone, including its number, status and blocklist. Never its PIN.");
+            .WithDescription("Gets a phone, including its number, status, blocklist and preferences. Never its PIN.");
+
+        group.MapGet("phones/{phoneId:guid}/preferences", async (
+                Guid phoneId, IMediator mediator, CancellationToken cancellationToken) =>
+            {
+                var result = await mediator.Send(new PhoneDeviceLookupQuery(new PhoneDeviceId(phoneId)), cancellationToken);
+
+                return result switch
+                {
+                    PhoneDeviceLookupResult.Found found => Results.Ok(PhonePreferencesDto.Create(found.Preferences)),
+                    PhoneDeviceLookupResult.NotFound => Results.Problem(
+                        title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
+                };
+            })
+            .RequireAuthorization(ReadPolicy)
+            .Produces<PhonePreferencesDto>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .WithName("GetPhonePreferences")
+            .WithDescription("Gets a phone's home screen layout, wallpaper and Do Not Disturb. Empty values mean the mod's defaults.");
+
+        group.MapPatch("phones/{phoneId:guid}/preferences", async (
+                Guid phoneId,
+                [FromBody] UpdatePhonePreferencesRequestDto request,
+                IMediator mediator,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await mediator.Send(request.ToCommand(new PhoneDeviceId(phoneId)), cancellationToken);
+
+                return result switch
+                {
+                    UpdatePhonePreferencesResult.Updated updated => Results.Ok(PhonePreferencesDto.Create(updated.Preferences)),
+                    UpdatePhonePreferencesResult.Invalid invalid => Results.Problem(
+                        title: invalid.Reason, statusCode: StatusCodes.Status400BadRequest),
+                    UpdatePhonePreferencesResult.PhoneNotFound => Results.Problem(
+                        title: "Phone not found", statusCode: StatusCodes.Status404NotFound),
+                    UpdatePhonePreferencesResult.NotAuthorized => NotAuthorized(),
+                    UpdatePhonePreferencesResult.PhoneDeactivated => Results.Problem(
+                        title: "Phone has been deactivated", statusCode: StatusCodes.Status410Gone),
+                };
+            })
+            .RequireAuthorization(WritePolicy)
+            .Produces<PhonePreferencesDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .WithName("UpdatePhonePreferences")
+            .WithDescription("Partially updates a phone's preferences; omitted fields are left unchanged. homeLayout (at most 1024 characters) and layoutVersion must be sent together. Takes the owner, or the PIN from whoever else is holding the phone.");
 
         group.MapPost("phones/{phoneId:guid}/power", async (
                 Guid phoneId,

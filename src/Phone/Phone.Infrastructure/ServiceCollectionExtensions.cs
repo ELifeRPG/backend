@@ -50,6 +50,7 @@ public static class PhoneInfrastructureExtensions
         services.TryAddScoped<IPhoneSession, PhoneSession>();
 
         services.TryAddScoped<IPhoneDeviceRepository, MartenPhoneDeviceRepository>();
+        services.TryAddScoped<IPhonePreferencesRepository, MartenPhonePreferencesRepository>();
         services.TryAddScoped<IContactBookRepository, MartenContactBookRepository>();
         services.TryAddScoped<IMessageThreadRepository, MartenMessageThreadRepository>();
         services.TryAddScoped<IPhoneNotificationRepository, MartenPhoneNotificationRepository>();

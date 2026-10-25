@@ -47,8 +47,8 @@ holding the handset — and every app operation then requires the phone to be po
 the actor per call would only re-prove what the power state already carries, so app operations name
 no acting character at all: they address a phone, and a powered-on phone is a usable phone.
 
-The five platform commands that establish or change possession still take a `characterId`, and a
-`pin` when the caller is not the owner: provision, power, PIN change, and app install/uninstall.
+The platform commands that establish or change possession still take a `characterId`, and a
+`pin` when the caller is not the owner: provision, power, PIN change, preferences, and app install/uninstall.
 `POST /api/phones/{phoneId}/pin` takes the owner or the current PIN — so whoever picks up a phone and
 knows the PIN can lock the previous owner out.
 
@@ -74,6 +74,26 @@ It does travel in the query string on the two `DELETE` routes that take one (uni
 unblocking a number), so it reaches request logs. That is accepted rather than overlooked: it is
 already stored in the clear, so a log line exposes nothing the database does not, and the
 alternative is a `DELETE` with a body — which every other delete in this codebase avoids.
+
+## Preferences
+
+A phone's home screen layout, wallpaper and Do Not Disturb are stored so a phone rebuilt after a
+game server restart comes back as it was left. They belong to the phone, not the player: everyone
+looking at it sees the same layout, and Do Not Disturb silences it for everyone nearby.
+`GET /api/phones/{phoneId}` carries them too, so a restore is one call.
+
+The backend treats them as opaque. `homeLayout` (at most 1024 characters, the mod's own limit) and
+`wallpaper` (a preset id, at most 64) are the mod's formats, stored as-is; empty means "use the
+mod's default", which is what a new phone starts with. `layoutVersion` lets the mod migrate its
+layout format, so it is sent together with `homeLayout` or not at all.
+
+`PATCH` changes only the fields it is sent, and takes the owner or the PIN like the PIN change does —
+and like it, does not need the phone powered on. The read is `gameserver:phone:read` alone, the same
+as `GET /api/phones/{phoneId}` that already returns them.
+
+Stored as a plain document per phone rather than events: there is no history worth replaying, and
+an event per write would re-record a kilobyte of layout each time. Writes are last-write-wins; the
+mod debounces them, and a phone that has never been changed has no document at all.
 
 ## Apps
 
@@ -198,6 +218,8 @@ Platform            POST   /api/phones
                     GET    /api/characters/{characterId}/phones
                     POST   /api/phones/{phoneId}/power
                     POST   /api/phones/{phoneId}/pin
+                    GET    /api/phones/{phoneId}/preferences
+                    PATCH  /api/phones/{phoneId}/preferences
                     GET    /api/phones/{phoneId}/apps
                     PUT    /api/phones/{phoneId}/apps/{appKey}
                     DELETE /api/phones/{phoneId}/apps/{appKey}
