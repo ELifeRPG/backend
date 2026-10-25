@@ -1,6 +1,7 @@
 using ELifeRPG.Phone.Application.Common;
 using ELifeRPG.Phone.Domain.Apps.Contacts;
 using ELifeRPG.Phone.Domain.Apps.Messages;
+using ELifeRPG.Phone.Domain.Apps.Phone;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Domain.Notifications;
 using ELifeRPG.Phone.Infrastructure.Common;
@@ -28,6 +29,7 @@ public static class PhoneInfrastructureExtensions
             options.Projections.Add<PhoneDeviceProjection>(ProjectionLifecycle.Inline);
             options.Projections.Add<ContactBookProjection>(ProjectionLifecycle.Inline);
             options.Projections.Add<MessageThreadProjection>(ProjectionLifecycle.Inline);
+            options.Projections.Add<PhoneCallProjection>(ProjectionLifecycle.Inline);
 
             // The number is the routing key for every send, and two phones sharing one would make
             // delivery ambiguous — so uniqueness is enforced by the database, not by a pre-check the
@@ -40,6 +42,10 @@ public static class PhoneInfrastructureExtensions
             // Unlike PendingDelivery (read once, on power-on), this table is read by every phone on
             // every poll — it cannot afford to be unindexed.
             options.Schema.For<PhoneNotification>().Index(x => x.PhoneIdValue);
+
+            // The ring poll is the hottest read in the module — a phone hits it every couple of
+            // seconds while its dialer is open, and it filters on the callee alone.
+            options.Schema.For<PhoneCall>().Index(x => x.CalleePhoneIdValue);
         });
 
         // Injected rather than called statically so the rate-limit window is testable without waiting
@@ -54,6 +60,7 @@ public static class PhoneInfrastructureExtensions
         services.TryAddScoped<IContactBookRepository, MartenContactBookRepository>();
         services.TryAddScoped<IMessageThreadRepository, MartenMessageThreadRepository>();
         services.TryAddScoped<IPhoneNotificationRepository, MartenPhoneNotificationRepository>();
+        services.TryAddScoped<IPhoneCallRepository, MartenPhoneCallRepository>();
         services.TryAddScoped<IPhoneSendWindowRepository, MartenPhoneSendWindowRepository>();
         services.TryAddScoped<IPhoneModerationRepository, MartenPhoneModerationRepository>();
 

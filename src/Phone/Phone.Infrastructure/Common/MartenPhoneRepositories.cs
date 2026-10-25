@@ -4,6 +4,8 @@ using ELifeRPG.Phone.Domain.Apps.Contacts.Events;
 using ELifeRPG.Phone.Domain.Apps.Messages;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
 using ELifeRPG.Phone.Domain.Apps;
+using ELifeRPG.Phone.Domain.Apps.Phone;
+using ELifeRPG.Phone.Domain.Apps.Phone.Events;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Domain.Devices.Events;
 using ELifeRPG.Phone.Domain.Notifications;
@@ -239,4 +241,40 @@ public sealed class MartenPhoneModerationRepository(IPhoneSession phoneSession) 
             .Where(thread => thread.OwnerPhoneId.Value == phoneId.Value)
             .OrderByDescending(thread => thread.LastMessageAt)
             .ToListAsync(cancellationToken);
+}
+
+public sealed class MartenPhoneCallRepository(IPhoneSession phoneSession) : IPhoneCallRepository
+{
+    private readonly IDocumentSession _session = phoneSession.Session;
+
+    public async ValueTask<PhoneCall?> FindByIdAsync(PhoneCallId callId, CancellationToken cancellationToken)
+        => await _session.LoadAsync<PhoneCall>(callId, cancellationToken);
+
+    public async ValueTask<PhoneCall?> FindActiveForPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
+    {
+        var value = phoneId.Value;
+        return await _session.Query<PhoneCall>()
+            .Where(call => (call.CalleePhoneIdValue == value || call.CallerPhoneIdValue == value)
+                && (call.State == CallState.Ringing || call.State == CallState.Accepted))
+            .OrderBy(call => call.PlacedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async ValueTask<IReadOnlyList<PhoneCall>> FindRingingForPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken)
+    {
+        var value = phoneId.Value;
+        return await _session.Query<PhoneCall>()
+            .Where(call => call.CalleePhoneIdValue == value && call.State == CallState.Ringing)
+            .OrderBy(call => call.PlacedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    public void StartStream(PhoneCall call, CallPlaced domainEvent)
+        => _session.Events.StartStream<PhoneCall>(call.Id.Value, domainEvent);
+
+    public void Append(PhoneCallId callId, object domainEvent)
+        => _session.Events.Append(callId.Value, domainEvent);
+
+    public async ValueTask SaveChangesAsync(CancellationToken cancellationToken)
+        => await _session.SaveChangesAsync(cancellationToken);
 }

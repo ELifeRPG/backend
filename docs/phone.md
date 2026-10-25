@@ -33,7 +33,9 @@ Two consequences worth internalising:
   the cap costs a thread its backlog on its *next* message rather than at once.
   `PhoneNotificationLimit` is a queue depth, not a retention window: it caps what a phone's
   notification queue may hold, oldest dropped first, and is read fresh at publish time rather than
-  carried on anything.
+  carried on anything. `PhoneRingSeconds` is the third shape again: carried on `CallPlaced` like a
+  retention limit, because whether a given call has rung out is a fact about the window it was placed
+  under — lowering it must not retroactively miss calls already in progress.
 - **The PIN replaced the biolock.** A handset used to be bound to one character forever, which made
   a dropped or looted phone a brick. Now possession plus the PIN is enough. See below.
 
@@ -208,6 +210,72 @@ what lets a client ack a batch of ids with no version field to race.
   Contacts (see [Threads](#threads)) — a banner is not a reason to reverse that, so the mod resolves
   a display name itself, the same call it already makes to draw a thread.
 
+## Calls
+
+The dialer owns `/apps/phone/`, and the backend's half of a call is **signalling only**: who is
+ringing whom, and what has become of it. There is no audio here and no concept of one — the mod
+carries the sound through the game's own voice. That split is also the answer to "why does a call
+need a server at all": two clients cannot agree on *answered*, or on who hung up first, and neither
+can resolve a number held on another gameserver.
+
+A call is one event-sourced stream with five states. `Ringing` and `Accepted` are the non-terminal
+pair; `Rejected`, `Missed` and `Ended` are final, and the aggregate refuses every transition out of
+them.
+
+```
+            ┌──────────── answer ──────────▶ Accepted ──── either hangs up ───▶ Ended
+Ringing ────┼──────────── reject ──────────▶ Rejected
+            ├──── caller hangs up first ──▶ Missed
+            └──── window ran out ─────────▶ Missed
+```
+
+Three different things mean the same thing to the callee, so all three land on `Missed`: the ring
+window ran out, the caller gave up, or the phone was off when the call was placed. **Rejected is
+deliberately not one of them** — declining is a decision, and a call log that folded it into "missed"
+would lose the only interesting thing about it.
+
+Dialling reuses the send path's recipient decision, including its silences:
+
+| Callee state | Outcome |
+| --- | --- |
+| Unknown number, or phone `Deactivated` | `Undeliverable`, reported to the caller |
+| Phone `Suspended` | `Undeliverable`, reported to the caller |
+| Caller is on the callee's blocklist | `Unanswered` — **nothing is recorded and nothing rings** |
+| Phone powered off, or the dialer uninstalled | `Unanswered`, recorded as a missed call with a banner |
+| Already on a call | `Busy` |
+| Otherwise | `Ringing` |
+
+Two of those are load-bearing:
+
+- **A block is indistinguishable from nobody picking up.** Both answer `Unanswered`, for the same
+  reason a blocked message reads as sent: reporting them apart would make the API a block-detector.
+  The difference is invisible to the caller and total for the callee — a blocked call leaves no
+  record at all, where a powered-off one leaves a missed call.
+- **Nothing is queued.** A text to an unreachable phone becomes a `PendingDelivery` and arrives
+  later; a call does not, because a two-hour-old ring is noise. The missed call and its banner are
+  what the callee finds when they power on, and that is the dialer's whole equivalent of the queue.
+
+**Blocking is shared, read-only.** The blocklist lives on `PhoneDevice` but belongs to Messages —
+its URL and its guard chain agree about that. The dialer reads `PhoneDevice.IsBlocked` exactly as the
+send path does and adds no storage and no second list, so one list is obeyed by both and edited
+through one app.
+
+**Do Not Disturb is not consulted.** It sits in `Preferences` beside the home layout and the
+wallpaper, nothing server-side reads it, and it does not silence message banners either — so
+silencing calls alone would be inconsistent, and would also hide from the caller that the phone rang.
+Ringing is reported; whether the handset makes a noise is the mod's call.
+
+### Expiry, without a sweep
+
+Nothing schedules anything. A ring whose window has closed is *computed* as expired and materialised
+to `Missed` the next time anything touches it — the poll, an answer, a reject, or the caller dialling
+again. It is the same approach thread trimming and the notification cap already take here, and it
+means a call cannot be left ringing forever by a client that simply stopped polling.
+
+The practical consequence: `PhoneRingSeconds` plus the Bridge's poll interval *is* the ringing
+experience. The window bounds how long a caller hears ringing; the poll bounds how long before the
+callee hears anything at all.
+
 ## Routes
 
 The split the URLs make visible: the phone itself, versus what runs on it.
@@ -225,6 +293,12 @@ Platform            POST   /api/phones
                     DELETE /api/phones/{phoneId}/apps/{appKey}
 
 App store           GET    /api/phones/{phoneId}/app-store/apps
+
+Phone app (dialer)  POST   /api/phones/{phoneId}/apps/phone/calls
+                    GET    /api/phones/{phoneId}/apps/phone/calls/ringing
+                    POST   /api/phones/{phoneId}/apps/phone/calls/{callId}/answer
+                    POST   /api/phones/{phoneId}/apps/phone/calls/{callId}/reject
+                    POST   /api/phones/{phoneId}/apps/phone/calls/{callId}/end
 
 Enforcement         POST   /api/phones/{phoneId}/suspend
                     POST   /api/phones/{phoneId}/restore
@@ -399,6 +473,16 @@ Per phone, which is per number since the two are now one thing. The limit is
 `PATCH /api/hive/settings`. It is a fixed window, so a burst spanning a boundary can reach twice the
 limit; that is well within what this throttle is for.
 
+The ring poll is bounded differently, and is the only phone endpoint with an HTTP rate limit:
+`GET /apps/phone/calls/ringing` carries a token bucket of 100/s sustained with 300 in reserve, per
+`client_id` — so per gameserver, the same partition key World's two write policies use. Every other
+phone route is driven by a player doing something and is self-limiting at human speed; the ring poll
+is driven by a timer, has to run at a second or two to make ringing feel instant, and is multiplied
+by every connected player. That is the first traffic shape here a misconfigured client can turn into
+a flood with nobody touching a phone, and `docs/bridge.md` is explicit that an unlimited endpoint is
+not permission to poll it without bound. A 429 carries `Retry-After` and `retryable: true`, the
+shared shape from `Program.cs`.
+
 ## Real-time
 
 `hubs/phone`, token via the `access_token` query parameter, same as [Shops](./shops.md).
@@ -420,7 +504,7 @@ limit; that is well within what this throttle is for.
 ### Polling, for clients without a socket
 
 ArmA Reforger has no SignalR client, so the gameserver Bridge cannot hold a hub connection. It polls
-two independent surfaces instead, both delivery rather than truth:
+three independent surfaces instead, all delivery rather than truth:
 
 **Messages** — `GET /api/phones/{phoneId}/apps/messages/updates` reports every message this phone has
 not yet retrieved. There is no cursor to hold: retrieval is a server-tracked watermark per thread
@@ -443,6 +527,12 @@ with the per-thread sequence you actually finished processing.
 **Notifications** — `GET /api/phones/{phoneId}/notifications` and its `ack`, covered in
 [Notifications](#notifications). A separate surface on purpose: it is app-independent platform state,
 not something Messages owns, even though Messages is the only publisher today.
+
+**Ringing** — `GET /api/phones/{phoneId}/apps/phone/calls/ringing`, covered in [Calls](#calls). The
+one latency-critical poll of the three, and the only one with a rate limit; see
+[Rate limiting](#rate-limiting). It needs no ack and holds no cursor: a ring is current state rather
+than a backlog, so the poll simply reports what is ringing now, and expires anything that has run
+out while answering.
 
 ## Adding an app
 
@@ -473,12 +563,29 @@ safest real default" — see the reasoning on `AppKey` itself: there is no safe 
 does this notification belong to", so an undefined value beats a plausible one. Your new member goes
 at the next free number, never at 0.
 
-`Bank`, `Map`, `Settings`, `Store` and `Phone` are in the catalog but only `Store` has routes of its
-own so far: the rest are installable, listable and guard-checked, and own no nouns yet. Step 2
-onwards is what each still needs.
+`Phone` and `Store` own routes. `Settings` owns the `Preferences` document, which sits under
+`Devices/` rather than behind an app prefix because a phone has preferences whether or not anything
+is installed. `Messages` and `Contacts` have owned theirs from the start.
 
-`Bank` is also where `ICrossModuleTransaction` would finally earn its place in this module, spanning
-the Phone and Banking stores the way `PurchaseListingHandler` already spans Shops and Banking.
+**`Bank` and `Map` are deliberately client-side, and adding routes for them here would be a
+regression.** Both were scoped and rejected:
+
+- **Bank.** Banking already transacts safely without the phone. `BankAccountAuthorization` gates
+  withdraw and transfer on account ownership — the owning character for a Personal account,
+  `CompanyPermissions.ManageFinances` for a Corporate one — and the Bridge already proxies ten of
+  Banking's eleven routes. A phone-side Bank app would re-implement a working, *more strictly
+  authorized* surface under the phone's weaker chain, which only asks "powered on, app installed".
+  What it would add is the four platform checks and a `phoneId` in the audit trail; what it would
+  cost is two ways to move money. If that trade is ever worth making, note that `BankAccountAuthorization`
+  is `internal` and admits only `Shops.Application` today.
+- **Map.** Nothing in the backend can answer "where is this character". `Character` carries no
+  transform, `CharacterPresence` is a written-but-unbuilt plan designed for a ~30-60s heartbeat, and
+  no `Shop`, `Bank` or `Company` has coordinates. Every blocker is in another module, and
+  `npc-virtual-simulation` has an unresolved claim on shop position — so a Map app would mean
+  designing a coordinate system somewhere else first.
+
+`AppKey.Bank` and `AppKey.Map` still do real work as catalog entries: they are what the store offers
+and what a handset may lack, which is also why they are the keys every guard-chain test reaches for.
 
 ## TODO: inventory, and where phones come from
 

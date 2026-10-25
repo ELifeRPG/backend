@@ -10,7 +10,8 @@ public sealed record HiveSettingsDto(
     int PhoneContactLimit,
     int PhoneThreadMessageLimit,
     int PhoneMaxGroupParticipants,
-    int PhoneNotificationLimit)
+    int PhoneNotificationLimit,
+    int PhoneRingSeconds)
 {
     public static HiveSettingsDto Create(HiveSettings source) =>
         new(
@@ -20,7 +21,8 @@ public sealed record HiveSettingsDto(
             source.PhoneContactLimit,
             source.PhoneThreadMessageLimit,
             source.PhoneMaxGroupParticipants,
-            source.PhoneNotificationLimit);
+            source.PhoneNotificationLimit,
+            source.PhoneRingSeconds);
 }
 
 public sealed record UpdateHiveSettingsRequestDto(
@@ -30,7 +32,8 @@ public sealed record UpdateHiveSettingsRequestDto(
     int? PhoneContactLimit,
     int? PhoneThreadMessageLimit,
     int? PhoneMaxGroupParticipants,
-    int? PhoneNotificationLimit)
+    int? PhoneNotificationLimit,
+    int? PhoneRingSeconds)
 {
     public UpdateHiveSettingsCommand ToCommand() =>
         new(
@@ -40,5 +43,6 @@ public sealed record UpdateHiveSettingsRequestDto(
             PhoneContactLimit,
             PhoneThreadMessageLimit,
             PhoneMaxGroupParticipants,
-            PhoneNotificationLimit);
+            PhoneNotificationLimit,
+            PhoneRingSeconds);
 }

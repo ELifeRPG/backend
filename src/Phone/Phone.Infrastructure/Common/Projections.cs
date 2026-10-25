@@ -2,6 +2,8 @@ using ELifeRPG.Phone.Domain.Apps.Contacts;
 using ELifeRPG.Phone.Domain.Apps.Contacts.Events;
 using ELifeRPG.Phone.Domain.Apps.Messages;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
+using ELifeRPG.Phone.Domain.Apps.Phone;
+using ELifeRPG.Phone.Domain.Apps.Phone.Events;
 using ELifeRPG.Phone.Domain.Devices;
 using ELifeRPG.Phone.Domain.Devices.Events;
 using Marten.Events.Aggregation;
@@ -9,7 +11,7 @@ using Marten.Events.Aggregation;
 namespace ELifeRPG.Phone.Infrastructure.Common;
 
 /// <summary>
-/// All three projections are inline. Note the standing warning from AccountProjection: an inline
+/// All four projections are inline. Note the standing warning from AccountProjection: an inline
 /// projection silently ignores events it has no Apply for, leaving a stale document rather than
 /// failing — so every new event must be applied on its aggregate.
 /// </summary>
@@ -26,4 +28,9 @@ public sealed partial class ContactBookProjection : SingleStreamProjection<Conta
 public sealed partial class MessageThreadProjection : SingleStreamProjection<MessageThread, MessageThreadId>
 {
     public static MessageThread Create(MessageThreadStarted domainEvent) => MessageThread.Create(domainEvent);
+}
+
+public sealed partial class PhoneCallProjection : SingleStreamProjection<PhoneCall, PhoneCallId>
+{
+    public static PhoneCall Create(CallPlaced domainEvent) => PhoneCall.Create(domainEvent);
 }

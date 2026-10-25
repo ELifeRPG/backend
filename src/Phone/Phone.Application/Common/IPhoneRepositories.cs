@@ -1,5 +1,7 @@
 using ELifeRPG.Phone.Domain.Apps.Contacts.Events;
 using ELifeRPG.Phone.Domain.Apps.Messages.Events;
+using ELifeRPG.Phone.Domain.Apps.Phone;
+using ELifeRPG.Phone.Domain.Apps.Phone.Events;
 using ELifeRPG.Phone.Domain.Devices.Events;
 
 namespace ELifeRPG.Phone.Application.Common;
@@ -104,6 +106,34 @@ public interface IPhoneNotificationRepository
     /// conversation clears its banners even though acking a poll deliberately does not.
     /// </summary>
     void DeleteForGroup(PhoneDeviceId phoneId, AppKey appKey, string groupKey);
+
+    ValueTask SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// The dialer's calls. One stream per call, so a call log is history rather than a mutable row.
+/// </summary>
+public interface IPhoneCallRepository
+{
+    ValueTask<PhoneCall?> FindByIdAsync(PhoneCallId callId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The non-terminal call either leg of this phone is on, if any — what makes a phone busy. Both
+    /// directions, because a phone already ringing someone else can not take an incoming call either.
+    /// </summary>
+    ValueTask<PhoneCall?> FindActiveForPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The ring poll, and the one read on this table that happens every couple of seconds per phone:
+    /// calls ringing <i>this</i> phone, oldest first. Filtered on the flat
+    /// <see cref="PhoneCall.CalleePhoneIdValue"/> and <see cref="PhoneCall.State"/> so the database
+    /// does the work rather than loading a phone's whole call history to filter in memory.
+    /// </summary>
+    ValueTask<IReadOnlyList<PhoneCall>> FindRingingForPhoneAsync(PhoneDeviceId phoneId, CancellationToken cancellationToken);
+
+    void StartStream(PhoneCall call, CallPlaced domainEvent);
+
+    void Append(PhoneCallId callId, object domainEvent);
 
     ValueTask SaveChangesAsync(CancellationToken cancellationToken);
 }
