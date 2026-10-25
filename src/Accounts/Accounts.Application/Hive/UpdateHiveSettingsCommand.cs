@@ -11,7 +11,8 @@ public sealed record UpdateHiveSettingsCommand(
     int? PhoneContactLimit = null,
     int? PhoneThreadMessageLimit = null,
     int? PhoneMaxGroupParticipants = null,
-    int? PhoneNotificationLimit = null) : IRequest<HiveSettings>;
+    int? PhoneNotificationLimit = null,
+    int? PhoneRingSeconds = null) : IRequest<HiveSettings>;
 
 public sealed class UpdateHiveSettingsHandler(IHiveSettingsRepository repository)
     : IRequestHandler<UpdateHiveSettingsCommand, HiveSettings>
@@ -65,7 +66,14 @@ public sealed class UpdateHiveSettingsHandler(IHiveSettingsRepository repository
             settings.PhoneNotificationLimit = notificationLimit;
         }
 
+        if (request.PhoneRingSeconds is { } ringSeconds)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(ringSeconds, 1, nameof(request.PhoneRingSeconds));
+            settings.PhoneRingSeconds = ringSeconds;
+        }
+
         await repository.UpsertAsync(settings, cancellationToken);
+
         return settings;
     }
 }

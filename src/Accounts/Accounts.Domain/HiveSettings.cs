@@ -50,4 +50,15 @@ public sealed class HiveSettings
     /// notification is delivery state rather than history worth replaying.
     /// </summary>
     public int PhoneNotificationLimit { get; set; } = 50;
+
+    /// <summary>
+    /// How long an unanswered call keeps ringing before it counts as missed. Carried on
+    /// <c>CallPlaced</c> rather than read at expiry time, like PhoneThreadMessageLimit and unlike
+    /// PhoneNotificationLimit, because whether a given call has run out is a fact about the window it
+    /// was placed under — otherwise lowering this would retroactively miss calls already in progress.
+    ///
+    /// It is also half of the ring latency a player feels: this bounds how long they hear ringing,
+    /// and the Bridge's poll interval bounds how long before they hear it at all.
+    /// </summary>
+    public int PhoneRingSeconds { get; set; } = 30;
 }

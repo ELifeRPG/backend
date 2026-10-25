@@ -11,7 +11,12 @@ namespace ELifeRPG.Phone.IntegrationTests;
 /// </summary>
 internal static class TestServices
 {
-    public static ServiceProvider BuildProvider()
+    /// <summary>
+    /// <paramref name="configureServices"/> runs <i>before</i> the infrastructure registrations, not
+    /// after: those use <c>TryAdd</c>, so an override has to already be present to win rather than be
+    /// appended and ignored. That is the opposite of Shops' fixture, where the hook runs last.
+    /// </summary>
+    public static ServiceProvider BuildProvider(Action<IServiceCollection>? configureServices = null)
     {
         var database = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret");
 
@@ -39,6 +44,8 @@ internal static class TestServices
             ];
             options.ServiceLifetime = ServiceLifetime.Transient;
         });
+        configureServices?.Invoke(services);
+
         services.AddPhoneInfrastructure(configuration);
         services.AddAccountInfrastructure(configuration);
 

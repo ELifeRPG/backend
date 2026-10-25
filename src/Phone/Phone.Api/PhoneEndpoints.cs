@@ -1,4 +1,6 @@
+using System.Threading.RateLimiting;
 using ELifeRPG.Phone.Api;
+using ELifeRPG.Phone.Api.Apps.Phone;
 using ELifeRPG.Phone.Domain.Apps;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -41,6 +43,12 @@ public static partial class PhoneModule
     private const string ManagePolicy = "Phone.Manage";
     private const string EnforcePolicy = "Phone.Enforce";
 
+    /// <summary>
+    /// The ring poll's bucket — see <see cref="ELifeRPG.Phone.Api.Apps.Phone.CallRateLimits"/> for
+    /// why this is the one phone endpoint that needs one.
+    /// </summary>
+    private const string RingPollRateLimitPolicy = "Phone.Calls.RingPoll.RateLimit";
+
     public static IServiceCollection AddPhoneModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddPhoneInfrastructure(configuration);
@@ -55,8 +63,27 @@ public static partial class PhoneModule
             .AddPolicy(EnforcePolicy, policy => policy.RequireAssertion(context =>
                 HasScope(context, PhoneEnforceScope) || HasScope(context, GameserverPhoneEnforceScope)));
 
+        // Partitioned on client_id, which for this deployment means per gameserver — the same key
+        // and the same reasoning as WorldModule's two policies. AddRateLimiter composes with the
+        // host's own call rather than replacing it; the shared 429 shape lives in Program.cs.
+        services.AddRateLimiter(options =>
+        {
+            options.AddPolicy(RingPollRateLimitPolicy, httpContext => RateLimitPartition.GetTokenBucketLimiter(
+                httpContext.User.FindFirst("client_id")?.Value is { Length: > 0 } clientId
+                    ? clientId
+                    : UnattributedRateLimitPartition,
+                _ => CallRateLimits.RingPolls()));
+        });
+
         return services;
     }
+
+    /// <summary>
+    /// Every request through the ring poll is authorized first, so an unattributed partition should
+    /// be unreachable in practice — it exists so that a token without the claim lands in one shared
+    /// bucket rather than minting a partition per request.
+    /// </summary>
+    internal const string UnattributedRateLimitPartition = "(no client_id)";
 
     public static WebApplication MapPhoneModule(this WebApplication app)
     {
@@ -70,6 +97,7 @@ public static partial class PhoneModule
         MapMessages(group);
         MapNotifications(group);
         MapStore(group);
+        MapCalls(group);
         MapAdmin(group);
 
         return app;
