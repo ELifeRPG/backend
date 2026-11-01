@@ -6,8 +6,6 @@ public interface IAccountRepository
 {
     ValueTask<Account?> FindByIdAsync(AccountId accountId, CancellationToken cancellationToken);
 
-    ValueTask<Account?> FindByBohemiaIdAsync(GameId bohemiaId, CancellationToken cancellationToken);
-
     /// <summary>
     /// Resolves the account behind a Keycloak subject. This is the portal's entry point: a signed-in
     /// player is known by their Keycloak user id and nothing else, so every self-service path
@@ -15,7 +13,10 @@ public interface IAccountRepository
     /// </summary>
     ValueTask<Account?> FindByKeycloakUserIdAsync(KeycloakUserId keycloakUserId, CancellationToken cancellationToken);
 
-    ValueTask<IReadOnlyList<Account>> SearchAsync(string search, CancellationToken cancellationToken);
+    /// <summary>Every account that has not been absorbed into another.</summary>
+    ValueTask<IReadOnlyList<Account>> ListAsync(CancellationToken cancellationToken);
+
+    ValueTask<IReadOnlyList<Account>> ListByIdsAsync(IReadOnlyCollection<AccountId> accountIds, CancellationToken cancellationToken);
 
     void StartStream(Account account, AccountCreated domainEvent);
 

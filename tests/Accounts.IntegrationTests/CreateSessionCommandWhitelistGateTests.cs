@@ -34,10 +34,10 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
     {
         using var scope = _provider.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var bohemiaId = new GameId(Guid.NewGuid());
-        await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
+        var gameIdentityId = new GameIdentityId(Guid.NewGuid());
+        await TestAccounts.CreateAsync(scope.ServiceProvider, gameIdentityId);
 
-        var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
+        var result = await mediator.Send(new CreateSessionCommand(gameIdentityId));
 
         Assert.Equal(SessionStatus.Active, result.Status);
     }
@@ -51,10 +51,10 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
         await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: true), CancellationToken.None);
         try
         {
-            var bohemiaId = new GameId(Guid.NewGuid());
-            await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
+            var gameIdentityId = new GameIdentityId(Guid.NewGuid());
+            await TestAccounts.CreateAsync(scope.ServiceProvider, gameIdentityId);
 
-            var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
+            var result = await mediator.Send(new CreateSessionCommand(gameIdentityId));
 
             Assert.Equal(SessionStatus.NotWhitelisted, result.Status);
         }
@@ -73,8 +73,8 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
         await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: true), CancellationToken.None);
         try
         {
-            var bohemiaId = new GameId(Guid.NewGuid());
-            var account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
+            var gameIdentityId = new GameIdentityId(Guid.NewGuid());
+            var account = await TestAccounts.CreateAsync(scope.ServiceProvider, gameIdentityId);
 
             _provider.GetRequiredService<TestCurrentKeycloakUser>().Current = account.KeycloakUserId;
             var submitResult = await mediator.Send(new SubmitWhitelistApplicationCommand("text"));
@@ -87,7 +87,7 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
             await mediator.Send(new StartWhitelistApplicationReviewCommand(submitted.WhitelistApplicationId));
             await mediator.Send(new ApproveWhitelistApplicationCommand(submitted.WhitelistApplicationId));
 
-            var result = await mediator.Send(new CreateSessionCommand(bohemiaId));
+            var result = await mediator.Send(new CreateSessionCommand(gameIdentityId));
 
             Assert.Equal(SessionStatus.Active, result.Status);
         }
@@ -106,11 +106,11 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
         await mediator.Send(new UpdateHiveSettingsCommand(WhitelistEnabled: true), CancellationToken.None);
         try
         {
-            var bohemiaId = new GameId(Guid.NewGuid());
-            var account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
+            var gameIdentityId = new GameIdentityId(Guid.NewGuid());
+            var account = await TestAccounts.CreateAsync(scope.ServiceProvider, gameIdentityId);
 
             var bootstrap = await mediator.Send(
-                new CreateSessionCommand(bohemiaId), CancellationToken.None);
+                new CreateSessionCommand(gameIdentityId), CancellationToken.None);
             Assert.Equal(SessionStatus.NotWhitelisted, bootstrap.Status);
 
             _provider.GetRequiredService<TestCurrentKeycloakUser>().Current = account.KeycloakUserId;
@@ -127,7 +127,7 @@ public sealed class CreateSessionCommandWhitelistGateTests : IAsyncLifetime
 
             // Approved once — subsequent bootstraps for the same account stay whitelisted hive-wide.
             var rebootstrap = await mediator.Send(
-                new CreateSessionCommand(bohemiaId), CancellationToken.None);
+                new CreateSessionCommand(gameIdentityId), CancellationToken.None);
 
             Assert.Equal(SessionStatus.Active, rebootstrap.Status);
         }

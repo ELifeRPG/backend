@@ -41,30 +41,30 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
     }
 
     // Lock/unlock disables and re-enables the account's Keycloak user, so this needs a real one.
-    // Linked as well, because the assertions re-bootstrap a session for the same Bohemia ID.
-    private async Task<(AccountId AccountId, GameId BohemiaId, string KeycloakUsername)> CreateAccountAsync()
+    // Linked as well, because the assertions re-bootstrap a session for the same Game Identity ID.
+    private async Task<(AccountId AccountId, GameIdentityId GameIdentityId, string KeycloakUsername)> CreateAccountAsync()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
+        var gameIdentityId = new GameIdentityId(Guid.NewGuid());
         var username = $"test-lock-{Guid.NewGuid():N}";
         var keycloakUserId = new KeycloakUserId(await _keycloak.CreateUserAsync(username));
         _createdUsernames.Add(username);
 
         using var scope = _provider.CreateScope();
-        var account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId, keycloakUserId);
-        return (account.Id, bohemiaId, username);
+        var account = await TestAccounts.CreateAsync(scope.ServiceProvider, gameIdentityId, keycloakUserId);
+        return (account.Id, gameIdentityId, username);
     }
 
     [Fact]
     public async Task Handle_ActiveAccount_LocksItAndDisablesTheKeycloakUser()
     {
-        var (accountId, bohemiaId, username) = await CreateAccountAsync();
+        var (accountId, gameIdentityId, username) = await CreateAccountAsync();
 
         var result = await Send<LockAccountCommand, LockAccountResult>(new LockAccountCommand(accountId));
 
         Assert.True(result is LockAccountResult.Locked, $"Expected Locked, got {result}");
         Assert.False(await _keycloak.GetUserEnabledAsync(username));
 
-        var sessionAfterLock = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
+        var sessionAfterLock = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(gameIdentityId));
         Assert.Equal(SessionStatus.Blocked, sessionAfterLock.Status);
     }
 
@@ -108,7 +108,7 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
     [Fact]
     public async Task Handle_LockedAccount_UnlockRestoresActiveAndReEnablesTheKeycloakUser()
     {
-        var (accountId, bohemiaId, username) = await CreateAccountAsync();
+        var (accountId, gameIdentityId, username) = await CreateAccountAsync();
         await Send<LockAccountCommand, LockAccountResult>(new LockAccountCommand(accountId));
 
         var result = await Send<UnlockAccountCommand, UnlockAccountResult>(new UnlockAccountCommand(accountId));
@@ -116,7 +116,7 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
         Assert.True(result is UnlockAccountResult.Unlocked, $"Expected Unlocked, got {result}");
         Assert.True(await _keycloak.GetUserEnabledAsync(username));
 
-        var sessionAfterUnlock = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(bohemiaId));
+        var sessionAfterUnlock = await Send<CreateSessionCommand, CreateSessionResponse>(new CreateSessionCommand(gameIdentityId));
         Assert.Equal(SessionStatus.Active, sessionAfterUnlock.Status);
     }
 

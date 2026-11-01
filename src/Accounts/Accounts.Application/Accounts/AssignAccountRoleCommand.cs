@@ -2,13 +2,24 @@ using ELifeRPG.Accounts.Application.Common;
 
 namespace ELifeRPG.Accounts.Application.Accounts;
 
-public union AssignAccountRoleResult(AssignAccountRoleResult.Assigned, AssignAccountRoleResult.AccountNotFound, AssignAccountRoleResult.RoleNotFound)
+public union AssignAccountRoleResult(
+    AssignAccountRoleResult.Assigned,
+    AssignAccountRoleResult.AccountNotFound,
+    AssignAccountRoleResult.RoleNotFound,
+    AssignAccountRoleResult.NoWebIdentity)
 {
     public record Assigned;
 
     public record AccountNotFound;
 
     public record RoleNotFound;
+
+    /// <summary>
+    /// The account has no Keycloak user, so there is nothing to manage roles on. A join-first
+    /// player who has never linked is in exactly this state. Mapped to 409 rather than 404, which
+    /// would lie to staff: the account does exist.
+    /// </summary>
+    public record NoWebIdentity;
 }
 
 public sealed record AssignAccountRoleCommand(AccountId AccountId, string RoleName) : IRequest<AssignAccountRoleResult>;
@@ -24,7 +35,12 @@ public sealed class AssignAccountRoleHandler(IAccountRepository accountRepositor
             return new AssignAccountRoleResult.AccountNotFound();
         }
 
-        var assigned = await keycloakUserProvisioner.AssignRealmRoleAsync(account.KeycloakUserId, request.RoleName, cancellationToken);
+        if (account.KeycloakUserId is not { } keycloakUserId)
+        {
+            return new AssignAccountRoleResult.NoWebIdentity();
+        }
+
+        var assigned = await keycloakUserProvisioner.AssignRealmRoleAsync(keycloakUserId, request.RoleName, cancellationToken);
         return assigned ? new AssignAccountRoleResult.Assigned() : new AssignAccountRoleResult.RoleNotFound();
     }
 }

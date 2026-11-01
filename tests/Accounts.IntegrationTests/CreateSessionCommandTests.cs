@@ -32,63 +32,92 @@ public sealed class CreateSessionCommandTests : IAsyncLifetime
     public async Task DisposeAsync() => await _provider.DisposeAsync();
 
     /// <summary>
-    /// The central behaviour change: joining with an unknown Bohemia ID no longer provisions
-    /// anything. The account is created by portal signup, so all a join can do is hand the player a
-    /// PIN to redeem there.
+    /// The central behaviour change: joining with an unknown Game Identity ID now <b>creates</b> the
+    /// account, so the player plays at once, and hands them a URL to link a web account later.
     /// </summary>
     [Fact]
-    public async Task Handle_UnknownBohemiaId_CreatesNothingAndReturnsUnlinkedWithAPin()
+    public async Task Handle_UnknownGameIdentityId_CreatesAPlayableAccountWithALinkUrl()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
+        var gameIdentityId = new GameIdentityId(Guid.NewGuid());
 
-        var result = await Send(new CreateSessionCommand(bohemiaId));
+        var result = await Send(new CreateSessionCommand(gameIdentityId));
 
-        Assert.Equal(SessionStatus.Unlinked, result.Status);
-        Assert.Null(result.AccountId);
+        Assert.Equal(SessionStatus.Active, result.Status);
+        Assert.NotNull(result.AccountId);
+        // Playable, but with no web identity yet — which is the signal the mod shows the link on.
+        Assert.False(result.WebAccountLinked);
         Assert.Null(result.KeycloakUserId);
         Assert.False(string.IsNullOrWhiteSpace(result.LinkPin));
+        Assert.False(string.IsNullOrWhiteSpace(result.LinkUrl));
+        Assert.Contains(result.LinkPin!, result.LinkUrl!);
     }
 
+    /// <summary>
+    /// A fresh PIN per join as before, but now on the <i>same</i> account: the second join finds the
+    /// link created by the first rather than creating a second account.
+    /// </summary>
     [Fact]
-    public async Task Handle_UnknownBohemiaId_MintsAFreshPinEachJoin()
+    public async Task Handle_UnknownGameIdentityId_MintsAFreshPinEachJoinOnTheSameAccount()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
+        var gameIdentityId = new GameIdentityId(Guid.NewGuid());
 
-        var first = await Send(new CreateSessionCommand(bohemiaId));
-        var second = await Send(new CreateSessionCommand(bohemiaId));
+        var first = await Send(new CreateSessionCommand(gameIdentityId));
+        var second = await Send(new CreateSessionCommand(gameIdentityId));
 
         Assert.NotEqual(first.LinkPin, second.LinkPin);
+        Assert.Equal(first.AccountId, second.AccountId);
+    }
+
+    /// <summary>
+    /// The hazard-1 regression test. Two servers in the hive, or a fast reconnect, both read "no
+    /// link" and both try to create — the link's unique index must collapse that to one account
+    /// rather than leaving the player split across two, which no later query could untangle.
+    /// </summary>
+    [Fact]
+    public async Task Handle_ConcurrentJoinsForOneIdentity_ResolveToASingleAccount()
+    {
+        var gameIdentityId = new GameIdentityId(Guid.NewGuid());
+
+        var results = await Task.WhenAll(
+            Enumerable.Range(0, 4).Select(_ => Task.Run(() => Send(new CreateSessionCommand(gameIdentityId)))));
+
+        // Every racer gets a usable account — the loser resolves onto the winner's rather than
+        // being told to reconnect — and crucially they all get the *same* one.
+        Assert.All(results, r => Assert.NotNull(r.AccountId));
+        Assert.Single(results.Select(r => r.AccountId).Distinct());
     }
 
     [Fact]
     public async Task Handle_LinkedAccount_ReturnsActiveWithTheKeycloakSubjectToImpersonate()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
+        var gameIdentityId = new GameIdentityId(Guid.NewGuid());
         TestAccount account;
         using (var scope = _provider.CreateScope())
         {
-            account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
+            account = await TestAccounts.CreateAsync(scope.ServiceProvider, gameIdentityId);
         }
 
-        var result = await Send(new CreateSessionCommand(bohemiaId));
+        var result = await Send(new CreateSessionCommand(gameIdentityId));
 
         Assert.Equal(SessionStatus.Active, result.Status);
         Assert.Equal(account.Id, result.AccountId);
-        // The Bridge impersonates by user id, so this is what the whole session hangs off.
+        Assert.True(result.WebAccountLinked);
         Assert.Equal(account.KeycloakUserId, result.KeycloakUserId);
+        // Nothing to link, so no prompt — and no Keycloak round trip was needed to decide that.
+        Assert.Null(result.LinkUrl);
     }
 
     [Fact]
     public async Task Handle_CalledTwiceForALinkedAccount_ReturnsTheSameAccountWithoutDuplicating()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
+        var gameIdentityId = new GameIdentityId(Guid.NewGuid());
         using (var scope = _provider.CreateScope())
         {
-            await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
+            await TestAccounts.CreateAsync(scope.ServiceProvider, gameIdentityId);
         }
 
-        var first = await Send(new CreateSessionCommand(bohemiaId));
-        var second = await Send(new CreateSessionCommand(bohemiaId));
+        var first = await Send(new CreateSessionCommand(gameIdentityId));
+        var second = await Send(new CreateSessionCommand(gameIdentityId));
 
         Assert.Equal(first.AccountId, second.AccountId);
     }

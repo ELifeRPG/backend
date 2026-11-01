@@ -26,13 +26,13 @@ public sealed class AccountsQueryTests : IAsyncLifetime
         await _provider.DisposeAsync();
     }
 
-    // Linked on purpose: admin search matches on Bohemia ID, and an unlinked account has none.
-    private async Task<(AccountId AccountId, GameId BohemiaId)> CreateAccountAsync()
+    // Linked on purpose: admin search matches on Game Identity ID, and an unlinked account has none.
+    private async Task<(AccountId AccountId, GameIdentityId GameIdentityId)> CreateAccountAsync()
     {
-        var bohemiaId = new GameId(Guid.NewGuid());
+        var gameIdentityId = new GameIdentityId(Guid.NewGuid());
         using var scope = _provider.CreateScope();
-        var account = await TestAccounts.CreateAsync(scope.ServiceProvider, bohemiaId);
-        return (account.Id, bohemiaId);
+        var account = await TestAccounts.CreateAsync(scope.ServiceProvider, gameIdentityId);
+        return (account.Id, gameIdentityId);
     }
 
     [Fact]
@@ -46,14 +46,14 @@ public sealed class AccountsQueryTests : IAsyncLifetime
         {
             throw new InvalidOperationException($"Expected Found, got {result}.");
         }
-        Assert.Contains(found.Accounts, a => a.Id == accountId);
+        Assert.Contains(found.Accounts, a => a.Account.Id == accountId);
     }
 
     [Fact]
-    public async Task Handle_SearchMatchingBohemiaIdSubstring_ReturnsOnlyMatchingAccounts()
+    public async Task Handle_SearchMatchingGameIdentityIdSubstring_ReturnsOnlyMatchingAccounts()
     {
-        var (accountId, bohemiaId) = await CreateAccountAsync();
-        var searchTerm = bohemiaId.Value.ToString()[..8];
+        var (accountId, gameIdentityId) = await CreateAccountAsync();
+        var searchTerm = gameIdentityId.Value.ToString()[..8];
 
         var result = await Send<AccountsQuery, AccountsResult>(new AccountsQuery(searchTerm));
 
@@ -61,8 +61,12 @@ public sealed class AccountsQueryTests : IAsyncLifetime
         {
             throw new InvalidOperationException($"Expected Found, got {result}.");
         }
-        Assert.Contains(found.Accounts, a => a.Id == accountId);
-        Assert.All(found.Accounts, a => Assert.Contains(searchTerm, a.BohemiaId!.Value.Value.ToString(), StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(found.Accounts, a => a.Account.Id == accountId);
+        Assert.All(
+            found.Accounts,
+            a => Assert.Contains(
+                a.GameAccounts,
+                link => link.GameIdentityId.Value.ToString().Contains(searchTerm, StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]

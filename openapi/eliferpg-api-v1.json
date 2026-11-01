@@ -10,7 +10,7 @@
         "tags": [
           "Accounts"
         ],
-        "description": "Bootstraps (or looks up) a session for a player's Bohemia ID, provisioning an account if needed. Always returns 200 — a blocked or not-whitelisted account is reported via the Status field, not an error.",
+        "description": "Bootstraps (or looks up) a session for a player's Game Identity ID, creating the account if this is an identity nobody has seen — so a player can join and play without a web account. Always returns 200: a blocked or not-whitelisted account is reported via Status, and \"unlinked\" now means only that identity could not be resolved right now and nothing was created, so retry. Use WebAccountLinked, not Status, to decide whether to show the link prompt.",
         "operationId": "BootstrapSession",
         "requestBody": {
           "content": {
@@ -41,7 +41,7 @@
         "tags": [
           "Accounts"
         ],
-        "description": "Creates (or returns) the account behind the calling Keycloak user. This is the portal-first entry point: the account exists from web signup onward, with no Bohemia ID until the player links their game identity. Idempotent.",
+        "description": "Resolves the account behind the calling Keycloak user, creating it if needed. Both origins converge here: a portal-first signup gets a fresh account with no game identities, while a join-first player — whose account already exists because they joined a gameserver — gets this web identity attached to it, using the token's game-identity claim. Idempotent. Returns 409 when the two cannot be reconciled automatically, which needs staff.",
         "operationId": "EnsureCurrentAccount",
         "responses": {
           "200": {
@@ -56,6 +56,16 @@
           },
           "400": {
             "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -160,7 +170,7 @@
         "tags": [
           "Accounts"
         ],
-        "description": "Lists accounts, optionally filtered by a Bohemia ID substring match, for the admin accounts view.",
+        "description": "Lists accounts, optionally filtered by a Game Identity ID substring match, for the admin accounts view. Each account carries every game identity linked to it — none for a fresh portal signup, several for a player who plays on more than one platform.",
         "operationId": "ListAccounts",
         "parameters": [
           {
@@ -223,6 +233,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -263,6 +283,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       },
@@ -294,6 +324,16 @@
         "responses": {
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5603,6 +5643,7 @@
       "AccountDto": {
         "required": [
           "id",
+          "gameAccounts",
           "status"
         ],
         "type": "object",
@@ -5611,11 +5652,11 @@
             "type": "string",
             "format": "uuid"
           },
-          "bohemiaId": {
-            "type": [
-              "null",
-              "string"
-            ]
+          "gameAccounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GameAccountDto"
+            }
           },
           "discordUsername": {
             "type": [
@@ -6514,13 +6555,19 @@
       },
       "CreateSessionRequestDto": {
         "required": [
-          "bohemiaId"
+          "gameIdentityId"
         ],
         "type": "object",
         "properties": {
-          "bohemiaId": {
+          "gameIdentityId": {
             "type": "string",
             "format": "uuid"
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6553,6 +6600,23 @@
               "string"
             ],
             "format": "double"
+          }
+        }
+      },
+      "GameAccountDto": {
+        "required": [
+          "gameIdentityId"
+        ],
+        "type": "object",
+        "properties": {
+          "gameIdentityId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7911,7 +7975,8 @@
       },
       "SessionDto": {
         "required": [
-          "status"
+          "status",
+          "webAccountLinked"
         ],
         "type": "object",
         "properties": {
@@ -7932,7 +7997,16 @@
           "status": {
             "type": "string"
           },
+          "webAccountLinked": {
+            "type": "boolean"
+          },
           "linkPin": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "linkUrl": {
             "type": [
               "null",
               "string"

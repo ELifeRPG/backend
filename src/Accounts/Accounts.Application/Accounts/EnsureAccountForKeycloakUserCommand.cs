@@ -1,41 +1,54 @@
 using ELifeRPG.Accounts.Application.Common;
-using ELifeRPG.Accounts.Domain.Events;
 
 namespace ELifeRPG.Accounts.Application.Accounts;
 
-public sealed record EnsureAccountForKeycloakUserResult(AccountId AccountId, bool Created);
+public union EnsureAccountForKeycloakUserResult(
+    EnsureAccountForKeycloakUserResult.Resolved,
+    EnsureAccountForKeycloakUserResult.Conflict)
+{
+    public record Resolved(AccountId AccountId, bool Created);
+
+    /// <summary>
+    /// The caller's web identity and game identities cannot be reconciled automatically — they sit
+    /// on accounts that both hold game identities, or on two different accounts. Surfaced to the
+    /// portal as a 409 rather than silently ignored: this is the one place a player can be told
+    /// their accounts need staff attention.
+    /// </summary>
+    public record Conflict(string Reason);
+}
 
 /// <summary>
-/// Creates the account behind a Keycloak user, if it does not exist yet. This is the portal-first
-/// entry point: the Keycloak user is created by ordinary web signup (Discord broker or local
-/// registration) and the account is created the first time that user reaches the backend — well
-/// before they ever join the gameserver, and therefore with no Bohemia ID.
+/// Resolves the account behind the calling Keycloak user, creating it if it does not exist yet.
 ///
-/// Idempotent: joining the portal twice, or a page that calls this on every load, returns the same
-/// account rather than creating a second one.
+/// Two origins converge here. Portal-first: the Keycloak user comes from ordinary web signup and
+/// the account is created the first time they reach the backend, with no game identity. Join-first:
+/// the account already exists because the player joined a gameserver, and the token's game-identity
+/// claim is what lets us attach this web identity to it rather than making a second account.
+///
+/// Idempotent: a portal page calling this on every load returns the same account.
 /// </summary>
 public sealed record EnsureAccountForKeycloakUserCommand(KeycloakUserId KeycloakUserId)
     : IRequest<EnsureAccountForKeycloakUserResult>;
 
-public sealed class EnsureAccountForKeycloakUserHandler(IAccountRepository accountRepository)
+public sealed class EnsureAccountForKeycloakUserHandler(
+    IAccountIdentityReconciler reconciler,
+    ICurrentKeycloakUser currentKeycloakUser)
     : IRequestHandler<EnsureAccountForKeycloakUserCommand, EnsureAccountForKeycloakUserResult>
 {
     public async ValueTask<EnsureAccountForKeycloakUserResult> Handle(
         EnsureAccountForKeycloakUserCommand request, CancellationToken cancellationToken)
     {
-        var existing = await accountRepository.FindByKeycloakUserIdAsync(request.KeycloakUserId, cancellationToken);
-        if (existing is not null)
+        var gameIdentityIds = await currentKeycloakUser.GetGameIdentityIdsAsync(cancellationToken);
+
+        var result = await reconciler.ReconcileAsync(
+            request.KeycloakUserId, gameIdentityIds, platform: null, cancellationToken);
+
+        return result switch
         {
-            return new EnsureAccountForKeycloakUserResult(existing.Id, Created: false);
-        }
-
-        var accountId = new AccountId(Guid.NewGuid());
-        var domainEvent = new AccountCreated(accountId, BohemiaId: null, request.KeycloakUserId);
-
-        var account = Account.Create(domainEvent);
-        accountRepository.StartStream(account, domainEvent);
-        await accountRepository.SaveChangesAsync(cancellationToken);
-
-        return new EnsureAccountForKeycloakUserResult(accountId, Created: true);
+            AccountIdentityReconciliationResult.Resolved resolved
+                => new EnsureAccountForKeycloakUserResult.Resolved(resolved.AccountId, resolved.Created),
+            AccountIdentityReconciliationResult.Conflict conflict
+                => new EnsureAccountForKeycloakUserResult.Conflict(conflict.Reason),
+        };
     }
 }
