@@ -657,6 +657,41 @@
       ]
     },
     {
+      "clientId": "eliferpg-game-link",
+      "name": "eLifeRPG Game Account Link",
+      "description": "Where the in-game link URL authorizes. Its authorization code is never exchanged; the redirect only gives the player somewhere to land, so there is no secret and no PKCE. Separate from eliferpg-portal to leave its redirects alone.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "bearerOnly": false,
+      "consentRequired": false,
+      "frontchannelLogout": false,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "/realms/eliferpg/account/*"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "realm_client": "false",
+        "backchannel.logout.session.required": "true",
+        "backchannel.logout.revoke.offline.tokens": "false"
+      },
+      "fullScopeAllowed": false,
+      "nodeReRegistrationTimeout": -1,
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "basic",
+        "email"
+      ],
+      "optionalClientScopes": []
+    },
+    {
       "id": "b9253dc5-0cc0-4078-a0fb-62e3db7d79c2",
       "clientId": "account-console",
       "name": "${client_account-console}",
@@ -939,7 +974,7 @@
         "account:self:manage",
         "basic",
         "email",
-        "bohemia-id"
+        "game-identity"
       ],
       "optionalClientScopes": [
         "address",
@@ -1051,7 +1086,7 @@
         "gameserver:session:create",
         "basic",
         "email",
-        "bohemia-id",
+        "game-identity",
         "gameserver:phone:read",
         "gameserver:phone:write",
         "gameserver:phone:provision",
@@ -2065,8 +2100,8 @@
       }
     },
     {
-      "name": "bohemia-id",
-      "description": "Carries the bound Bohemia ID as the bohemia_id claim. Absent claim means the account is not linked.",
+      "name": "game-identity",
+      "description": "Carries the player's bound Game Identity IDs as the multi-valued game_identity_ids claim. Reforger mints one Game Identity per game-platform combination, so a player may have several. An absent claim means no game account is linked.",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "false",
@@ -2074,19 +2109,19 @@
       },
       "protocolMappers": [
         {
-          "name": "bohemia_id",
+          "name": "game_identity_ids",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-usermodel-attribute-mapper",
           "consentRequired": false,
           "config": {
-            "user.attribute": "bohemiaId",
-            "claim.name": "bohemia_id",
+            "user.attribute": "gameIdentityIds",
+            "claim.name": "game_identity_ids",
             "jsonType.label": "String",
             "id.token.claim": "true",
             "access.token.claim": "true",
             "userinfo.token.claim": "true",
             "introspection.token.claim": "true",
-            "multivalued": "false",
+            "multivalued": "true",
             "aggregate.attrs": "false"
           }
         }

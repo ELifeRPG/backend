@@ -139,9 +139,13 @@ ships login, account, admin, and email variants, configured via
 alias `link-bohemia-gameaccount` (`defaultAction: false`). It's
 **application-initiated only** — nothing happens by default. A client triggers it
 by adding `kc_action=link-bohemia-gameaccount` to the authorization request;
-Keycloak reports back `kc_action_status=success` on the redirect. See that repo's
-README for how it's meant to be triggered and how to consume the resulting
-`bohemiaId` user attribute (e.g. via a stock `oidc-usermodel-attribute-mapper`).
+Keycloak reports back `kc_action_status=success` on the redirect. The backend puts
+the link PIN straight on that URL as `link_pin`, which the provider reads back and
+pre-fills into the form, so a player never retypes it. See that repo's README for
+how it's meant to be triggered and how to consume the resulting **multi-valued**
+`gameIdentityIds` user attribute — here that is the `game-identity` client scope's
+`oidc-usermodel-attribute-mapper`, which **must** carry `multivalued: true` or the
+`game_identity_ids` claim silently reports only the player's first identity.
 
 Same rollout caveat as above applies to both the theme fields and the required
 action: they only take effect on a fresh realm import. Against an existing
