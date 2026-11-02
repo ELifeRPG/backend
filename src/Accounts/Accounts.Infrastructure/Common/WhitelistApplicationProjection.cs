@@ -8,6 +8,11 @@ public sealed partial class WhitelistApplicationProjection : SingleStreamProject
 {
     public static WhitelistApplication Create(WhitelistApplicationSubmitted domainEvent) => WhitelistApplication.Create(domainEvent);
 
+    // Without this the absorb's re-pointing would not reach the document, so FindApprovedAsync
+    // would still answer for the losing account and an already-whitelisted player would read as
+    // not_whitelisted on their next join.
+    public void Apply(WhitelistApplication application, WhitelistApplicationAccountReassigned domainEvent) => application.Apply(domainEvent);
+
     public void Apply(WhitelistApplication application, WhitelistApplicationReviewStarted domainEvent) => application.Apply(domainEvent);
 
     public void Apply(WhitelistApplication application, WhitelistApplicationApproved domainEvent) => application.Apply(domainEvent);

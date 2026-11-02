@@ -83,12 +83,30 @@ public class WhitelistApplication
         return domainEvent;
     }
 
+    /// <summary>
+    /// Re-points this application at the surviving account during an absorb. Null when it already
+    /// belongs there, so the reconciler can call it unconditionally.
+    /// </summary>
+    public WhitelistApplicationAccountReassigned? ReassignTo(AccountId accountId)
+    {
+        if (AccountId.Value == accountId.Value)
+        {
+            return null;
+        }
+
+        var domainEvent = new WhitelistApplicationAccountReassigned(Id, accountId);
+        Apply(domainEvent);
+        return domainEvent;
+    }
+
     public void Apply(WhitelistApplicationSubmitted domainEvent)
     {
         Id = domainEvent.Id;
         AccountId = domainEvent.AccountId;
         ApplicationText = domainEvent.ApplicationText;
     }
+
+    public void Apply(WhitelistApplicationAccountReassigned domainEvent) => AccountId = domainEvent.AccountId;
 
     public void Apply(WhitelistApplicationReviewStarted domainEvent) => Status = WhitelistApplicationStatus.InReview;
 

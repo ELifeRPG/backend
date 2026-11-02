@@ -2,24 +2,38 @@ namespace ELifeRPG.Accounts.Api.Sessions;
 
 public sealed record SessionDto
 {
-    /// <summary>Null when <see cref="Status"/> is <c>unlinked</c> — no account owns this Bohemia ID yet.</summary>
+    /// <summary>Null only for <c>unlinked</c>, where no account exists because none could be resolved.</summary>
     public Guid? AccountId { get; init; }
 
     /// <summary>
-    /// The subject the Bridge impersonates via Keycloak's token exchange. A user id rather than a
-    /// username: portal-created users are named by the player, and the backend knows them by id.
-    /// Null when unlinked.
+    /// Retained for compatibility and currently unused by the Bridge, which dropped the player-token
+    /// exchange this once fed. Null for any account that has not linked a web identity.
     /// </summary>
     public Guid? KeycloakUserId { get; init; }
 
+    /// <summary>The play gate, and only that: "active", "blocked", "not_whitelisted" or "unlinked".</summary>
     public required string Status { get; init; }
 
     /// <summary>
-    /// Set only for <c>unlinked</c>, for the mod to display. Null if Keycloak declined to mint one
-    /// (the Bohemia ID was bound between our lookup and the mint), in which case the player should
-    /// simply rejoin.
+    /// Whether this account has a web identity. This — not <see cref="Status"/> — is the signal to
+    /// show the link prompt, because an unlinked player may perfectly well be <c>active</c>.
+    /// </summary>
+    public required bool WebAccountLinked { get; init; }
+
+    /// <summary>
+    /// The 8-character PIN, for the player who would rather type it into the portal's form.
+    /// Null when Keycloak declined to mint one (the identity was bound between our lookup and the
+    /// mint) or was unreachable — in which case the player should simply rejoin.
     /// </summary>
     public string? LinkPin { get; init; }
+
+    /// <summary>
+    /// The copy-to-clipboard URL that does the whole linking flow in a browser. Set and cleared
+    /// together with <see cref="LinkPin"/>. Note this is a bearer credential for the player's game
+    /// identity for as long as the PIN lives, so the mod should show it on demand rather than
+    /// leaving it on screen.
+    /// </summary>
+    public string? LinkUrl { get; init; }
 
     public static SessionDto Create(CreateSessionResponse source) => new()
     {
@@ -32,6 +46,8 @@ public sealed record SessionDto
             SessionStatus.Unlinked => "unlinked",
             _ => "active",
         },
+        WebAccountLinked = source.WebAccountLinked,
         LinkPin = source.LinkPin,
+        LinkUrl = source.LinkUrl,
     };
 }

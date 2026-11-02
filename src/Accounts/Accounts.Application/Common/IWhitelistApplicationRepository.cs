@@ -12,6 +12,13 @@ public interface IWhitelistApplicationRepository
 
     ValueTask<IReadOnlyList<WhitelistApplication>> ListByStatusAsync(WhitelistApplicationStatus status, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Every application for an account, of every status. The absorb re-points all of them, and
+    /// Approved is the one that matters most: left behind, an already-whitelisted player reads as
+    /// not_whitelisted on their next join.
+    /// </summary>
+    ValueTask<IReadOnlyList<WhitelistApplication>> ListByAccountAsync(AccountId accountId, CancellationToken cancellationToken);
+
     void StartStream(WhitelistApplication application, WhitelistApplicationSubmitted domainEvent);
 
     void Append<TEvent>(WhitelistApplicationId id, TEvent domainEvent) where TEvent : notnull;

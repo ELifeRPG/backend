@@ -40,6 +40,9 @@ internal static class TestServices
                 {
                     ["ConnectionStrings:AccountDatabase"] = Env("ELIFERPG_TEST_DB", "Host=postgres;Database=postgres;Username=postgres;Password=supersecret"),
                     ["Keycloak:BaseUrl"] = Env("ELIFERPG_TEST_KEYCLOAK_URL", "http://keycloak:8080/"),
+                    // Validated at startup, so it has to be present even though only the link-URL
+                    // builder reads it. The published address a player's browser would use.
+                    ["Keycloak:PublicBaseUrl"] = Env("ELIFERPG_TEST_KEYCLOAK_PUBLIC_URL", "http://localhost:8180/"),
                     ["Keycloak:Realm"] = "eliferpg",
                     ["Keycloak:ProvisioningClientId"] = "account-service",
                     ["Keycloak:ProvisioningClientSecret"] = "account-service-secret",

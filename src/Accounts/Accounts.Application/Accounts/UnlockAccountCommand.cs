@@ -29,7 +29,10 @@ public sealed class UnlockAccountHandler(IAccountRepository accountRepository, I
             await accountRepository.SaveChangesAsync(cancellationToken);
         }
 
-        await keycloakUserProvisioner.EnableUserAsync(account.KeycloakUserId, cancellationToken);
+        if (account.KeycloakUserId is { } keycloakUserId)
+        {
+            await keycloakUserProvisioner.EnableUserAsync(keycloakUserId, cancellationToken);
+        }
 
         return new UnlockAccountResult.Unlocked();
     }

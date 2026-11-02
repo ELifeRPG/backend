@@ -12,36 +12,43 @@ public sealed class MartenAccountRepository(IDocumentSession session) : IAccount
     // StronglyTypedId's conversion operators make it recognizable as a strongly-typed id. Passing
     // accountId.Value (a raw Guid) here throws DocumentIdTypeMismatchException at runtime — pass the
     // AccountId itself. This is the inverse of the event-stream-id rule (StartStream needs .Value).
+    //
+    // Deliberately NOT filtered on AbsorbedInto: the whole point of keeping an absorbed account's
+    // stream is that "what happened to my old account id" stays answerable by direct lookup.
     public async ValueTask<Account?> FindByIdAsync(AccountId accountId, CancellationToken cancellationToken)
         => await session.LoadAsync<Account>(accountId, cancellationToken);
 
-    // BohemiaId is now nullable — an account created by portal signup has none until the player
-    // links. The null check is not redundant: without it every unlinked account would match a
-    // lookup for whichever Bohemia ID happened to be asked for once BohemiaId.Value defaulted.
-    public async ValueTask<Account?> FindByBohemiaIdAsync(GameId bohemiaId, CancellationToken cancellationToken)
-        => await session.Query<Account>()
-            .SingleOrDefaultAsync(x => x.BohemiaId != null && x.BohemiaId.Value.Value == bohemiaId.Value, cancellationToken);
-
+    // The null check is not redundant, and getting it wrong is worse than staleness: without it
+    // every account with no subject — every join-first account, and every absorbed loser, whose
+    // subject Apply(AccountAbsorbed) deliberately clears — would match a lookup for whichever
+    // subject happened to be asked for, and /accounts/me would hand back the wrong account.
     public async ValueTask<Account?> FindByKeycloakUserIdAsync(KeycloakUserId keycloakUserId, CancellationToken cancellationToken)
         => await session.Query<Account>()
-            .SingleOrDefaultAsync(x => x.KeycloakUserId.Value == keycloakUserId.Value, cancellationToken);
+            .SingleOrDefaultAsync(
+                x => x.KeycloakUserId != null
+                    && x.KeycloakUserId.Value.Value == keycloakUserId.Value
+                    && x.AbsorbedInto == null,
+                cancellationToken);
 
-    // In-memory filter, not a Marten LINQ-translated Where: BohemiaId is a Guid, and
-    // .ToString().Contains() over the JSONB-stored document isn't a query Marten's LINQ
-    // provider translates reliably. Fine at this project's account volume; revisit if this
-    // ever needs to scale past loading the full table per search.
-    public async ValueTask<IReadOnlyList<Account>> SearchAsync(string search, CancellationToken cancellationToken)
+    public async ValueTask<IReadOnlyList<Account>> ListAsync(CancellationToken cancellationToken)
+        => await session.Query<Account>().Where(x => x.AbsorbedInto == null).ToListAsync(cancellationToken);
+
+    public async ValueTask<IReadOnlyList<Account>> ListByIdsAsync(
+        IReadOnlyCollection<AccountId> accountIds, CancellationToken cancellationToken)
     {
-        var accounts = await session.Query<Account>().ToListAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(search))
+        if (accountIds.Count == 0)
         {
-            return accounts;
+            return [];
         }
 
-        // Unlinked accounts have no Bohemia ID to match on, so a non-empty search never returns them.
-        return accounts
-            .Where(a => a.BohemiaId is { } id && id.Value.ToString().Contains(search, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        // In-memory id filter rather than a translated Contains over strongly-typed ids — the same
+        // trade MartenGameAccountLinkRepository makes, and the same volume assumption.
+        var wanted = accountIds.Select(x => x.Value).ToHashSet();
+        var accounts = await session.Query<Account>()
+            .Where(x => x.AbsorbedInto == null)
+            .ToListAsync(cancellationToken);
+
+        return accounts.Where(x => wanted.Contains(x.Id.Value)).ToList();
     }
 
     public void StartStream(Account account, AccountCreated domainEvent)

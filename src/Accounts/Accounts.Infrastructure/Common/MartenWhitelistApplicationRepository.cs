@@ -25,6 +25,9 @@ public sealed class MartenWhitelistApplicationRepository(IDocumentSession sessio
     public async ValueTask<IReadOnlyList<WhitelistApplication>> ListByStatusAsync(WhitelistApplicationStatus status, CancellationToken cancellationToken)
         => await session.Query<WhitelistApplication>().Where(x => x.Status == status).ToListAsync(cancellationToken);
 
+    public async ValueTask<IReadOnlyList<WhitelistApplication>> ListByAccountAsync(AccountId accountId, CancellationToken cancellationToken)
+        => await session.Query<WhitelistApplication>().Where(x => x.AccountId == accountId).ToListAsync(cancellationToken);
+
     public void StartStream(WhitelistApplication application, WhitelistApplicationSubmitted domainEvent)
         => session.Events.StartStream<WhitelistApplication>(application.Id.Value, domainEvent);
 

@@ -71,7 +71,7 @@ public static class AccountModule
             .RequireAuthorization(SessionCreatePolicy)
             .Produces<SessionDto>()
             .WithName("BootstrapSession")
-            .WithDescription("Bootstraps (or looks up) a session for a player's Bohemia ID, provisioning an account if needed. Always returns 200 — a blocked or not-whitelisted account is reported via the Status field, not an error.");
+            .WithDescription("Bootstraps (or looks up) a session for a player's Game Identity ID, creating the account if this is an identity nobody has seen — so a player can join and play without a web account. Always returns 200: a blocked or not-whitelisted account is reported via Status, and \"unlinked\" now means only that identity could not be resolved right now and nothing was created, so retry. Use WebAccountLinked, not Status, to decide whether to show the link prompt.");
 
         group.MapPost("me", async (
                 ICurrentKeycloakUser currentUser,
@@ -87,13 +87,22 @@ public static class AccountModule
                 }
 
                 var result = await mediator.Send(new EnsureAccountForKeycloakUserCommand(subject), cancellationToken);
-                return Results.Ok(new CurrentAccountDto { AccountId = result.AccountId.Value, Created = result.Created });
+                return result switch
+                {
+                    EnsureAccountForKeycloakUserResult.Resolved resolved => Results.Ok(
+                        new CurrentAccountDto { AccountId = resolved.AccountId.Value, Created = resolved.Created }),
+                    EnsureAccountForKeycloakUserResult.Conflict conflict => Results.Problem(
+                        title: "Accounts could not be reconciled",
+                        detail: conflict.Reason,
+                        statusCode: StatusCodes.Status409Conflict),
+                };
             })
             .RequireAuthorization(SelfManagePolicy)
             .Produces<CurrentAccountDto>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("EnsureCurrentAccount")
-            .WithDescription("Creates (or returns) the account behind the calling Keycloak user. This is the portal-first entry point: the account exists from web signup onward, with no Bohemia ID until the player links their game identity. Idempotent.");
+            .WithDescription("Resolves the account behind the calling Keycloak user, creating it if needed. Both origins converge here: a portal-first signup gets a fresh account with no game identities, while a join-first player — whose account already exists because they joined a gameserver — gets this web identity attached to it, using the token's game-identity claim. Idempotent. Returns 409 when the two cannot be reconciled automatically, which needs staff.");
 
         group.MapPost("{accountId:guid}/lock", async (
                 Guid accountId,
@@ -165,7 +174,7 @@ public static class AccountModule
             .RequireAuthorization(AccountsManagePolicy)
             .Produces<AccountsResponseDto>()
             .WithName("ListAccounts")
-            .WithDescription("Lists accounts, optionally filtered by a Bohemia ID substring match, for the admin accounts view.");
+            .WithDescription("Lists accounts, optionally filtered by a Game Identity ID substring match, for the admin accounts view. Each account carries every game identity linked to it — none for a fresh portal signup, several for a player who plays on more than one platform.");
 
         group.MapGet("{accountId:guid}/roles", async (
                 Guid accountId,
@@ -178,11 +187,16 @@ public static class AccountModule
                     AccountRolesResult.Found found => Results.Ok(AccountRolesDto.Create(found)),
                     AccountRolesResult.AccountNotFound => Results.Problem(
                         title: "Account not found", statusCode: StatusCodes.Status404NotFound),
+                    AccountRolesResult.NoWebIdentity => Results.Problem(
+                        title: "Account has no web identity",
+                        detail: "This account has never linked a Keycloak user, so it has no roles to manage.",
+                        statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(RoleManagePolicy)
             .Produces<AccountRolesDto>()
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("GetAccountRoles")
             .WithDescription("Gets an account's currently assigned realm roles plus every role available to assign, minus Keycloak's own built-in roles.");
 
@@ -200,10 +214,15 @@ public static class AccountModule
                         title: "Account not found", statusCode: StatusCodes.Status404NotFound),
                     AssignAccountRoleResult.RoleNotFound => Results.Problem(
                         title: "Role not found", statusCode: StatusCodes.Status404NotFound),
+                    AssignAccountRoleResult.NoWebIdentity => Results.Problem(
+                        title: "Account has no web identity",
+                        detail: "This account has never linked a Keycloak user, so it has no roles to manage.",
+                        statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(RoleManagePolicy)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("AssignAccountRole")
             .WithDescription("Grants a Keycloak realm role to an account. Idempotent — assigning an already-held role still returns 204.");
 
@@ -221,10 +240,15 @@ public static class AccountModule
                         title: "Account not found", statusCode: StatusCodes.Status404NotFound),
                     RevokeAccountRoleResult.RoleNotFound => Results.Problem(
                         title: "Role not found", statusCode: StatusCodes.Status404NotFound),
+                    RevokeAccountRoleResult.NoWebIdentity => Results.Problem(
+                        title: "Account has no web identity",
+                        detail: "This account has never linked a Keycloak user, so it has no roles to manage.",
+                        statusCode: StatusCodes.Status409Conflict),
                 };
             })
             .RequireAuthorization(RoleManagePolicy)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("RevokeAccountRole")
             .WithDescription("Revokes a Keycloak realm role from an account. Idempotent — revoking a role it doesn't hold still returns 204.");
 

@@ -24,6 +24,9 @@ public sealed class KeycloakUserProvisionerTests : IAsyncLifetime
             BaseUrl = Environment.GetEnvironmentVariable("ELIFERPG_TEST_KEYCLOAK_URL") is { Length: > 0 } url
                 ? url
                 : "http://keycloak:8080/",
+            // Unused by the provisioner — it only builds the player-facing link URL — but required,
+            // so it has to be set for the options object to construct.
+            PublicBaseUrl = "http://localhost:8180/",
             Realm = "eliferpg",
             ProvisioningClientId = "account-service",
             ProvisioningClientSecret = "account-service-secret",

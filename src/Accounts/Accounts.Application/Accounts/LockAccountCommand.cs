@@ -31,7 +31,13 @@ public sealed class LockAccountHandler(IAccountRepository accountRepository, IKe
 
         // Disabling on every call (not just on the first lock) makes this safe to retry if a
         // previous lock's Keycloak call failed after the domain state already committed.
-        await keycloakUserProvisioner.DisableUserAsync(account.KeycloakUserId, cancellationToken);
+        //
+        // A join-first account has no Keycloak user to disable, and locking it must still work —
+        // this is the ban button, and the gameserver gate reads Status, not Keycloak's enabled flag.
+        if (account.KeycloakUserId is { } keycloakUserId)
+        {
+            await keycloakUserProvisioner.DisableUserAsync(keycloakUserId, cancellationToken);
+        }
 
         return new LockAccountResult.Locked();
     }

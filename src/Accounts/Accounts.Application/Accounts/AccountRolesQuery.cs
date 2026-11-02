@@ -2,11 +2,18 @@ using ELifeRPG.Accounts.Application.Common;
 
 namespace ELifeRPG.Accounts.Application.Accounts;
 
-public union AccountRolesResult(AccountRolesResult.Found, AccountRolesResult.AccountNotFound)
+public union AccountRolesResult(AccountRolesResult.Found, AccountRolesResult.AccountNotFound, AccountRolesResult.NoWebIdentity)
 {
     public record Found(IReadOnlyList<string> AssignedRoles, IReadOnlyList<KeycloakRealmRole> AvailableRoles);
 
     public record AccountNotFound;
+
+    /// <summary>
+    /// The account has no Keycloak user, so there is nothing to manage roles on. A join-first
+    /// player who has never linked is in exactly this state. Mapped to 409 rather than 404, which
+    /// would lie to staff: the account does exist.
+    /// </summary>
+    public record NoWebIdentity;
 }
 
 public sealed record AccountRolesQuery(AccountId AccountId) : IRequest<AccountRolesResult>;
@@ -22,7 +29,12 @@ public sealed class AccountRolesHandler(IAccountRepository accountRepository, IK
             return new AccountRolesResult.AccountNotFound();
         }
 
-        var assignedRoles = await keycloakUserProvisioner.ListUserRealmRolesAsync(account.KeycloakUserId, cancellationToken);
+        if (account.KeycloakUserId is not { } keycloakUserId)
+        {
+            return new AccountRolesResult.NoWebIdentity();
+        }
+
+        var assignedRoles = await keycloakUserProvisioner.ListUserRealmRolesAsync(keycloakUserId, cancellationToken);
         if (assignedRoles is null)
         {
             // The account exists in Postgres, but its Keycloak user doesn't (e.g. deleted

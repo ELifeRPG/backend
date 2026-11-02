@@ -12,7 +12,7 @@ namespace ELifeRPG.Accounts.Infrastructure.Common;
 ///
 /// Both endpoints are trusted-caller only: they require a service-account token carrying
 /// <c>accounts:bohemia-gameaccount:manage</c>. That scope permits minting a PIN for an arbitrary
-/// Bohemia ID, which is enough to claim someone else's game identity, so it is granted to
+/// Game Identity ID, which is enough to claim someone else's game identity, so it is granted to
 /// <c>account-service</c> and must never reach a public or user-facing client.
 /// </summary>
 public sealed class KeycloakBohemiaGameAccountLinker(HttpClient httpClient, IOptions<KeycloakOptions> options)
@@ -20,19 +20,19 @@ public sealed class KeycloakBohemiaGameAccountLinker(HttpClient httpClient, IOpt
 {
     private readonly KeycloakOptions _options = options.Value;
 
-    public async ValueTask<string?> MintLinkPinAsync(GameId bohemiaId, CancellationToken cancellationToken)
+    public async ValueTask<string?> MintLinkPinAsync(GameIdentityId gameIdentityId, CancellationToken cancellationToken)
     {
         var token = await GetServiceAccountTokenAsync(cancellationToken);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"realms/{_options.Realm}/bohemia-gameaccount/pin")
         {
-            Content = JsonContent.Create(new { bohemiaId = bohemiaId.Value.ToString() }),
+            Content = JsonContent.Create(new { bohemiaId = gameIdentityId.Value.ToString() }),
         };
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
 
-        // The SPI refuses to mint for an already-bound Bohemia ID. That is its first line of
+        // The SPI refuses to mint for an already-bound Game Identity ID. That is its first line of
         // defence against binding one game identity to two accounts, and it means the caller's
         // "unlinked" view is stale rather than that anything went wrong.
         if (response.StatusCode == HttpStatusCode.Conflict)
@@ -45,13 +45,13 @@ public sealed class KeycloakBohemiaGameAccountLinker(HttpClient httpClient, IOpt
         return minted?.Pin ?? throw new InvalidOperationException("Keycloak did not return a link PIN.");
     }
 
-    public async ValueTask<KeycloakUserId?> FindKeycloakUserIdAsync(GameId bohemiaId, CancellationToken cancellationToken)
+    public async ValueTask<KeycloakUserId?> FindKeycloakUserIdAsync(GameIdentityId gameIdentityId, CancellationToken cancellationToken)
     {
         var token = await GetServiceAccountTokenAsync(cancellationToken);
 
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"realms/{_options.Realm}/bohemia-gameaccount/status?bohemiaId={Uri.EscapeDataString(bohemiaId.Value.ToString())}");
+            $"realms/{_options.Realm}/bohemia-gameaccount/status?bohemiaId={Uri.EscapeDataString(gameIdentityId.Value.ToString())}");
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         using var response = await httpClient.SendAsync(request, cancellationToken);

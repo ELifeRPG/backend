@@ -22,9 +22,30 @@ public static class AccountInfrastructureExtensions
                 options.Projections.Add<AccountProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
                 options.Projections.Add<WhitelistApplicationProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
                 options.Schema.For<GameServer>().Identity(x => x.Id).UniqueIndex(x => x.ClientId);
+
+                // The unique index is the whole uniqueness guarantee for game identities: two
+                // concurrent player-connected calls for one identity both see "no link", both try to
+                // insert, and the second fails here — rolling back the second account with it.
+                // Without it the race yields two accounts for one player, silently.
+                options.Schema.For<GameAccountLink>().Identity(x => x.Id).UniqueIndex(x => x.GameIdentityId);
             });
 
-        services.Configure<KeycloakOptions>(configuration.GetSection("Keycloak"));
+        // Bound with validation rather than services.Configure: `required` on KeycloakOptions is a
+        // compile-time contract only, and reflective configuration binding ignores it entirely. A
+        // missing PublicBaseUrl would otherwise ship a broken link URL into the game with no signal
+        // anywhere, so fail at startup instead.
+        services.AddOptions<KeycloakOptions>()
+            .Bind(configuration.GetSection("Keycloak"))
+            .Validate(
+                o => !string.IsNullOrWhiteSpace(o.BaseUrl)
+                    && !string.IsNullOrWhiteSpace(o.Realm)
+                    && !string.IsNullOrWhiteSpace(o.ProvisioningClientId)
+                    && !string.IsNullOrWhiteSpace(o.ProvisioningClientSecret),
+                "Keycloak:BaseUrl, Realm, ProvisioningClientId and ProvisioningClientSecret are all required.")
+            .Validate(
+                o => Uri.TryCreate(o.PublicBaseUrl, UriKind.Absolute, out _),
+                "Keycloak:PublicBaseUrl must be an absolute URL reachable from a player's browser.")
+            .ValidateOnStart();
         services.AddHttpClient<IKeycloakUserProvisioner, KeycloakUserProvisioner>((serviceProvider, client) =>
         {
             var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<KeycloakOptions>>().Value;
@@ -39,7 +60,14 @@ public static class AccountInfrastructureExtensions
             client.BaseAddress = new Uri(options.BaseUrl);
         });
 
+        // Same per-module TryAdd convention as World/Phone infrastructure: idempotent, so whichever
+        // module is registered first wins and a test can still substitute a fake clock.
+        services.TryAddSingleton(TimeProvider.System);
+
         services.TryAddScoped<IAccountRepository, MartenAccountRepository>();
+        services.TryAddScoped<IGameAccountLinkRepository, MartenGameAccountLinkRepository>();
+        services.TryAddScoped<IAccountIdentityReconciler, AccountIdentityReconciler>();
+        services.TryAddSingleton<ILinkUrlBuilder, LinkUrlBuilder>();
         services.TryAddSingleton<ITokenRevocationStore, InMemoryTokenRevocationStore>();
         services.TryAddScoped<IWhitelistApplicationRepository, MartenWhitelistApplicationRepository>();
         services.TryAddScoped<IGameServerRepository, MartenGameServerRepository>();
