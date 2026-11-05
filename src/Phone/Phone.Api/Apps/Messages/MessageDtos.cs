@@ -10,20 +10,30 @@ public sealed record MessageDto(Guid Id, string From, string Body, DateTimeOffse
 }
 
 /// <summary>
-/// The message list is omitted from the thread-list projection — a phone's inbox shows participants,
-/// the unread count and a timestamp, and only the opened thread needs its bodies.
+/// The thread-list projection: participants, the unread count, a timestamp and
+/// <paramref name="LastMessage"/>, the newest retained message, which an inbox renders as the
+/// one-line preview. The rest of the history is left to <see cref="MessageThreadDto"/> — only the
+/// opened thread needs it. <paramref name="LastMessage"/> comes from the aggregate the list already
+/// loads, so it costs no extra query and cannot drift from <paramref name="LastMessageAt"/> or
+/// <paramref name="UnreadCount"/> the way a separate detail call could.
+///
+/// <paramref name="LastMessage"/> is null only for a thread with no retained message, which a thread
+/// started by a send never is.
 /// </summary>
 public sealed record MessageThreadSummaryDto(
     Guid Id,
     IReadOnlyList<string> Participants,
     int UnreadCount,
-    DateTimeOffset LastMessageAt)
+    DateTimeOffset LastMessageAt,
+    MessageDto? LastMessage)
 {
+    // Messages is append-ordered and retention trims only its front, so the last entry is the newest.
     public static MessageThreadSummaryDto Create(MessageThread source) => new(
         source.Id.Value,
         [.. source.Participants.Select(number => number.Value)],
         source.UnreadCount,
-        source.LastMessageAt);
+        source.LastMessageAt,
+        source.Messages.Count > 0 ? MessageDto.Create(source.Messages[^1]) : null);
 }
 
 public sealed record MessageThreadDto(

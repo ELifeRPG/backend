@@ -1,4 +1,5 @@
 using ELifeRPG.Accounts.Application.Hive;
+using ELifeRPG.Phone.Api.Apps.Messages;
 using ELifeRPG.Phone.Application.Apps.Contacts;
 using ELifeRPG.Phone.Application.Apps.Messages;
 using ELifeRPG.Phone.Application.Apps.Store;
@@ -320,6 +321,42 @@ public sealed class AppCommandTests : IAsyncLifetime
             });
 
         Assert.Equal(["three", "four"], trimmed.Messages.Select(message => message.Body));
+    }
+
+    [Fact]
+    public async Task ThreadSummary_CarriesTheNewestMessage_EvenAfterRetentionTrimsTheFront()
+    {
+        // The inbox preview reads the summary's last message, so it must track the newest message
+        // through a trim — which removes from the front and must not shift what "last" means.
+        var sender = await SetUpPhone();
+        var recipient = await SetUpPhone();
+        var original = (await Send(new HiveSettingsQuery())).PhoneThreadMessageLimit;
+
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "one"));
+        await Send(new SendMessageCommand(sender.Id, [recipient.Number], "two"));
+
+        var thread = await WithHiveSetting(
+            () => new UpdateHiveSettingsCommand(null, PhoneThreadMessageLimit: 1),
+            () => new UpdateHiveSettingsCommand(null, PhoneThreadMessageLimit: original),
+            async () =>
+            {
+                await Send(new SendMessageCommand(sender.Id, [recipient.Number], "three"));
+                return Assert.Single(await Threads(recipient));
+            });
+
+        var newest = Assert.Single(thread.Messages);
+        var summary = MessageThreadSummaryDto.Create(thread);
+
+        Assert.Equal(MessageDto.Create(newest), summary.LastMessage);
+        Assert.Equal("three", summary.LastMessage!.Body);
+        Assert.Equal(sender.Number.Value, summary.LastMessage.From);
+        Assert.Equal(3, summary.LastMessage.Sequence);
+        Assert.False(summary.LastMessage.IsOutbound);
+        Assert.Equal(summary.LastMessageAt, summary.LastMessage.SentAt);
+
+        var senderSummary = MessageThreadSummaryDto.Create(Assert.Single(await Threads(sender)));
+        Assert.Equal("three", senderSummary.LastMessage!.Body);
+        Assert.True(senderSummary.LastMessage.IsOutbound);
     }
 
     [Fact]
