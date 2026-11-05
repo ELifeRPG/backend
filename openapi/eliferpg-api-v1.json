@@ -7221,7 +7221,8 @@
           "id",
           "participants",
           "unreadCount",
-          "lastMessageAt"
+          "lastMessageAt",
+          "lastMessage"
         ],
         "type": "object",
         "properties": {
@@ -7246,6 +7247,16 @@
           "lastMessageAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "lastMessage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MessageDto"
+              }
+            ]
           }
         }
       },

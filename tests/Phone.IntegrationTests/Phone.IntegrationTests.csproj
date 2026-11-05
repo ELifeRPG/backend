@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Accounts\Accounts.Infrastructure\Accounts.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Phone\Phone.Api\Phone.Api.csproj" />
     <ProjectReference Include="..\..\src\Phone\Phone.Application\Phone.Application.csproj" />
     <ProjectReference Include="..\..\src\Phone\Phone.Infrastructure\Phone.Infrastructure.csproj" />
   </ItemGroup>
