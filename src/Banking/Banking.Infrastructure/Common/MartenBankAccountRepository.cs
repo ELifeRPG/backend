@@ -116,11 +116,32 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
     {
         var events = await _session.Events.FetchStreamAsync(bankAccountId.Value, token: cancellationToken);
 
-        return events
+        var records = events
             .Select(ToTransactionRecord)
             .OfType<BankAccountTransactionRecord>()
             .OrderByDescending(x => x.OccurredAt)
             .Take(limit)
+            .ToList();
+
+        // One query for every counterparty on the page, not one per transfer. A raw where clause
+        // because neither LINQ Contains nor LoadManyAsync accepts a list of the strongly typed id.
+        var counterpartyIds = records
+            .Where(x => x.CounterpartyBankAccountId is not null)
+            .Select(x => x.CounterpartyBankAccountId!.Value.Value)
+            .Distinct()
+            .ToList();
+        if (counterpartyIds.Count == 0)
+        {
+            return records;
+        }
+
+        var numbers = (await _session.QueryAsync<BankAccount>("where id = ANY(?)", cancellationToken, counterpartyIds.ToArray()))
+            .ToDictionary(x => x.Id, x => x.Number);
+
+        return records
+            .Select(x => x.CounterpartyBankAccountId is { } id && numbers.TryGetValue(id, out var number)
+                ? x with { CounterpartyNumber = number }
+                : x)
             .ToList();
     }
 

@@ -263,7 +263,9 @@ public sealed class BankingCommandTests : IAsyncLifetime
 
         var transferOut = found.Transactions[0];
         Assert.Equal(targetAccountId, transferOut.CounterpartyBankAccountId);
+        Assert.Equal(await GetNumberAsync(mediator, targetAccountId), transferOut.CounterpartyNumber);
         Assert.Equal(characterId, transferOut.ActingCharacterId);
+        Assert.All(found.Transactions.Skip(1), x => Assert.Null(x.CounterpartyNumber));
     }
 
     [Fact]
@@ -287,6 +289,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
             Assert.Equal(10m, transferIn.Amount);
             Assert.Equal(0m, transferIn.Fee);
             Assert.Equal(sourceAccountId, transferIn.CounterpartyBankAccountId);
+            Assert.Equal(await GetNumberAsync(mediator, sourceAccountId), transferIn.CounterpartyNumber);
         }
     }
 
