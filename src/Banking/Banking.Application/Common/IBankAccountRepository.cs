@@ -15,6 +15,9 @@ public interface IBankAccountRepository
     /// </summary>
     ValueTask<BankAccount?> FetchForUpdateAsync(BankAccountId bankAccountId, CancellationToken cancellationToken);
 
+    /// <summary>Exact match on the canonical (compact, upper-case) number — normalise first.</summary>
+    ValueTask<BankAccount?> FindByNumberAsync(string number, CancellationToken cancellationToken);
+
     ValueTask<IReadOnlyList<BankAccount>> FindByCharacterIdAsync(CharacterId characterId, CancellationToken cancellationToken);
 
     ValueTask<IReadOnlyList<BankAccount>> FindByCompanyIdAsync(CompanyId companyId, CancellationToken cancellationToken);
@@ -37,5 +40,9 @@ public interface IBankAccountRepository
     /// </summary>
     void Append<TEvent>(BankAccountId bankAccountId, TEvent domainEvent) where TEvent : notnull;
 
+    /// <summary>
+    /// Throws BankAccountNumberTakenException when a newly opened account's number collides on the
+    /// unique index, with the session's pending changes discarded so the caller can retry.
+    /// </summary>
     ValueTask SaveChangesAsync(CancellationToken cancellationToken);
 }

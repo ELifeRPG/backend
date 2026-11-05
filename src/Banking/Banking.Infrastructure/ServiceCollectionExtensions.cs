@@ -1,3 +1,4 @@
+using System.Reflection;
 using ELifeRPG.Banking.Application.Common;
 using ELifeRPG.Banking.Domain;
 using ELifeRPG.Banking.Infrastructure.Common;
@@ -14,7 +15,7 @@ public static class BankingInfrastructureExtensions
 {
     public static IServiceCollection AddBankingInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddMartenStore<IBankingStore>(options =>
+        var store = services.AddMartenStore<IBankingStore>(options =>
         {
             options.UseSystemTextJsonWithPrivateSetters();
             options.Connection(configuration.GetConnectionString("BankingDatabase")!);
@@ -34,7 +35,21 @@ public static class BankingInfrastructureExtensions
 
             options.Projections.Add<BankProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
             options.Projections.Add<BankAccountProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
+
+            // The code is embedded in every account number, and the number is how a player addresses
+            // an account — both must be unique, enforced by the database rather than a pre-check that
+            // two concurrent writers could both pass. The number embeds the bank code, so global
+            // uniqueness is the same as uniqueness within the bank.
+            options.Schema.For<Bank>().UniqueIndex(x => x.Code);
+            options.Schema.For<BankAccount>().UniqueIndex(x => x.Number);
         });
+
+        // Seeding runs as a hosted service on host start. The build boots the host too, to generate
+        // openapi/eliferpg-api-v1.json, and must not need a database to do that (CI has none).
+        if (Assembly.GetEntryAssembly()?.GetName().Name != "GetDocument.Insider")
+        {
+            store.InitializeWith(new BankSeed());
+        }
 
         services.TryAddScoped<IBankRepository, MartenBankRepository>();
         services.TryAddScoped<IBankAccountRepository, MartenBankAccountRepository>();

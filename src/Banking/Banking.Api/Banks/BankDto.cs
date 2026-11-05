@@ -6,6 +6,9 @@ public sealed record BankDto
 
     public required string Name { get; init; }
 
+    /// <summary>The four letters embedded in every account number this bank issues.</summary>
+    public required string Code { get; init; }
+
     public required decimal TransactionFeeBase { get; init; }
 
     public required decimal TransactionFeeMultiplier { get; init; }
@@ -14,15 +17,8 @@ public sealed record BankDto
     {
         BankId = source.Id.Value,
         Name = source.Name,
+        Code = source.Code,
         TransactionFeeBase = source.TransactionFeeBase,
         TransactionFeeMultiplier = source.TransactionFeeMultiplier,
-    };
-
-    public static BankDto Create(OpenBankResult source, OpenBankRequestDto request) => new()
-    {
-        BankId = source.Id.Value,
-        Name = request.Name,
-        TransactionFeeBase = request.TransactionFeeBase,
-        TransactionFeeMultiplier = request.TransactionFeeMultiplier,
     };
 }

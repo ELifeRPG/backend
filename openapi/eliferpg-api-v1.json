@@ -1079,35 +1079,6 @@
       }
     },
     "/api/banks": {
-      "post": {
-        "tags": [
-          "Banking"
-        ],
-        "description": "Opens a new bank.",
-        "operationId": "OpenBank",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OpenBankRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BankDto"
-                }
-              }
-            }
-          }
-        }
-      },
       "get": {
         "tags": [
           "Banking"
@@ -1189,6 +1160,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -1256,6 +1237,49 @@
                   "items": {
                     "$ref": "#/components/schemas/BankAccountDto"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bank-accounts": {
+      "get": {
+        "tags": [
+          "Banking"
+        ],
+        "description": "Finds the bank account holding an account number (required; spaces and letter case are ignored): one element, or empty if no account holds it. Rejects a missing number or invalid check digits without looking it up.",
+        "operationId": "ListBankAccountsByNumber",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BankAccountLookupDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -6088,6 +6112,31 @@
           }
         }
       },
+      "BankAccountLookupDto": {
+        "required": [
+          "bankAccountId",
+          "bankId",
+          "number",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "bankAccountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "bankId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
       "BankAccountTransactionDto": {
         "required": [
           "occurredAt",
@@ -6142,6 +6191,7 @@
         "required": [
           "bankId",
           "name",
+          "code",
           "transactionFeeBase",
           "transactionFeeMultiplier"
         ],
@@ -6152,6 +6202,9 @@
             "format": "uuid"
           },
           "name": {
+            "type": "string"
+          },
+          "code": {
             "type": "string"
           },
           "transactionFeeBase": {
@@ -7284,35 +7337,6 @@
               "string"
             ],
             "format": "uuid"
-          }
-        }
-      },
-      "OpenBankRequestDto": {
-        "required": [
-          "name",
-          "transactionFeeBase",
-          "transactionFeeMultiplier"
-        ],
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "transactionFeeBase": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "transactionFeeMultiplier": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
           }
         }
       },

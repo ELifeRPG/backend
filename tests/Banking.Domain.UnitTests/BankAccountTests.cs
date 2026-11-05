@@ -19,7 +19,7 @@ public class BankAccountTests
             BankAccountType.Personal,
             Owner,
             null,
-            "EL12345",
+            "EL90FEBK0123456789",
             feeBase,
             feeMultiplier);
 
@@ -34,7 +34,7 @@ public class BankAccountTests
             BankAccountType.Corporate,
             null,
             OwnerCompany,
-            "EL54321",
+            "EL27FEBK9876543210",
             feeBase,
             feeMultiplier);
 
@@ -49,7 +49,7 @@ public class BankAccountTests
         Assert.Equal(BankAccountType.Personal, account.Type);
         Assert.Equal(Owner, account.OwnerCharacterId);
         Assert.Null(account.OwnerCompanyId);
-        Assert.Equal("EL12345", account.Number);
+        Assert.Equal("EL90FEBK0123456789", account.Number);
         Assert.Equal(0m, account.Balance);
     }
 

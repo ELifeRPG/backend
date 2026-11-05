@@ -1,3 +1,4 @@
+using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Shared.Kernel;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -84,7 +85,12 @@ internal static class TestServices
         // Applied last, after every AddXInfrastructure call above — see this class's doc comment.
         configureServices?.Invoke(services);
 
-        return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+
+        // In the app, Marten seeds the precooked banks on host start; these providers have no host.
+        new BankSeed().Populate(provider.GetRequiredService<IBankingStore>(), CancellationToken.None).GetAwaiter().GetResult();
+
+        return provider;
     }
 
     // The defaults are the devcontainer's view of the Compose stack (README.md). The env overrides

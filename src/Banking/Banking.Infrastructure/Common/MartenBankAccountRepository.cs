@@ -89,6 +89,9 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
         return await _session.LoadAsync<BankAccount>(bankAccountId, cancellationToken);
     }
 
+    public async ValueTask<BankAccount?> FindByNumberAsync(string number, CancellationToken cancellationToken)
+        => await _session.Query<BankAccount>().FirstOrDefaultAsync(x => x.Number == number, cancellationToken);
+
     public async ValueTask<IReadOnlyList<BankAccount>> FindByCharacterIdAsync(CharacterId characterId, CancellationToken cancellationToken)
         => await _session.Query<BankAccount>()
             .Where(x => x.OwnerCharacterId != null && x.OwnerCharacterId!.Value.Value == characterId.Value)
@@ -161,11 +164,26 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
         {
             throw new BankAccountConcurrencyException("Another operation already committed against this account.");
         }
+        catch (Exception exception) when (IsNumberCollision(exception))
+        {
+            // Without this the failed StartStream stays queued and every retry would collide again.
+            _session.EjectAllPendingChanges();
+            throw new BankAccountNumberTakenException("That account number is already issued.");
+        }
         finally
         {
             _pendingStreams.Clear();
         }
     }
+
+    private static bool IsNumberCollision(Exception exception) => exception switch
+    {
+        PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } postgres =>
+            postgres.ConstraintName?.Contains("number", StringComparison.OrdinalIgnoreCase) == true,
+        AggregateException aggregate => aggregate.InnerExceptions.Any(IsNumberCollision),
+        { InnerException: { } inner } => IsNumberCollision(inner),
+        _ => false,
+    };
 
     public async ValueTask DisposeAsync()
         => await _session.DisposeAsync();

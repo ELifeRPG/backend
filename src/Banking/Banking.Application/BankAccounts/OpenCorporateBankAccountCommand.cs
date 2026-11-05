@@ -1,5 +1,6 @@
 using ELifeRPG.Banking.Application.Common;
 using ELifeRPG.Banking.Domain.Events;
+using ELifeRPG.Banking.Domain.Exceptions;
 using ELifeRPG.Companies.Application.Companies;
 
 namespace ELifeRPG.Banking.Application.BankAccounts;
@@ -7,13 +8,17 @@ namespace ELifeRPG.Banking.Application.BankAccounts;
 public union OpenCorporateBankAccountResult(
     OpenCorporateBankAccountResult.Opened,
     OpenCorporateBankAccountResult.BankNotFound,
-    OpenCorporateBankAccountResult.CompanyNotFound)
+    OpenCorporateBankAccountResult.CompanyNotFound,
+    OpenCorporateBankAccountResult.NumberExhausted)
 {
     public record Opened(BankAccountId BankAccountId, string Number);
 
     public record BankNotFound;
 
     public record CompanyNotFound;
+
+    /// <summary>Every generated number collided. Practically unreachable; surfaced rather than swallowed.</summary>
+    public record NumberExhausted;
 }
 
 public sealed record OpenCorporateBankAccountCommand(BankId BankId, CompanyId CompanyId) : IRequest<OpenCorporateBankAccountResult>;
@@ -37,22 +42,34 @@ public sealed class OpenCorporateBankAccountHandler(
             return new OpenCorporateBankAccountResult.CompanyNotFound();
         }
 
-        var bankAccountId = new BankAccountId(Guid.NewGuid());
-        var number = BankAccountNumberGenerator.Generate();
-        var domainEvent = new BankAccountOpened(
-            bankAccountId,
-            bank.Id,
-            BankAccountType.Corporate,
-            null,
-            request.CompanyId,
-            number,
-            bank.TransactionFeeBase,
-            bank.TransactionFeeMultiplier);
-        var bankAccount = BankAccount.Create(domainEvent);
+        for (var attempt = 0; attempt < BankAccountNumberGenerator.MaxAttempts; attempt++)
+        {
+            var bankAccountId = new BankAccountId(Guid.NewGuid());
+            var number = BankAccountNumberGenerator.Generate(bank.Code);
+            var domainEvent = new BankAccountOpened(
+                bankAccountId,
+                bank.Id,
+                BankAccountType.Corporate,
+                null,
+                request.CompanyId,
+                number,
+                bank.TransactionFeeBase,
+                bank.TransactionFeeMultiplier);
+            var bankAccount = BankAccount.Create(domainEvent);
 
-        bankAccountRepository.StartStream(bankAccount, domainEvent);
-        await bankAccountRepository.SaveChangesAsync(cancellationToken);
+            bankAccountRepository.StartStream(bankAccount, domainEvent);
 
-        return new OpenCorporateBankAccountResult.Opened(bankAccountId, number);
+            try
+            {
+                await bankAccountRepository.SaveChangesAsync(cancellationToken);
+                return new OpenCorporateBankAccountResult.Opened(bankAccountId, number);
+            }
+            catch (BankAccountNumberTakenException)
+            {
+                // The unique index on the number arbitrates; try again with a fresh one.
+            }
+        }
+
+        return new OpenCorporateBankAccountResult.NumberExhausted();
     }
 }

@@ -1,3 +1,4 @@
+using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Banking.Application.BankAccounts;
@@ -37,7 +38,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var characterId = await CreateCharacterAsync(mediator);
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
 
         var result = await mediator.Send(new OpenBankAccountCommand(bankId, characterId));
 
@@ -45,11 +46,78 @@ public sealed class BankingCommandTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task OpenBankAccount_IssuesValidNumberUnderTheBanksCode()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+
+        var result = await mediator.Send(new OpenBankAccountCommand(BankSeed.FederalELifeBankId, characterId));
+
+        var opened = result is OpenBankAccountResult.Opened value ? value : throw new InvalidOperationException($"Expected Opened, got {result}");
+        Assert.True(BankAccountNumber.TryNormalize(opened.Number, out var normalized), opened.Number);
+        Assert.Equal(opened.Number, normalized);
+        Assert.Equal("FEBK", opened.Number[4..8]);
+    }
+
+    [Fact]
+    public async Task Banks_IncludeTheSeededBankWithItsCode()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        var banks = await mediator.Send(new BanksQuery());
+
+        var seeded = Assert.Single(banks, bank => bank.Id == BankSeed.FederalELifeBankId);
+        Assert.Equal("FEBK", seeded.Code);
+    }
+
+    [Fact]
+    public async Task BankAccountByNumber_AcceptsTheNumberAsTyped()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+        var number = await GetNumberAsync(mediator, bankAccountId);
+        var typed = string.Join(' ', number.Chunk(4).Select(chunk => new string(chunk))).ToLowerInvariant();
+
+        var result = await mediator.Send(new BankAccountByNumberQuery(typed));
+
+        var found = result is BankAccountByNumberResult.Found value ? value : throw new InvalidOperationException($"Expected Found, got {result}");
+        Assert.Equal(bankAccountId, found.BankAccount.Id);
+    }
+
+    [Fact]
+    public async Task BankAccountByNumber_WithBadCheckDigits_ReturnsInvalidNumber()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var number = await GetNumberAsync(mediator, await OpenBankAccountAsync(mediator));
+        var lastDigit = number[^1] == '9' ? '0' : (char)(number[^1] + 1);
+
+        var result = await mediator.Send(new BankAccountByNumberQuery(number[..^1] + lastDigit));
+
+        Assert.True(result is BankAccountByNumberResult.InvalidNumber, $"Expected InvalidNumber, got {result}");
+    }
+
+    [Fact]
+    public async Task BankAccountByNumber_ForUnissuedValidNumber_ReturnsNotFound()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        // Valid layout and check digits under a code no seeded bank uses, so it can't be issued.
+        var result = await mediator.Send(new BankAccountByNumberQuery(BankAccountNumber.Create("ZZZZ", "0000000001")));
+
+        Assert.True(result is BankAccountByNumberResult.NotFound, $"Expected NotFound, got {result}");
+    }
+
+    [Fact]
     public async Task OpenBankAccount_ForUnknownCharacter_ReturnsCharacterNotFound()
     {
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
 
         var result = await mediator.Send(new OpenBankAccountCommand(bankId, new CharacterId(Guid.NewGuid())));
 
@@ -223,26 +291,6 @@ public sealed class BankingCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task OpenBankAccount_ForBankOpenedOnAnotherServer_Succeeds()
-    {
-        // Hive model: banks are hive-wide, so a bank opened via one gameserver must be usable from
-        // another. Asserts the opposite of the pre-hive behaviour.
-        await using var providerB = TestServices.BuildProvider("gameserver-two");
-
-        await using var scopeA = _provider.CreateAsyncScope();
-        var mediatorA = scopeA.ServiceProvider.GetRequiredService<IMediator>();
-        var bankId = await OpenBankAsync(mediatorA);
-
-        await using var scopeB = providerB.CreateAsyncScope();
-        var mediatorB = scopeB.ServiceProvider.GetRequiredService<IMediator>();
-        var characterOnServerB = await CreateCharacterAsync(mediatorB);
-
-        var result = await mediatorB.Send(new OpenBankAccountCommand(bankId, characterOnServerB));
-
-        Assert.True(result is OpenBankAccountResult.Opened, $"Expected Opened, got {result}");
-    }
-
-    [Fact]
     public async Task BankAccount_OpenedOnOneServer_IsVisibleFromAnotherServer()
     {
         // Hive model: money follows the player across maps, so an account opened via one gameserver
@@ -285,16 +333,18 @@ public sealed class BankingCommandTests : IAsyncLifetime
         return created.CharacterId;
     }
 
-    private static async Task<BankId> OpenBankAsync(IMediator mediator)
+    private static async Task<string> GetNumberAsync(IMediator mediator, BankAccountId bankAccountId)
     {
-        var result = await mediator.Send(new OpenBankCommand("Test Bank", 0.20m, 0.02m));
-        return result.Id;
+        var details = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
+        return details is BankAccountDetailsResult.Found found
+            ? found.BankAccount.Number
+            : throw new InvalidOperationException($"Expected Found, got {details}");
     }
 
     private async Task<BankAccountId> OpenBankAccountAsync(IMediator mediator, CharacterId? characterId = null)
     {
         var resolvedCharacterId = characterId ?? await CreateCharacterAsync(mediator);
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
 
         var result = await mediator.Send(new OpenBankAccountCommand(bankId, resolvedCharacterId));
 

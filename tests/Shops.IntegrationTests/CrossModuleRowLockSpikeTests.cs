@@ -1,3 +1,4 @@
+using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Banking.Application.BankAccounts;
@@ -244,8 +245,7 @@ public sealed class CrossModuleRowLockSpikeTests : IAsyncLifetime
 
     private async Task<BankAccountId> OpenPersonalBankAccountAsync(IMediator mediator, CharacterId characterId)
     {
-        var bank = await mediator.Send(new OpenBankCommand("Spike Test Bank", 0.20m, 0.02m));
-        var result = await mediator.Send(new OpenBankAccountCommand(bank.Id, characterId));
+        var result = await mediator.Send(new OpenBankAccountCommand(BankSeed.FederalELifeBankId, characterId));
         Assert.True(result is OpenBankAccountResult.Opened, $"Expected Opened, got {result}");
         if (result is not OpenBankAccountResult.Opened opened)
         {
