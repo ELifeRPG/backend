@@ -47,7 +47,7 @@ curl -X POST http://localhost:5100/api/banks/$BANK_ID/accounts \
 
 ## Transaction history
 
-`GET /api/bank-accounts/{id}/transactions` lists an account's most recent deposits/withdrawals/transfers (newest first, capped at 30) — no scope beyond authentication, same as the account details endpoint:
+`GET /api/bank-accounts/{id}/transactions` lists an account's most recent deposits/withdrawals/transfers (newest first, capped at 30). A transfer carries the other account's `counterpartyNumber` (and its `counterpartyBankAccountId`), so a statement can show who the money went to or came from — no scope beyond authentication, same as the account details endpoint:
 
 ```sh
 curl http://localhost:5100/api/bank-accounts/$BANK_ACCOUNT_ID/transactions -H "Authorization: Bearer $BRIDGE_TOKEN"

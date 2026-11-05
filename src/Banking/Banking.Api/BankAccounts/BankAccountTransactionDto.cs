@@ -12,6 +12,9 @@ public sealed record BankAccountTransactionDto
 
     public required Guid? CounterpartyBankAccountId { get; init; }
 
+    /// <summary>The other account's number, for transfers; null for deposits and withdrawals.</summary>
+    public required string? CounterpartyNumber { get; init; }
+
     public required Guid? ActingCharacterId { get; init; }
 
     public static BankAccountTransactionDto Create(BankAccountTransactionRecord source) => new()
@@ -21,6 +24,7 @@ public sealed record BankAccountTransactionDto
         Amount = source.Amount,
         Fee = source.Fee,
         CounterpartyBankAccountId = source.CounterpartyBankAccountId?.Value,
+        CounterpartyNumber = source.CounterpartyNumber,
         ActingCharacterId = source.ActingCharacterId?.Value,
     };
 }

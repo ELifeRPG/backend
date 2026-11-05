@@ -6144,6 +6144,7 @@
           "amount",
           "fee",
           "counterpartyBankAccountId",
+          "counterpartyNumber",
           "actingCharacterId"
         ],
         "type": "object",
@@ -6177,6 +6178,12 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "counterpartyNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "actingCharacterId": {
             "type": [
