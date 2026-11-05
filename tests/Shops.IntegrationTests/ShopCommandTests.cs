@@ -1,3 +1,4 @@
+using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Banking.Application.BankAccounts;
@@ -347,15 +348,9 @@ public sealed class ShopCommandTests : IAsyncLifetime
         return (created.CompanyId, founderId);
     }
 
-    private static async Task<BankId> OpenBankAsync(IMediator mediator)
-    {
-        var result = await mediator.Send(new OpenBankCommand("Shops Test Bank", 0.20m, 0.02m));
-        return result.Id;
-    }
-
     private async Task<BankAccountId> OpenPersonalBankAccountAsync(IMediator mediator, CharacterId characterId)
     {
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
         var result = await mediator.Send(new OpenBankAccountCommand(bankId, characterId));
 
         Assert.True(result is OpenBankAccountResult.Opened, $"Expected Opened, got {result}");
@@ -369,7 +364,7 @@ public sealed class ShopCommandTests : IAsyncLifetime
 
     private async Task<BankAccountId> OpenCorporateBankAccountAsync(IMediator mediator, CompanyId companyId)
     {
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
         var result = await mediator.Send(new OpenCorporateBankAccountCommand(bankId, companyId));
 
         Assert.True(result is OpenCorporateBankAccountResult.Opened, $"Expected Opened, got {result}");

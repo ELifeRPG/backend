@@ -1,3 +1,4 @@
+using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Banking.Application.BankAccounts;
@@ -289,7 +290,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var loserBalance = await GetBalanceAsync(setupMediator, loserAccountId);
 
         // Same fee formula as Banking.Domain.BankAccount.CalculateFee, using the fixed 0.20/0.02
-        // parameters every OpenBankAsync call in this test file passes to OpenBankCommand.
+        // parameters the seeded bank (BankSeed) charges.
         var expectedFee = 0.20m + (purchasedResult.TotalPaid * 0.02m);
         Assert.Equal(preBalanceWinner - purchasedResult.TotalPaid - expectedFee, winnerBalance);
         Assert.Equal(preBalanceLoser, loserBalance);
@@ -337,7 +338,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
 
         // Banking side committed: buyer balance debited by TotalPaid plus TransferOut's own fee
         // (same formula as Banking.Domain.BankAccount.CalculateFee, using the fixed 0.20/0.02
-        // parameters every OpenBankAsync call in this test file passes to OpenBankCommand).
+        // parameters the seeded bank (BankSeed) charges).
         var expectedFee = 0.20m + (purchased.TotalPaid * 0.02m);
         var balanceAfter = await GetBalanceAsync(mediator, buyerAccountId);
         Assert.Equal(balanceBefore - purchased.TotalPaid - expectedFee, balanceAfter);
@@ -656,15 +657,9 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         return created.CharacterId;
     }
 
-    private static async Task<BankId> OpenBankAsync(IMediator mediator)
-    {
-        var result = await mediator.Send(new OpenBankCommand("Purchase Test Bank", 0.20m, 0.02m));
-        return result.Id;
-    }
-
     private async Task<BankAccountId> OpenPersonalBankAccountAsync(IMediator mediator, CharacterId characterId)
     {
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
         var result = await mediator.Send(new OpenBankAccountCommand(bankId, characterId));
 
         Assert.True(result is OpenBankAccountResult.Opened, $"Expected Opened, got {result}");

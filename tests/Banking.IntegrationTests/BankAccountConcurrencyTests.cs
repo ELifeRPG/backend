@@ -1,3 +1,4 @@
+using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Banking.Application.BankAccounts;
@@ -38,7 +39,7 @@ public sealed class BankAccountConcurrencyTests : IAsyncLifetime
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var characterId = await CreateCharacterAsync(mediator);
-        var bankId = (await mediator.Send(new OpenBankCommand("Concurrency Test Bank", 0.20m, 0.02m))).Id;
+        var bankId = BankSeed.FederalELifeBankId;
         var openResult = await mediator.Send(new OpenBankAccountCommand(bankId, characterId));
         Assert.True(openResult is OpenBankAccountResult.Opened, $"Expected Opened, got {openResult}");
         var bankAccountId = openResult is OpenBankAccountResult.Opened opened ? opened.BankAccountId : throw new InvalidOperationException("Unreachable.");

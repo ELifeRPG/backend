@@ -11,9 +11,7 @@ namespace Microsoft.AspNetCore.Builder;
 
 public static class BankingModule
 {
-    public const string BankingManageScope = "gameserver:banking:manage";
     public const string BankingWriteScope = "gameserver:banking:write";
-    private const string BankingManagePolicy = "Banking.Manage";
     private const string BankingWritePolicy = "Banking.Write";
 
     public static IServiceCollection AddBankingModule(this IServiceCollection services, IConfiguration configuration)
@@ -21,7 +19,6 @@ public static class BankingModule
         services.AddBankingInfrastructure(configuration);
 
         services.AddAuthorizationBuilder()
-            .AddPolicy(BankingManagePolicy, policy => policy.RequireAssertion(context => HasScope(context, BankingManageScope)))
             .AddPolicy(BankingWritePolicy, policy => policy.RequireAssertion(context => HasScope(context, BankingWriteScope)));
 
         return services;
@@ -30,19 +27,6 @@ public static class BankingModule
     public static WebApplication MapBankingModule(this WebApplication app)
     {
         var group = app.MapGroup("api").WithTags("Banking");
-
-        group.MapPost("banks", async (
-                [FromBody] OpenBankRequestDto request,
-                IMediator mediator,
-                CancellationToken cancellationToken) =>
-            {
-                var result = await mediator.Send(request.ToCommand(), cancellationToken);
-                return Results.Ok(BankDto.Create(result, request));
-            })
-            .RequireAuthorization(BankingManagePolicy)
-            .Produces<BankDto>()
-            .WithName("OpenBank")
-            .WithDescription("Opens a new bank.");
 
         group.MapGet("banks", async (
                 IMediator mediator,
@@ -78,6 +62,7 @@ public static class BankingModule
                         OpenBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened, bankId, request.CharacterId.Value)),
                         OpenBankAccountResult.BankNotFound => Results.Problem(title: "Bank not found", statusCode: StatusCodes.Status404NotFound),
                         OpenBankAccountResult.CharacterNotFound => Results.Problem(title: "Character not found", statusCode: StatusCodes.Status404NotFound),
+                        OpenBankAccountResult.NumberExhausted => NumberExhaustedProblem(),
                     };
                 }
 
@@ -88,12 +73,14 @@ public static class BankingModule
                     OpenCorporateBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened, bankId, request.CompanyId!.Value)),
                     OpenCorporateBankAccountResult.BankNotFound => Results.Problem(title: "Bank not found", statusCode: StatusCodes.Status404NotFound),
                     OpenCorporateBankAccountResult.CompanyNotFound => Results.Problem(title: "Company not found", statusCode: StatusCodes.Status404NotFound),
+                    OpenCorporateBankAccountResult.NumberExhausted => NumberExhaustedProblem(),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
             .Produces<BankAccountDto>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .WithName("OpenBankAccount")
             .WithDescription("Opens a bank account for a character (Personal) or a company (Corporate) — provide exactly one of characterId/companyId.");
 
@@ -122,6 +109,29 @@ public static class BankingModule
             .Produces<List<BankAccountDto>>()
             .WithName("ListCompanyBankAccounts")
             .WithDescription("Lists a company's corporate bank accounts.");
+
+        group.MapGet("bank-accounts/by-number/{number}", async (
+                string number,
+                IMediator mediator,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await mediator.Send(new BankAccountByNumberQuery(number), cancellationToken);
+
+                return result switch
+                {
+                    BankAccountByNumberResult.Found found => Results.Ok(BankAccountLookupDto.Create(found.BankAccount)),
+                    BankAccountByNumberResult.InvalidNumber => Results.Problem(
+                        title: "Not a valid account number; check the layout and check digits",
+                        statusCode: StatusCodes.Status400BadRequest),
+                    BankAccountByNumberResult.NotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
+                };
+            })
+            .RequireAuthorization(BankingWritePolicy)
+            .Produces<BankAccountLookupDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .WithName("FindBankAccountByNumber")
+            .WithDescription("Resolves an account number (spaces and letter case are ignored) to its bank account id. Rejects a number with invalid check digits without looking it up.");
 
         group.MapGet("bank-accounts/{bankAccountId:guid}", async (
                 Guid bankAccountId,
@@ -310,6 +320,10 @@ public static class BankingModule
 
         return app;
     }
+
+    private static IResult NumberExhaustedProblem() => Results.Problem(
+        title: "Could not issue a unique account number; try again",
+        statusCode: StatusCodes.Status503ServiceUnavailable);
 
     private static bool HasScope(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext context, string scope)
         => (context.User.FindFirst("scope")?.Value ?? string.Empty)

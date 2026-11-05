@@ -1,3 +1,4 @@
+using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Banking.Application.BankAccounts;
@@ -53,8 +54,7 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
         Assert.True(result is PurchaseCompanySharesResult.Purchased, $"Expected Purchased, got {result}");
 
         // Same fee formula as Banking.Domain.BankAccount.CalculateFee, using the fixed 0.20/0.02
-        // parameters every OpenBankCommand call in this test file passes (see OpenBankAccountAsync
-        // below). Computed against balanceAfterDeposit (not the raw 1000m deposit) because Deposit
+        // parameters the seeded bank (BankSeed) charges. Computed against balanceAfterDeposit (not the raw 1000m deposit) because Deposit
         // itself charges a fee — see PurchaseListingTests for the identical pattern in Shops.
         const decimal totalPrice = 10 * 5m;
         var expectedFee = 0.20m + (totalPrice * 0.02m);
@@ -238,15 +238,9 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
         return created.CharacterId;
     }
 
-    private static async Task<BankId> OpenBankAsync(IMediator mediator)
-    {
-        var result = await mediator.Send(new OpenBankCommand("Test Bank", 0.20m, 0.02m));
-        return result.Id;
-    }
-
     private async Task<BankAccountId> OpenBankAccountAsync(IMediator mediator, CharacterId characterId)
     {
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
         var result = await mediator.Send(new OpenBankAccountCommand(bankId, characterId));
 
         Assert.True(result is OpenBankAccountResult.Opened, $"Expected Opened, got {result}");

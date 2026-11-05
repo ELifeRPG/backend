@@ -1,12 +1,17 @@
 namespace ELifeRPG.Banking.Application.Common;
 
 /// <summary>
-/// Simplified stand-in for the legacy app's IBAN-style BankAccountNumber (a MOD-97 checksum derived
-/// from a Country code) — Country was never ported into this codebase (unused even in the legacy
-/// app, see MIGRATION.md §1.2/§6), so this just needs to be unique and readable, not internationally
-/// valid. Shared by both OpenBankAccountCommand and OpenCorporateBankAccountCommand.
+/// Issues a number under the bank's code with ten random account digits. Uniqueness is arbitrated by
+/// the unique index on BankAccount.Number rather than a pre-check two concurrent opens could both
+/// pass, so callers retry on BankAccountNumberTakenException. Shared by OpenBankAccountCommand and
+/// OpenCorporateBankAccountCommand.
 /// </summary>
 internal static class BankAccountNumberGenerator
 {
-    public static string Generate() => $"EL{Random.Shared.NextInt64(10_000_000_000, 99_999_999_999)}";
+    // Generous enough that exhausting it means something is genuinely wrong, not merely unlucky:
+    // ten digits give ten billion numbers per bank.
+    public const int MaxAttempts = 5;
+
+    public static string Generate(string bankCode)
+        => BankAccountNumber.Create(bankCode, Random.Shared.NextInt64(0, 10_000_000_000).ToString("D10"));
 }

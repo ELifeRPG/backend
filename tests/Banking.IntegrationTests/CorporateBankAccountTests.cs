@@ -1,3 +1,4 @@
+using ELifeRPG.Banking.Infrastructure.Common;
 using ELifeRPG.Accounts.Application.Sessions;
 using ELifeRPG.Accounts.Domain;
 using ELifeRPG.Banking.Application.BankAccounts;
@@ -42,7 +43,7 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var (companyId, _) = await CreateCompanyWithFounderAsync(mediator);
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
 
         var result = await mediator.Send(new OpenCorporateBankAccountCommand(bankId, companyId));
 
@@ -54,7 +55,7 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
     {
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
 
         var result = await mediator.Send(new OpenCorporateBankAccountCommand(bankId, new CompanyId(Guid.NewGuid())));
 
@@ -205,15 +206,9 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
         return (created.CompanyId, founderId);
     }
 
-    private static async Task<BankId> OpenBankAsync(IMediator mediator)
-    {
-        var result = await mediator.Send(new OpenBankCommand("Corporate Test Bank", 0.20m, 0.02m));
-        return result.Id;
-    }
-
     private async Task<BankAccountId> OpenCorporateBankAccountAsync(IMediator mediator, CompanyId companyId)
     {
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
         var result = await mediator.Send(new OpenCorporateBankAccountCommand(bankId, companyId));
 
         Assert.True(result is OpenCorporateBankAccountResult.Opened, $"Expected Opened, got {result}");
@@ -227,7 +222,7 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
 
     private async Task<BankAccountId> OpenPersonalBankAccountAsync(IMediator mediator, CharacterId characterId)
     {
-        var bankId = await OpenBankAsync(mediator);
+        var bankId = BankSeed.FederalELifeBankId;
         var result = await mediator.Send(new OpenBankAccountCommand(bankId, characterId));
 
         Assert.True(result is OpenBankAccountResult.Opened, $"Expected Opened, got {result}");

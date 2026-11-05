@@ -1,6 +1,5 @@
 using ELifeRPG.Banking.Application.Common;
 using ELifeRPG.Banking.Domain;
-using ELifeRPG.Banking.Domain.Events;
 using Marten;
 
 namespace ELifeRPG.Banking.Infrastructure.Common;
@@ -12,11 +11,11 @@ namespace ELifeRPG.Banking.Infrastructure.Common;
 /// </summary>
 public sealed class MartenBankRepository : IBankRepository, IAsyncDisposable
 {
-    private readonly IDocumentSession _session;
+    private readonly IQuerySession _session;
 
     public MartenBankRepository(IBankingStore store)
     {
-        _session = store.LightweightSession();
+        _session = store.QuerySession();
     }
 
     // Marten infers the document id type from Bank.Id (BankId, not Guid) — pass the strongly-typed
@@ -26,12 +25,6 @@ public sealed class MartenBankRepository : IBankRepository, IAsyncDisposable
 
     public async ValueTask<IReadOnlyList<Bank>> FindAllAsync(CancellationToken cancellationToken)
         => await _session.Query<Bank>().ToListAsync(cancellationToken);
-
-    public void StartStream(Bank bank, BankOpened domainEvent)
-        => _session.Events.StartStream<Bank>(bank.Id.Value, domainEvent);
-
-    public async ValueTask SaveChangesAsync(CancellationToken cancellationToken)
-        => await _session.SaveChangesAsync(cancellationToken);
 
     public async ValueTask DisposeAsync()
         => await _session.DisposeAsync();

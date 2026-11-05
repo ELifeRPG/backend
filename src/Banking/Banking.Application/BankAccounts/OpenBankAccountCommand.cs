@@ -1,16 +1,20 @@
 using ELifeRPG.Banking.Application.Common;
 using ELifeRPG.Banking.Domain.Events;
+using ELifeRPG.Banking.Domain.Exceptions;
 using ELifeRPG.Characters.Application.Characters;
 
 namespace ELifeRPG.Banking.Application.BankAccounts;
 
-public union OpenBankAccountResult(OpenBankAccountResult.Opened, OpenBankAccountResult.BankNotFound, OpenBankAccountResult.CharacterNotFound)
+public union OpenBankAccountResult(OpenBankAccountResult.Opened, OpenBankAccountResult.BankNotFound, OpenBankAccountResult.CharacterNotFound, OpenBankAccountResult.NumberExhausted)
 {
     public record Opened(BankAccountId BankAccountId, string Number);
 
     public record BankNotFound;
 
     public record CharacterNotFound;
+
+    /// <summary>Every generated number collided. Practically unreachable; surfaced rather than swallowed.</summary>
+    public record NumberExhausted;
 }
 
 public sealed record OpenBankAccountCommand(BankId BankId, CharacterId CharacterId) : IRequest<OpenBankAccountResult>;
@@ -34,22 +38,34 @@ public sealed class OpenBankAccountHandler(
             return new OpenBankAccountResult.CharacterNotFound();
         }
 
-        var bankAccountId = new BankAccountId(Guid.NewGuid());
-        var number = BankAccountNumberGenerator.Generate();
-        var domainEvent = new BankAccountOpened(
-            bankAccountId,
-            bank.Id,
-            BankAccountType.Personal,
-            request.CharacterId,
-            null,
-            number,
-            bank.TransactionFeeBase,
-            bank.TransactionFeeMultiplier);
-        var bankAccount = BankAccount.Create(domainEvent);
+        for (var attempt = 0; attempt < BankAccountNumberGenerator.MaxAttempts; attempt++)
+        {
+            var bankAccountId = new BankAccountId(Guid.NewGuid());
+            var number = BankAccountNumberGenerator.Generate(bank.Code);
+            var domainEvent = new BankAccountOpened(
+                bankAccountId,
+                bank.Id,
+                BankAccountType.Personal,
+                request.CharacterId,
+                null,
+                number,
+                bank.TransactionFeeBase,
+                bank.TransactionFeeMultiplier);
+            var bankAccount = BankAccount.Create(domainEvent);
 
-        bankAccountRepository.StartStream(bankAccount, domainEvent);
-        await bankAccountRepository.SaveChangesAsync(cancellationToken);
+            bankAccountRepository.StartStream(bankAccount, domainEvent);
 
-        return new OpenBankAccountResult.Opened(bankAccountId, number);
+            try
+            {
+                await bankAccountRepository.SaveChangesAsync(cancellationToken);
+                return new OpenBankAccountResult.Opened(bankAccountId, number);
+            }
+            catch (BankAccountNumberTakenException)
+            {
+                // The unique index on the number arbitrates; try again with a fresh one.
+            }
+        }
+
+        return new OpenBankAccountResult.NumberExhausted();
     }
 }
