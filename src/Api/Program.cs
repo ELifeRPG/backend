@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Threading.RateLimiting;
 using ELifeRPG.Accounts.Application.Common;
 using ELifeRPG.Api.Observability;
+using ELifeRPG.Api.OpenApi;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -137,8 +138,8 @@ builder.Services
         .AddOtlpExporter(options => options.Endpoint = new Uri(builder.Configuration.GetConnectionString("Tracing")!)));
 
 // The published OpenAPI document is the source of truth for every Kiota-generated client
-// (ARCHITECTURE.md §3.3), so anything a client must be able to read has to survive the generator. Two
-// things did not, and both are fixed here rather than by hand-editing openapi/eliferpg-api-v1.json,
+// (ARCHITECTURE.md §3.3), so anything a client must be able to read has to survive the generator. Three
+// things did not, and all are fixed here rather than by hand-editing openapi/eliferpg-api-v1.json,
 // which is regenerated on every build.
 builder.Services.AddOpenApi("v1", options =>
 {
@@ -196,6 +197,9 @@ builder.Services.AddOpenApi("v1", options =>
 
         return Task.CompletedTask;
     });
+
+    // (3) Nullable DTO properties, which Kiota otherwise deserializes as empty. See the transformer.
+    options.AddDocumentTransformer<NullableObjectPropertyTransformer>();
 });
 
 var app = builder.Build();

@@ -7134,12 +7134,12 @@
             ]
           },
           "transform": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/WorldTransformDto"
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -7256,12 +7256,12 @@
             "format": "date-time"
           },
           "lastMessage": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/MessageDto"
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -8302,12 +8302,12 @@
             "format": "uuid"
           },
           "transform": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/WorldTransformDto"
+              },
+              {
+                "type": "null"
               }
             ]
           }
