@@ -1244,18 +1244,17 @@
         }
       }
     },
-    "/api/bank-accounts/by-number/{number}": {
+    "/api/bank-accounts": {
       "get": {
         "tags": [
           "Banking"
         ],
-        "description": "Resolves an account number (spaces and letter case are ignored) to its bank account id. Rejects a number with invalid check digits without looking it up.",
-        "operationId": "FindBankAccountByNumber",
+        "description": "Finds the bank account holding an account number (required; spaces and letter case are ignored): one element, or empty if no account holds it. Rejects a missing number or invalid check digits without looking it up.",
+        "operationId": "ListBankAccountsByNumber",
         "parameters": [
           {
             "name": "number",
-            "in": "path",
-            "required": true,
+            "in": "query",
             "schema": {
               "type": "string"
             }
@@ -1267,23 +1266,16 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BankAccountLookupDto"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BankAccountLookupDto"
+                  }
                 }
               }
             }
           },
           "400": {
             "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {

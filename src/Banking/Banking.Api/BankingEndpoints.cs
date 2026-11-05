@@ -110,28 +110,30 @@ public static class BankingModule
             .WithName("ListCompanyBankAccounts")
             .WithDescription("Lists a company's corporate bank accounts.");
 
-        group.MapGet("bank-accounts/by-number/{number}", async (
-                string number,
+        // A filter on the collection rather than a by-number route: the number is free text a player
+        // typed, and "no account holds it" is an empty result, not a missing resource. Nullable so a
+        // missing number gets the same problem response as an invalid one.
+        group.MapGet("bank-accounts", async (
+                [FromQuery] string? number,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
-                var result = await mediator.Send(new BankAccountByNumberQuery(number), cancellationToken);
+                var result = await mediator.Send(new BankAccountByNumberQuery(number ?? string.Empty), cancellationToken);
 
                 return result switch
                 {
-                    BankAccountByNumberResult.Found found => Results.Ok(BankAccountLookupDto.Create(found.BankAccount)),
+                    BankAccountByNumberResult.Found found => Results.Ok(new List<BankAccountLookupDto> { BankAccountLookupDto.Create(found.BankAccount) }),
+                    BankAccountByNumberResult.NotFound => Results.Ok(new List<BankAccountLookupDto>()),
                     BankAccountByNumberResult.InvalidNumber => Results.Problem(
                         title: "Not a valid account number; check the layout and check digits",
                         statusCode: StatusCodes.Status400BadRequest),
-                    BankAccountByNumberResult.NotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
-            .Produces<BankAccountLookupDto>()
+            .Produces<List<BankAccountLookupDto>>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .WithName("FindBankAccountByNumber")
-            .WithDescription("Resolves an account number (spaces and letter case are ignored) to its bank account id. Rejects a number with invalid check digits without looking it up.");
+            .WithName("ListBankAccountsByNumber")
+            .WithDescription("Finds the bank account holding an account number (required; spaces and letter case are ignored): one element, or empty if no account holds it. Rejects a missing number or invalid check digits without looking it up.");
 
         group.MapGet("bank-accounts/{bankAccountId:guid}", async (
                 Guid bankAccountId,

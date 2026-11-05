@@ -29,10 +29,10 @@ Every account gets an 18-character number based on the Dutch IBAN, e.g. `EL90FEB
 | Bank code | 4 | `FEBK` | The bank's `code`; it never changes |
 | Account | 10 | `0123456789` | Random, unique (enforced by a unique index) |
 
-The API stores and returns the compact form, and clients group it into fours. Every backend operation, transfers included, is keyed on `bankAccountId`. To turn a number a player typed into that id, the bridge calls `GET /api/bank-accounts/by-number/{number}`. Spaces and letter case are ignored. A number with the wrong layout or check digits gets `400` without being looked up, and a valid number nobody holds gets `404`. The response is just `bankAccountId`, `bankId`, `number` and `type`, with no balance and no owner, because whoever typed the number need not be the holder.
+The API stores and returns the compact form, and clients group it into fours. Every backend operation, transfers included, is keyed on `bankAccountId`. To turn a number a player typed into that id, the bridge calls `GET /api/bank-accounts?number={number}`. Spaces and letter case are ignored. A missing number, or one with the wrong layout or check digits, gets `400` without being looked up. Otherwise the response is a list with one element, or an empty list if nobody holds the number. Each element is just `bankAccountId`, `bankId`, `number` and `type`, with no balance and no owner, because whoever typed the number need not be the holder.
 
 ```sh
-curl "http://localhost:5100/api/bank-accounts/by-number/EL90%20FEBK%200123%204567%2089" -H "Authorization: Bearer $BRIDGE_TOKEN"
+curl -G http://localhost:5100/api/bank-accounts --data-urlencode "number=EL90 FEBK 0123 4567 89" -H "Authorization: Bearer $BRIDGE_TOKEN"
 ```
 
 ## Corporate accounts
