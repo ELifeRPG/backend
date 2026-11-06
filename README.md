@@ -319,3 +319,15 @@ Grafana at [http://localhost:3000](http://localhost:3000) (anonymous admin acces
 ## Solution structure
 
 One deployable process organized as a **modulith** — each bounded context gets its own `Domain`/`Application`/`Infrastructure`/`Api` projects, composed by a thin host. See [ARCHITECTURE.md §9e](./ARCHITECTURE.md#9e-modulith-structure--module-boundaries) for the full layout and the naming/dependency rules, and [MIGRATION.md](./MIGRATION.md) for why each of those decisions was made and what's actually built so far.
+
+## License
+
+Copyright © 2026 ELifeRPG contributors.
+
+Licensed under the [GNU Affero General Public License v3.0 or later](LICENSE)
+(`AGPL-3.0-or-later`). You may use, change and share this software. If you
+distribute it, or run a modified version for other people over a network
+(for example, a game server), you must make your complete source code
+available to those users under the same license.
+
+Contributions need a DCO sign-off; see [CONTRIBUTING.md](CONTRIBUTING.md).
