@@ -46,6 +46,47 @@ public sealed class BankingCommandTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task OpenBankAccount_CarriesTheBanksFeeTermsOnTheAccount()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+
+        var result = await mediator.Send(new OpenBankAccountCommand(BankSeed.FederalELifeBankId, characterId));
+
+        var opened = result is OpenBankAccountResult.Opened value ? value : throw new InvalidOperationException($"Expected Opened, got {result}");
+        Assert.Equal(0.20m, opened.BankAccount.TransactionFeeBase);
+        Assert.Equal(0.02m, opened.BankAccount.TransactionFeeMultiplier);
+
+        var details = await mediator.Send(new BankAccountDetailsQuery(opened.BankAccountId));
+        var found = details is BankAccountDetailsResult.Found f ? f : throw new InvalidOperationException($"Expected Found, got {details}");
+        Assert.Equal(0.20m, found.BankAccount.TransactionFeeBase);
+        Assert.Equal(0.02m, found.BankAccount.TransactionFeeMultiplier);
+    }
+
+    [Theory]
+    [InlineData("0.25")]
+    [InlineData("33.33")]
+    [InlineData("50")]
+    public async Task FeePreviewedFromTheAccountsTerms_EqualsTheBookedFee(string amount)
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
+        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        var details = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
+        var account = details is BankAccountDetailsResult.Found f ? f.BankAccount : throw new InvalidOperationException($"Expected Found, got {details}");
+        var value = decimal.Parse(amount);
+        var preview = Money.RoundToCents(account.TransactionFeeBase + (value * account.TransactionFeeMultiplier));
+
+        var result = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, value));
+
+        var withdrawn = result is WithdrawResult.Withdrawn w ? w : throw new InvalidOperationException($"Expected Withdrawn, got {result}");
+        Assert.Equal(preview, withdrawn.Fee);
+    }
+
+    [Fact]
     public async Task OpenBankAccount_IssuesValidNumberUnderTheBanksCode()
     {
         await using var scope = _provider.CreateAsyncScope();

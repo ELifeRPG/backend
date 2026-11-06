@@ -16,6 +16,15 @@ public sealed record BankAccountDto
 
     public required decimal Balance { get; init; }
 
+    /// <summary>
+    /// The fee terms copied from the bank when the account was opened — the ones this account is
+    /// actually charged, even after the bank's own terms change. Fee = base + amount × multiplier,
+    /// rounded to whole cents as documented on <c>Money</c>.
+    /// </summary>
+    public required decimal TransactionFeeBase { get; init; }
+
+    public required decimal TransactionFeeMultiplier { get; init; }
+
     public static BankAccountDto Create(BankAccount source) => new()
     {
         BankAccountId = source.Id.Value,
@@ -25,27 +34,7 @@ public sealed record BankAccountDto
         CompanyId = source.OwnerCompanyId?.Value,
         Number = source.Number,
         Balance = source.Balance,
-    };
-
-    public static BankAccountDto Create(OpenBankAccountResult.Opened source, Guid bankId, Guid characterId) => new()
-    {
-        BankAccountId = source.BankAccountId.Value,
-        BankId = bankId,
-        Type = BankAccountType.Personal.ToString(),
-        CharacterId = characterId,
-        CompanyId = null,
-        Number = source.Number,
-        Balance = 0,
-    };
-
-    public static BankAccountDto Create(OpenCorporateBankAccountResult.Opened source, Guid bankId, Guid companyId) => new()
-    {
-        BankAccountId = source.BankAccountId.Value,
-        BankId = bankId,
-        Type = BankAccountType.Corporate.ToString(),
-        CharacterId = null,
-        CompanyId = companyId,
-        Number = source.Number,
-        Balance = 0,
+        TransactionFeeBase = source.TransactionFeeBase,
+        TransactionFeeMultiplier = source.TransactionFeeMultiplier,
     };
 }

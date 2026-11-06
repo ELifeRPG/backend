@@ -11,7 +11,12 @@ public union OpenCorporateBankAccountResult(
     OpenCorporateBankAccountResult.CompanyNotFound,
     OpenCorporateBankAccountResult.NumberExhausted)
 {
-    public record Opened(BankAccountId BankAccountId, string Number);
+    public record Opened(BankAccount BankAccount)
+    {
+        public BankAccountId BankAccountId => BankAccount.Id;
+
+        public string Number => BankAccount.Number;
+    }
 
     public record BankNotFound;
 
@@ -62,7 +67,7 @@ public sealed class OpenCorporateBankAccountHandler(
             try
             {
                 await bankAccountRepository.SaveChangesAsync(cancellationToken);
-                return new OpenCorporateBankAccountResult.Opened(bankAccountId, number);
+                return new OpenCorporateBankAccountResult.Opened(bankAccount);
             }
             catch (BankAccountNumberTakenException)
             {

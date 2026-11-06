@@ -7,7 +7,12 @@ namespace ELifeRPG.Banking.Application.BankAccounts;
 
 public union OpenBankAccountResult(OpenBankAccountResult.Opened, OpenBankAccountResult.BankNotFound, OpenBankAccountResult.CharacterNotFound, OpenBankAccountResult.NumberExhausted)
 {
-    public record Opened(BankAccountId BankAccountId, string Number);
+    public record Opened(BankAccount BankAccount)
+    {
+        public BankAccountId BankAccountId => BankAccount.Id;
+
+        public string Number => BankAccount.Number;
+    }
 
     public record BankNotFound;
 
@@ -58,7 +63,7 @@ public sealed class OpenBankAccountHandler(
             try
             {
                 await bankAccountRepository.SaveChangesAsync(cancellationToken);
-                return new OpenBankAccountResult.Opened(bankAccountId, number);
+                return new OpenBankAccountResult.Opened(bankAccount);
             }
             catch (BankAccountNumberTakenException)
             {
