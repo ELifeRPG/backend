@@ -320,6 +320,21 @@ Grafana at [http://localhost:3000](http://localhost:3000) (anonymous admin acces
 
 One deployable process organized as a **modulith** — each bounded context gets its own `Domain`/`Application`/`Infrastructure`/`Api` projects, composed by a thin host. See [ARCHITECTURE.md §9e](./ARCHITECTURE.md#9e-modulith-structure--module-boundaries) for the full layout and the naming/dependency rules, and [MIGRATION.md](./MIGRATION.md) for why each of those decisions was made and what's actually built so far.
 
+## Releasing
+
+Binaries and images are released separately, so a .NET runtime or OS patch can ship without a new
+release of this code.
+
+1. A maintainer runs the **Release** workflow (Actions → Release → Run workflow, on `main`) and picks
+   `patch`, `minor` or `major`. It builds and tests `main`, tags it `vX.Y.Z`, and attaches one
+   framework-dependent publish per deployable (`backend-<name>-X.Y.Z.tar.gz`) to a GitHub release.
+2. [`ELifeRPG/backend-container`](https://github.com/ELifeRPG/backend-container) turns that release into
+   `ghcr.io/eliferpg/backend:latest` (and `:X.Y.Z`). Renovate opens a PR there for every new release and every
+   new `aspnet` runtime image, and the image is pushed once that PR's smoke test passes and it is merged.
+
+Every push to `main` here still builds `ghcr.io/eliferpg/backend:edge` (and `:sha-<commit>`) from source for dev use.
+`:latest` only ever carries a release.
+
 ## License
 
 Copyright © 2026 ELifeRPG contributors.

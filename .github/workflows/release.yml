@@ -1,0 +1,109 @@
+name: Release
+
+# Cuts a versioned release of the deployable binaries: tags main as vX.Y.Z and attaches one
+# framework-dependent publish tarball per deployable (backend-<name>-X.Y.Z.tar.gz).
+#
+# The images are not built here. ELifeRPG/backend-container picks the release up through Renovate
+# and layers it onto the current .NET runtime, so runtime updates ship without a new release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        required: true
+
+concurrency: release
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/devcontainers/dotnet:2.1.4-11.0-preview
+    permissions:
+      contents: read
+    env:
+      ASPNETCORE_ENVIRONMENT: Development
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          latest_tag="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+          latest="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "${latest:-0.0.0}"
+          case "$BUMP" in
+            major) next="$((major + 1)).0.0" ;;
+            minor) next="${major}.$((minor + 1)).0" ;;
+            patch) next="${major}.${minor}.$((patch + 1))" ;;
+          esac
+          echo "Releasing $next (previous: ${latest_tag:-none})"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore ELifeRPG.Core.slnx
+
+      - name: Build
+        run: dotnet build ELifeRPG.Core.slnx --no-restore --configuration Release
+
+      - name: Unit tests
+        run: |
+          for proj in $(find tests -iname "*.Domain.UnitTests.csproj"); do
+            dotnet test "$proj" --no-build --configuration Release
+          done
+
+      # One "name:project" pair per deployable; each becomes backend-<name>-<version>.tar.gz and
+      # gets its own Dockerfile in backend-container.
+      - name: Publish deployables
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for pair in api:src/Api/Api.csproj; do
+            name="${pair%%:*}"
+            project="${pair#*:}"
+            dotnet publish "$project" --configuration Release --output "out/$name" \
+              -p:Version="$VERSION" -p:OpenApiGenerateDocumentsOnBuild=false
+            tar -czf "dist/backend-$name-$VERSION.tar.gz" -C "out/$name" .
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: >
+          gh release create "v$VERSION" dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --target "$GITHUB_SHA"
+          --title "v$VERSION"
+          --generate-notes
