@@ -26,12 +26,12 @@ public class ShopListing
 
     public ListingUpdated UpdatePriceAndStock(decimal price, int stock)
     {
-        // Strictly positive, not merely non-negative: a zero (or negative) price would reach
-        // Banking's TransferOut via PurchaseListingHandler, whose EnsurePositiveAmount guard rejects
-        // anything <= 0 — leaving a purchase that has already reserved stock unable to settle.
-        if (price <= 0)
+        // Strictly positive and in whole cents: any other price would reach Banking's TransferOut via
+        // PurchaseListingHandler, whose amount guard rejects it — leaving a purchase that has already
+        // reserved stock unable to settle. UpdateListingHandler rejects it as a 400 first; this is the backstop.
+        if (!Money.IsValidAmount(price))
         {
-            throw new ArgumentOutOfRangeException(nameof(price), "Price must be greater than zero.");
+            throw new ArgumentOutOfRangeException(nameof(price), "Price must be greater than zero and in whole cents.");
         }
 
         if (stock < 0)

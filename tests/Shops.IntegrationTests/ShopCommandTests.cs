@@ -219,6 +219,38 @@ public sealed class ShopCommandTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AddListing_WithFractionalCentPrice_ReturnsInvalidPrice()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var shopId = await OpenPersonalShopAsync(mediator, characterId);
+        var itemId = await CreateItemAsync(mediator);
+
+        var result = await mediator.Send(new AddListingCommand(shopId, itemId, 1.005m, 10, characterId));
+
+        Assert.True(result is AddListingResult.InvalidPrice, $"Expected InvalidPrice, got {result}");
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("1.005")]
+    public async Task UpdateListing_WithInvalidPrice_ReturnsInvalidPrice(string price)
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var shopId = await OpenPersonalShopAsync(mediator, characterId);
+        var itemId = await CreateItemAsync(mediator);
+        var addResult = await mediator.Send(new AddListingCommand(shopId, itemId, 5m, 10, characterId));
+        var added = addResult is AddListingResult.Added value ? value : throw new InvalidOperationException($"Expected Added, got {addResult}");
+
+        var result = await mediator.Send(new UpdateListingCommand(shopId, added.ListingId, decimal.Parse(price), 10, characterId));
+
+        Assert.True(result is UpdateListingResult.InvalidPrice, $"Expected InvalidPrice, got {result}");
+    }
+
+    [Fact]
     public async Task RemoveListing_CalledTwice_IsIdempotent()
     {
         await using var scope = _provider.CreateAsyncScope();

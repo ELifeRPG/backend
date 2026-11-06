@@ -3,9 +3,12 @@ using ELifeRPG.Banking.Domain.Exceptions;
 
 namespace ELifeRPG.Banking.Application.BankAccounts;
 
-public union DepositResult(DepositResult.Deposited, DepositResult.BankAccountNotFound, DepositResult.ConcurrentModification)
+public union DepositResult(DepositResult.Deposited, DepositResult.InvalidAmount, DepositResult.BankAccountNotFound, DepositResult.ConcurrentModification)
 {
     public record Deposited(decimal Amount, decimal Fee, decimal NewBalance);
+
+    /// <summary>Amount was not strictly positive or not in whole cents.</summary>
+    public record InvalidAmount;
 
     public record BankAccountNotFound;
 
@@ -18,6 +21,11 @@ public sealed class DepositHandler(IBankAccountRepository bankAccountRepository)
 {
     public async ValueTask<DepositResult> Handle(DepositCommand request, CancellationToken cancellationToken)
     {
+        if (!Money.IsValidAmount(request.Amount))
+        {
+            return new DepositResult.InvalidAmount();
+        }
+
         var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.BankAccountId, cancellationToken);
         if (bankAccount is null)
         {

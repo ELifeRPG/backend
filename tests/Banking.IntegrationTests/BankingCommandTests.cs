@@ -153,6 +153,65 @@ public sealed class BankingCommandTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Deposit_BooksTheFeeRoundedToWholeCents()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+
+        // The seeded bank charges 0.20 + 2 %: 0.20 + 0.25 * 0.02 = 0.205, booked as 0.21.
+        var result = await mediator.Send(new DepositCommand(bankAccountId, 0.25m));
+
+        var deposited = result is DepositResult.Deposited value ? value : throw new InvalidOperationException($"Expected Deposited, got {result}");
+        Assert.Equal(0.21m, deposited.Fee);
+        Assert.Equal(0.04m, deposited.NewBalance);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("1.005")]
+    public async Task Deposit_WithInvalidAmount_ReturnsInvalidAmount(string amount)
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+
+        var result = await mediator.Send(new DepositCommand(bankAccountId, decimal.Parse(amount)));
+
+        Assert.True(result is DepositResult.InvalidAmount, $"Expected InvalidAmount, got {result}");
+    }
+
+    [Fact]
+    public async Task Withdraw_WithFractionalCentAmount_ReturnsInvalidAmount()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
+        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+
+        var result = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 1.005m));
+
+        Assert.True(result is WithdrawResult.InvalidAmount, $"Expected InvalidAmount, got {result}");
+    }
+
+    [Fact]
+    public async Task Transfer_WithFractionalCentAmount_ReturnsInvalidAmount()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var sourceAccountId = await OpenBankAccountAsync(mediator, characterId);
+        var targetAccountId = await OpenBankAccountAsync(mediator);
+        await mediator.Send(new DepositCommand(sourceAccountId, 100m));
+
+        var result = await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 1.005m));
+
+        Assert.True(result is TransferResult.InvalidAmount, $"Expected InvalidAmount, got {result}");
+    }
+
+    [Fact]
     public async Task Withdraw_ByOwner_WithSufficientBalance_Succeeds()
     {
         await using var scope = _provider.CreateAsyncScope();

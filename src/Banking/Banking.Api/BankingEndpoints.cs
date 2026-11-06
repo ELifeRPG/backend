@@ -191,6 +191,9 @@ public static class BankingModule
                         Fee = deposited.Fee,
                         NewBalance = deposited.NewBalance,
                     }),
+                    DepositResult.InvalidAmount => Results.Problem(
+                        title: "Amount must be positive and in whole cents",
+                        statusCode: StatusCodes.Status400BadRequest),
                     DepositResult.BankAccountNotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
                     DepositResult.ConcurrentModification => Results.Problem(
                         title: "Another operation already committed against this account",
@@ -199,6 +202,7 @@ public static class BankingModule
             })
             .RequireAuthorization(BankingWritePolicy)
             .Produces<TransactionResultDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .WithName("DepositToBankAccount")
@@ -220,6 +224,9 @@ public static class BankingModule
                         Fee = withdrawn.Fee,
                         NewBalance = withdrawn.NewBalance,
                     }),
+                    WithdrawResult.InvalidAmount => Results.Problem(
+                        title: "Amount must be positive and in whole cents",
+                        statusCode: StatusCodes.Status400BadRequest),
                     WithdrawResult.BankAccountNotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
                     WithdrawResult.NotAuthorized => Results.Problem(
                         title: "Not authorized to transact on this account",
@@ -234,6 +241,7 @@ public static class BankingModule
             })
             .RequireAuthorization(BankingWritePolicy)
             .Produces<TransactionResultDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -256,6 +264,9 @@ public static class BankingModule
                         Fee = transferred.Fee,
                         NewBalance = transferred.NewBalance,
                     }),
+                    TransferResult.InvalidAmount => Results.Problem(
+                        title: "Amount must be positive and in whole cents",
+                        statusCode: StatusCodes.Status400BadRequest),
                     TransferResult.BankAccountNotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
                     TransferResult.TargetBankAccountNotFound => Results.Problem(
                         title: "Target bank account not found",
@@ -273,6 +284,7 @@ public static class BankingModule
             })
             .RequireAuthorization(BankingWritePolicy)
             .Produces<TransactionResultDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -307,7 +319,7 @@ public static class BankingModule
                         title: "Quantity must be positive",
                         statusCode: StatusCodes.Status400BadRequest),
                     PurchaseCompanySharesResult.InvalidPrice => Results.Problem(
-                        title: "Price per share must be positive",
+                        title: "Price per share must be positive and in whole cents",
                         statusCode: StatusCodes.Status400BadRequest),
                 };
             })

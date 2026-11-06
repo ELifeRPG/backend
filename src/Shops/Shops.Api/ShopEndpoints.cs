@@ -143,7 +143,7 @@ public static class ShopModule
                         Stock = request.Stock,
                     }),
                     AddListingResult.InvalidPrice => Results.Problem(
-                        title: "Price must be greater than zero", statusCode: StatusCodes.Status400BadRequest),
+                        title: "Price must be greater than zero and in whole cents", statusCode: StatusCodes.Status400BadRequest),
                     AddListingResult.ShopNotFound => Results.Problem(title: "Shop not found", statusCode: StatusCodes.Status404NotFound),
                     AddListingResult.ItemNotFound => Results.Problem(title: "Item not found", statusCode: StatusCodes.Status404NotFound),
                     AddListingResult.NotAuthorized => Results.Problem(title: "Not authorized to manage this shop", statusCode: StatusCodes.Status403Forbidden),
@@ -183,12 +183,15 @@ public static class ShopModule
                 return result switch
                 {
                     UpdateListingResult.Updated => Results.Ok(),
+                    UpdateListingResult.InvalidPrice => Results.Problem(
+                        title: "Price must be greater than zero and in whole cents", statusCode: StatusCodes.Status400BadRequest),
                     UpdateListingResult.ShopNotFound => Results.Problem(title: "Shop not found", statusCode: StatusCodes.Status404NotFound),
                     UpdateListingResult.ListingNotFound => Results.Problem(title: "Listing not found", statusCode: StatusCodes.Status404NotFound),
                     UpdateListingResult.NotAuthorized => Results.Problem(title: "Not authorized to manage this shop", statusCode: StatusCodes.Status403Forbidden),
                 };
             })
             .RequireAuthorization(ShopsWritePolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .WithName("UpdateShopListing")

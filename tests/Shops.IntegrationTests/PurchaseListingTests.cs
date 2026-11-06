@@ -291,7 +291,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
 
         // Same fee formula as Banking.Domain.BankAccount.CalculateFee, using the fixed 0.20/0.02
         // parameters the seeded bank (BankSeed) charges.
-        var expectedFee = 0.20m + (purchasedResult.TotalPaid * 0.02m);
+        var expectedFee = Money.RoundToCents(0.20m + (purchasedResult.TotalPaid * 0.02m));
         Assert.Equal(preBalanceWinner - purchasedResult.TotalPaid - expectedFee, winnerBalance);
         Assert.Equal(preBalanceLoser, loserBalance);
     }
@@ -339,7 +339,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         // Banking side committed: buyer balance debited by TotalPaid plus TransferOut's own fee
         // (same formula as Banking.Domain.BankAccount.CalculateFee, using the fixed 0.20/0.02
         // parameters the seeded bank (BankSeed) charges).
-        var expectedFee = 0.20m + (purchased.TotalPaid * 0.02m);
+        var expectedFee = Money.RoundToCents(0.20m + (purchased.TotalPaid * 0.02m));
         var balanceAfter = await GetBalanceAsync(mediator, buyerAccountId);
         Assert.Equal(balanceBefore - purchased.TotalPaid - expectedFee, balanceAfter);
     }
