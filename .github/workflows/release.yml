@@ -28,7 +28,6 @@ jobs:
       ASPNETCORE_ENVIRONMENT: Development
     outputs:
       version: ${{ steps.version.outputs.version }}
-    # Container jobs default to sh; the steps below use bash (here-strings, pipefail).
     defaults:
       run:
         shell: bash
