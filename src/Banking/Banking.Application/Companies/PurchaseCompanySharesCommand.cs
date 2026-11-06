@@ -51,7 +51,7 @@ public sealed class PurchaseCompanySharesHandler(
             return new PurchaseCompanySharesResult.InvalidQuantity();
         }
 
-        if (request.PricePerShare <= 0)
+        if (!Money.IsValidAmount(request.PricePerShare))
         {
             return new PurchaseCompanySharesResult.InvalidPrice();
         }

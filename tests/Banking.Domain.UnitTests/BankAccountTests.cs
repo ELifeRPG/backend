@@ -75,6 +75,62 @@ public class BankAccountTests
     }
 
     [Fact]
+    public void Deposit_RoundsTheFeeToWholeCentsHalfAwayFromZero()
+    {
+        // 0.20 + 0.25 * 0.02 = 0.205
+        var account = CreatePersonalAccount();
+
+        var domainEvent = account.Deposit(0.25m);
+
+        Assert.Equal(0.21m, domainEvent.Fee);
+        Assert.Equal(0.04m, account.Balance);
+    }
+
+    [Fact]
+    public void Withdraw_RoundsTheFeeAndKeepsTheBalanceInWholeCents()
+    {
+        // 0.20 + 33.33 * 0.02 = 0.8666
+        var account = CreatePersonalAccount();
+        account.Deposit(100m);
+
+        var domainEvent = account.Withdraw(Owner, isAuthorized: true, 33.33m);
+
+        Assert.Equal(0.87m, domainEvent.Fee);
+        Assert.Equal(97.8m - 33.33m - 0.87m, account.Balance);
+        Assert.True(Money.IsWholeCents(account.Balance));
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("1.005")]
+    public void Deposit_WithInvalidAmount_Throws(string amount)
+    {
+        var account = CreatePersonalAccount();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => account.Deposit(decimal.Parse(amount)));
+    }
+
+    [Fact]
+    public void Withdraw_WithFractionalCentAmount_Throws()
+    {
+        var account = CreatePersonalAccount();
+        account.Deposit(100m);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => account.Withdraw(Owner, isAuthorized: true, 1.005m));
+    }
+
+    [Fact]
+    public void TransferOut_WithFractionalCentAmount_Throws()
+    {
+        var account = CreatePersonalAccount();
+        account.Deposit(100m);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => account.TransferOut(Owner, isAuthorized: true, new BankAccountId(Guid.NewGuid()), 1.005m));
+    }
+
+    [Fact]
     public void Withdraw_WhenAuthorized_SubtractsAmountPlusFee()
     {
         var account = CreatePersonalAccount();

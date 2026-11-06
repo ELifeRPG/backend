@@ -53,6 +53,14 @@ public class ShopListingTests
     }
 
     [Fact]
+    public void UpdatePriceAndStock_WithFractionalCentPrice_ThrowsArgumentOutOfRange()
+    {
+        var listing = CreateListing();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => listing.UpdatePriceAndStock(1.005m, 5));
+    }
+
+    [Fact]
     public void UpdatePriceAndStock_WithZeroStock_IsAllowed()
     {
         var listing = CreateListing(stock: 10);

@@ -19,7 +19,7 @@ public union AddListingResult(
 
     public record NotAuthorized;
 
-    /// <summary>Price was not strictly positive — see the validation note in AddListingHandler.</summary>
+    /// <summary>Price was not strictly positive or not in whole cents — see the validation note in AddListingHandler.</summary>
     public record InvalidPrice;
 }
 
@@ -32,11 +32,11 @@ public sealed class AddListingHandler(IShopRepository shopRepository, IShopListi
     {
         // Validated here rather than in ShopListing.Create: Create only applies a pre-built event
         // (matching every other aggregate in this codebase) and so has no invariant hook. The bound
-        // is Banking's, not an arbitrary one — TransferOut's EnsurePositiveAmount rejects <= 0, so a
-        // zero-priced listing would reserve stock and then fail to settle (ShopListing.UpdatePriceAndStock
+        // is Banking's, not an arbitrary one — TransferOut rejects anything but a positive whole-cent
+        // amount, so such a listing would reserve stock and then fail to settle (ShopListing.UpdatePriceAndStock
         // guards the same bound on the update path). Caller-triggerable, hence a union case rather
         // than a propagating ArgumentOutOfRangeException — ARCHITECTURE.md §9e.
-        if (request.Price <= 0)
+        if (!Money.IsValidAmount(request.Price))
         {
             return new AddListingResult.InvalidPrice();
         }

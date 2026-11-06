@@ -8,12 +8,16 @@ namespace ELifeRPG.Banking.Application.BankAccounts;
 
 public union WithdrawResult(
     WithdrawResult.Withdrawn,
+    WithdrawResult.InvalidAmount,
     WithdrawResult.BankAccountNotFound,
     WithdrawResult.NotAuthorized,
     WithdrawResult.InsufficientBalance,
     WithdrawResult.ConcurrentModification)
 {
     public record Withdrawn(decimal Amount, decimal Fee, decimal NewBalance);
+
+    /// <summary>Amount was not strictly positive or not in whole cents.</summary>
+    public record InvalidAmount;
 
     public record BankAccountNotFound;
 
@@ -30,6 +34,11 @@ public sealed class WithdrawHandler(IBankAccountRepository bankAccountRepository
 {
     public async ValueTask<WithdrawResult> Handle(WithdrawCommand request, CancellationToken cancellationToken)
     {
+        if (!Money.IsValidAmount(request.Amount))
+        {
+            return new WithdrawResult.InvalidAmount();
+        }
+
         var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.BankAccountId, cancellationToken);
         if (bankAccount is null)
         {

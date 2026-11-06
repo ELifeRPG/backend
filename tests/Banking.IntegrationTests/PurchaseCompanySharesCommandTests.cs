@@ -57,7 +57,7 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
         // parameters the seeded bank (BankSeed) charges. Computed against balanceAfterDeposit (not the raw 1000m deposit) because Deposit
         // itself charges a fee — see PurchaseListingTests for the identical pattern in Shops.
         const decimal totalPrice = 10 * 5m;
-        var expectedFee = 0.20m + (totalPrice * 0.02m);
+        var expectedFee = Money.RoundToCents(0.20m + (totalPrice * 0.02m));
         var expectedBalance = balanceAfterDeposit - totalPrice - expectedFee;
 
         var accountDetails = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
@@ -73,6 +73,21 @@ public sealed class PurchaseCompanySharesCommandTests : IAsyncLifetime
         {
             Assert.Contains(companyFound.Company.Shares, s => s.CharacterId == buyerId && s.Quantity == 10);
         }
+    }
+
+    [Fact]
+    public async Task Purchase_WithFractionalCentPricePerShare_ReturnsInvalidPrice()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var buyerId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, buyerId);
+        await mediator.Send(new DepositCommand(bankAccountId, 1000m));
+        var companyId = await CreateCompanyAsync(mediator, buyerId);
+
+        var result = await mediator.Send(new PurchaseCompanySharesCommand(bankAccountId, buyerId, companyId, 3, 0.333m));
+
+        Assert.True(result is PurchaseCompanySharesResult.InvalidPrice, $"Expected InvalidPrice, got {result}");
     }
 
     [Fact]

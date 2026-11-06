@@ -2,9 +2,17 @@ using ELifeRPG.Shops.Application.Common;
 
 namespace ELifeRPG.Shops.Application.Shops;
 
-public union UpdateListingResult(UpdateListingResult.Updated, UpdateListingResult.ShopNotFound, UpdateListingResult.ListingNotFound, UpdateListingResult.NotAuthorized)
+public union UpdateListingResult(
+    UpdateListingResult.Updated,
+    UpdateListingResult.InvalidPrice,
+    UpdateListingResult.ShopNotFound,
+    UpdateListingResult.ListingNotFound,
+    UpdateListingResult.NotAuthorized)
 {
     public record Updated;
+
+    /// <summary>Price was not strictly positive or not in whole cents — see AddListingHandler.</summary>
+    public record InvalidPrice;
 
     public record ShopNotFound;
 
@@ -20,6 +28,11 @@ public sealed class UpdateListingHandler(IShopRepository shopRepository, IShopLi
 {
     public async ValueTask<UpdateListingResult> Handle(UpdateListingCommand request, CancellationToken cancellationToken)
     {
+        if (!Money.IsValidAmount(request.Price))
+        {
+            return new UpdateListingResult.InvalidPrice();
+        }
+
         var shop = await shopRepository.FindByIdAsync(request.ShopId, cancellationToken);
         if (shop is null)
         {

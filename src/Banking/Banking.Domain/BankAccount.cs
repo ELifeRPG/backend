@@ -37,7 +37,7 @@ public class BankAccount
 
     public BankAccountDeposited Deposit(decimal amount)
     {
-        EnsurePositiveAmount(amount);
+        EnsureValidAmount(amount);
 
         var domainEvent = new BankAccountDeposited(Id, amount, CalculateFee(amount));
         Apply(domainEvent);
@@ -55,7 +55,7 @@ public class BankAccount
     public BankAccountWithdrawn Withdraw(CharacterId actingCharacterId, bool isAuthorized, decimal amount)
     {
         EnsureAuthorized(isAuthorized);
-        EnsurePositiveAmount(amount);
+        EnsureValidAmount(amount);
 
         var fee = CalculateFee(amount);
         EnsureSufficientBalance(amount, fee);
@@ -68,7 +68,7 @@ public class BankAccount
     public BankAccountTransferredOut TransferOut(CharacterId actingCharacterId, bool isAuthorized, BankAccountId targetBankAccountId, decimal amount)
     {
         EnsureAuthorized(isAuthorized);
-        EnsurePositiveAmount(amount);
+        EnsureValidAmount(amount);
 
         if (targetBankAccountId == Id)
         {
@@ -130,13 +130,17 @@ public class BankAccount
         }
     }
 
-    private static void EnsurePositiveAmount(decimal amount)
+    /// <summary>
+    /// Backstop only: the Application handlers reject an invalid amount as a 400 before it gets here.
+    /// </summary>
+    private static void EnsureValidAmount(decimal amount)
     {
-        if (amount <= 0)
+        if (!Money.IsValidAmount(amount))
         {
-            throw new ArgumentOutOfRangeException(nameof(amount), amount, "Amount must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(amount), amount, "Amount must be positive and in whole cents.");
         }
     }
 
-    private decimal CalculateFee(decimal amount) => TransactionFeeBase + (amount * TransactionFeeMultiplier);
+    /// <summary>Rounded to whole cents at booking time, using the rule documented on <see cref="Money"/>.</summary>
+    private decimal CalculateFee(decimal amount) => Money.RoundToCents(TransactionFeeBase + (amount * TransactionFeeMultiplier));
 }
