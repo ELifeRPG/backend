@@ -51,7 +51,7 @@ jobs:
       - name: Build image
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: docker build -t "$IMAGE:latest" -t "$IMAGE:sha-${GITHUB_SHA::7}" .
+        run: docker build -t "$IMAGE:edge" -t "$IMAGE:sha-${GITHUB_SHA::7}" .
 
       - name: Push image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
