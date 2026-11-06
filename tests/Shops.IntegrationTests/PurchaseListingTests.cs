@@ -27,6 +27,9 @@ namespace ELifeRPG.Shops.IntegrationTests;
 /// </summary>
 public sealed class PurchaseListingTests : IAsyncLifetime
 {
+    // Deposits record who handed over the cash, but never check it; any character id will do.
+    private static readonly CharacterId Depositor = new(Guid.NewGuid());
+
     private ServiceProvider _provider = null!;
 
     public Task InitializeAsync()
@@ -49,7 +52,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 3, buyerId, buyerAccountId));
 
@@ -76,7 +79,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var sellerId = await CreateCharacterAsync(mediator);
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
         var payoutAccountId = await GetShopPayoutAccountIdAsync(mediator, shopId);
-        await mediator.Send(new DepositCommand(payoutAccountId, 100m));
+        await mediator.Send(new DepositCommand(payoutAccountId, Depositor, 100m));
         var balanceBefore = await GetBalanceAsync(mediator, payoutAccountId);
 
         var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 2, sellerId, payoutAccountId));
@@ -97,7 +100,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 2);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
         Assert.True(depositResult is DepositResult.Deposited, $"Expected Deposited, got {depositResult}");
         // Deposits carry the bank's own transaction fee (TransactionFeeBase + amount * TransactionFeeMultiplier),
         // same as withdrawals/transfers — so the balance right after depositing 100 isn't 100. Assert against
@@ -183,7 +186,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         // Account owner (character A) — funds the account so a purchase would otherwise succeed.
         var accountOwnerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, accountOwnerId);
-        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
         Assert.True(depositResult is DepositResult.Deposited, $"Expected Deposited, got {depositResult}");
         if (depositResult is not DepositResult.Deposited deposited)
         {
@@ -234,7 +237,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
 
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 1, buyerId, buyerAccountId));
 
@@ -252,11 +255,11 @@ public sealed class PurchaseListingTests : IAsyncLifetime
 
         var buyerAId = await CreateCharacterAsync(setupMediator);
         var buyerAAccountId = await OpenPersonalBankAccountAsync(setupMediator, buyerAId);
-        await setupMediator.Send(new DepositCommand(buyerAAccountId, 100m));
+        await setupMediator.Send(new DepositCommand(buyerAAccountId, Depositor, 100m));
 
         var buyerBId = await CreateCharacterAsync(setupMediator);
         var buyerBAccountId = await OpenPersonalBankAccountAsync(setupMediator, buyerBId);
-        await setupMediator.Send(new DepositCommand(buyerBAccountId, 100m));
+        await setupMediator.Send(new DepositCommand(buyerBAccountId, Depositor, 100m));
 
         // Deposits themselves carry a fee (Banking.Domain.BankAccount.CalculateFee, same formula
         // used below) — a 100m deposit does not net exactly 100m, so read the real post-deposit
@@ -330,7 +333,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
         Assert.True(depositResult is DepositResult.Deposited, $"Expected Deposited, got {depositResult}");
         if (depositResult is not DepositResult.Deposited deposited)
         {
@@ -374,7 +377,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (_, listingBId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 60m, stock: 10);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
 
         // Two concurrent purchases from the same buyer account, each costing 60 against a ~100
         // balance — only one can succeed without overdrawing.
@@ -410,7 +413,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var listingItemId = await GetListingItemIdAsync(mediator, shopId, listingId);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 1, buyerId, buyerAccountId));
 
@@ -459,7 +462,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
         if (depositResult is not DepositResult.Deposited deposited)
         {
             throw new InvalidOperationException("Unreachable.");
@@ -501,7 +504,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId) = await OpenShopWithUncatalogedListingAsync(scope.ServiceProvider, mediator, sellerId, price: 5m, stock: 10);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
         if (depositResult is not DepositResult.Deposited deposited)
         {
             throw new InvalidOperationException("Unreachable.");
@@ -535,7 +538,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 1, buyerId, buyerAccountId));
 
@@ -563,7 +566,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 20);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        await mediator.Send(new DepositCommand(buyerAccountId, 1000m));
+        await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 1000m));
 
         var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 10, buyerId, buyerAccountId));
 
@@ -595,7 +598,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 1m, stock: tooMany + 10);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, 100_000m));
+        var depositResult = await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100_000m));
         if (depositResult is not DepositResult.Deposited deposited)
         {
             throw new InvalidOperationException("Unreachable.");
@@ -637,7 +640,7 @@ public sealed class PurchaseListingTests : IAsyncLifetime
         var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
         var buyerId = await CreateCharacterAsync(mediator);
         var buyerAccountId = await OpenPersonalBankAccountAsync(mediator, buyerId);
-        await mediator.Send(new DepositCommand(buyerAccountId, 100m));
+        await mediator.Send(new DepositCommand(buyerAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 1, buyerId, buyerAccountId));
 

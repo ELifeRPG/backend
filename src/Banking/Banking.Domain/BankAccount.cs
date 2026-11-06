@@ -35,11 +35,12 @@ public class BankAccount
         return account;
     }
 
-    public BankAccountDeposited Deposit(decimal amount)
+    /// <summary>Anyone may deposit cash into any account; actingCharacterId is recorded for the ledger, not checked.</summary>
+    public BankAccountDeposited Deposit(Booking booking, CharacterId actingCharacterId, decimal amount)
     {
         EnsureValidAmount(amount);
 
-        var domainEvent = new BankAccountDeposited(Id, amount, CalculateFee(amount));
+        var domainEvent = new BankAccountDeposited(Id, amount, CalculateFee(amount), actingCharacterId, booking);
         Apply(domainEvent);
         return domainEvent;
     }
@@ -52,7 +53,7 @@ public class BankAccount
     /// itself is always recorded on the resulting event for audit purposes, regardless of ownership
     /// type. See ARCHITECTURE.md §9e.
     /// </summary>
-    public BankAccountWithdrawn Withdraw(CharacterId actingCharacterId, bool isAuthorized, decimal amount)
+    public BankAccountWithdrawn Withdraw(Booking booking, CharacterId actingCharacterId, bool isAuthorized, decimal amount)
     {
         EnsureAuthorized(isAuthorized);
         EnsureValidAmount(amount);
@@ -60,12 +61,12 @@ public class BankAccount
         var fee = CalculateFee(amount);
         EnsureSufficientBalance(amount, fee);
 
-        var domainEvent = new BankAccountWithdrawn(Id, amount, fee, actingCharacterId);
+        var domainEvent = new BankAccountWithdrawn(Id, amount, fee, actingCharacterId, booking);
         Apply(domainEvent);
         return domainEvent;
     }
 
-    public BankAccountTransferredOut TransferOut(CharacterId actingCharacterId, bool isAuthorized, BankAccountId targetBankAccountId, decimal amount)
+    public BankAccountTransferredOut TransferOut(Booking booking, CharacterId actingCharacterId, bool isAuthorized, BankAccountId targetBankAccountId, decimal amount)
     {
         EnsureAuthorized(isAuthorized);
         EnsureValidAmount(amount);
@@ -78,7 +79,7 @@ public class BankAccount
         var fee = CalculateFee(amount);
         EnsureSufficientBalance(amount, fee);
 
-        var domainEvent = new BankAccountTransferredOut(Id, targetBankAccountId, amount, fee, actingCharacterId);
+        var domainEvent = new BankAccountTransferredOut(Id, targetBankAccountId, amount, fee, actingCharacterId, booking);
         Apply(domainEvent);
         return domainEvent;
     }
@@ -86,10 +87,11 @@ public class BankAccount
     /// <summary>
     /// Applied to the *target* account of a transfer — no fee is charged to the receiving side,
     /// matching the legacy app's booking split (fees only ever land on the initiating account).
+    /// Takes the same booking as the source's TransferOut, so both legs share one transaction id.
     /// </summary>
-    public BankAccountTransferredIn ReceiveTransfer(BankAccountId sourceBankAccountId, decimal amount)
+    public BankAccountTransferredIn ReceiveTransfer(Booking booking, BankAccountId sourceBankAccountId, decimal amount)
     {
-        var domainEvent = new BankAccountTransferredIn(Id, sourceBankAccountId, amount);
+        var domainEvent = new BankAccountTransferredIn(Id, sourceBankAccountId, amount, booking);
         Apply(domainEvent);
         return domainEvent;
     }

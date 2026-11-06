@@ -169,8 +169,17 @@ builder.Services.AddOpenApi("v1", options =>
                 Type = JsonSchemaType.Boolean | JsonSchemaType.Null,
                 Description =
                     "Whether resending this exact request unmodified can succeed. Present on every "
-                    + "problem the World module returns; absent elsewhere, and an absent value means "
-                    + "false. See docs/bridge.md.",
+                    + "problem the World module returns and on the banking booking conflicts; absent "
+                    + "elsewhere, and an absent value means false. See docs/bridge.md.",
+            };
+
+            // `code`: a stable machine-readable reason, so a client can branch without parsing the
+            // title. Banking's booking conflicts carry it (`insufficient_balance`,
+            // `concurrent_modification`); declared here for the same reason as `retryable`.
+            schema.Properties["code"] = new OpenApiSchema
+            {
+                Type = JsonSchemaType.String | JsonSchemaType.Null,
+                Description = "Stable machine-readable reason for the problem, where the endpoint defines one. See docs/banking.md.",
             };
         }
 

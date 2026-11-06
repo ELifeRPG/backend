@@ -9,6 +9,9 @@ namespace ELifeRPG.Banking.Domain;
 /// CounterpartyNumber is the other account's number for a transfer — what a player reads on a
 /// statement. The events record only the id; the number is looked up when the history is read,
 /// which is safe because a number never changes once issued.
+///
+/// Booking identifies the request that made the row: its transaction id (shared by both legs of a
+/// transfer), the game server that sent it and the optional source.
 /// </summary>
 public sealed record BankAccountTransactionRecord(
     DateTimeOffset OccurredAt,
@@ -17,4 +20,5 @@ public sealed record BankAccountTransactionRecord(
     decimal Fee,
     BankAccountId? CounterpartyBankAccountId,
     CharacterId? ActingCharacterId,
+    Booking Booking,
     string? CounterpartyNumber = null);

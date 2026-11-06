@@ -5,4 +5,5 @@ public sealed record BankAccountTransferredOut(
     BankAccountId TargetBankAccountId,
     decimal Amount,
     decimal Fee,
-    CharacterId CharacterId);
+    CharacterId CharacterId,
+    Booking Booking);

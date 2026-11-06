@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Banking.Domain\Banking.Domain.csproj" />
+    <ProjectReference Include="..\..\Accounts\Accounts.Application\Accounts.Application.csproj" />
     <ProjectReference Include="..\..\Characters\Characters.Application\Characters.Application.csproj" />
     <ProjectReference Include="..\..\Companies\Companies.Application\Companies.Application.csproj" />
     <ProjectReference Include="..\..\Shared\Shared.Integration.Abstractions\Shared.Integration.Abstractions.csproj" />
