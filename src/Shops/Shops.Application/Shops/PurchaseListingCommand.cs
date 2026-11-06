@@ -21,6 +21,7 @@ public union PurchaseListingResult(
     PurchaseListingResult.InsufficientStock,
     PurchaseListingResult.ListingChangedConcurrently,
     PurchaseListingResult.BuyerAccountNotFound,
+    PurchaseListingResult.BuyerAccountIsPayoutAccount,
     PurchaseListingResult.NotAuthorized,
     PurchaseListingResult.InsufficientBalance,
     PurchaseListingResult.GrantTooLarge,
@@ -47,6 +48,12 @@ public union PurchaseListingResult(
     public record ListingChangedConcurrently;
 
     public record BuyerAccountNotFound;
+
+    /// <summary>
+    /// The buyer tried to pay from the shop's own payout account. Money can't be transferred to the
+    /// account it comes from, so this is refused before any stock is reserved or account locked.
+    /// </summary>
+    public record BuyerAccountIsPayoutAccount;
 
     public record NotAuthorized;
 
@@ -96,6 +103,11 @@ public sealed class PurchaseListingHandler(
         if (shop is null)
         {
             return new PurchaseListingResult.ShopNotFound();
+        }
+
+        if (request.BuyerBankAccountId == shop.PayoutBankAccountId)
+        {
+            return new PurchaseListingResult.BuyerAccountIsPayoutAccount();
         }
 
         // Plain, non-transactional precheck — same TOCTOU-tolerant behavior as before this migration
@@ -159,48 +171,28 @@ public sealed class PurchaseListingHandler(
         // account locks in opposite orders, deadlocking in Postgres (SQLSTATE 40P01). Sorting by the
         // underlying id before locking makes the acquisition order the same for both transactions
         // regardless of role, which rules that out.
-        BankAccount buyerAccount;
-        BankAccount payoutAccount;
-        if (request.BuyerBankAccountId == shop.PayoutBankAccountId)
-        {
-            // Buying from one's own shop — buyer and payout are the same account. Lock it once.
-            var account = await bankAccountRepository.FetchForUpdateAsync(request.BuyerBankAccountId, cancellationToken);
-            if (account is null)
-            {
-                return new PurchaseListingResult.BuyerAccountNotFound();
-            }
+        var (firstId, secondId) = request.BuyerBankAccountId.Value.CompareTo(shop.PayoutBankAccountId.Value) < 0
+            ? (request.BuyerBankAccountId, shop.PayoutBankAccountId)
+            : (shop.PayoutBankAccountId, request.BuyerBankAccountId);
 
-            buyerAccount = account;
-            payoutAccount = account;
+        var firstAccount = await bankAccountRepository.FetchForUpdateAsync(firstId, cancellationToken);
+        var secondAccount = await bankAccountRepository.FetchForUpdateAsync(secondId, cancellationToken);
+
+        var buyerAccount = firstId == request.BuyerBankAccountId ? firstAccount : secondAccount;
+        var payoutAccount = firstId == shop.PayoutBankAccountId ? firstAccount : secondAccount;
+
+        if (buyerAccount is null)
+        {
+            return new PurchaseListingResult.BuyerAccountNotFound();
         }
-        else
+
+        if (payoutAccount is null)
         {
-            var (firstId, secondId) = request.BuyerBankAccountId.Value.CompareTo(shop.PayoutBankAccountId.Value) < 0
-                ? (request.BuyerBankAccountId, shop.PayoutBankAccountId)
-                : (shop.PayoutBankAccountId, request.BuyerBankAccountId);
-
-            var firstAccount = await bankAccountRepository.FetchForUpdateAsync(firstId, cancellationToken);
-            var secondAccount = await bankAccountRepository.FetchForUpdateAsync(secondId, cancellationToken);
-
-            var fetchedBuyerAccount = firstId == request.BuyerBankAccountId ? firstAccount : secondAccount;
-            var fetchedPayoutAccount = firstId == shop.PayoutBankAccountId ? firstAccount : secondAccount;
-
-            if (fetchedBuyerAccount is null)
-            {
-                return new PurchaseListingResult.BuyerAccountNotFound();
-            }
-
-            if (fetchedPayoutAccount is null)
-            {
-                // The shop's own payout account disappearing isn't a caller-triggerable business case —
-                // propagates as a 500 rather than adding a dedicated result branch. Same deliberate gap
-                // TransferHandler's TargetBankAccountNotFound case left unmapped before this migration —
-                // see ARCHITECTURE.md §9e.
-                throw new InvalidOperationException($"Shop {request.ShopId}'s payout bank account {shop.PayoutBankAccountId} does not exist.");
-            }
-
-            buyerAccount = fetchedBuyerAccount;
-            payoutAccount = fetchedPayoutAccount;
+            // The shop's own payout account disappearing isn't a caller-triggerable business case —
+            // propagates as a 500 rather than adding a dedicated result branch. Same deliberate gap
+            // TransferHandler's TargetBankAccountNotFound case left unmapped before this migration —
+            // see ARCHITECTURE.md §9e.
+            throw new InvalidOperationException($"Shop {request.ShopId}'s payout bank account {shop.PayoutBankAccountId} does not exist.");
         }
 
         var isAuthorized = await BankAccountAuthorization.IsAuthorizedAsync(buyerAccount, request.BuyerCharacterId, mediator, cancellationToken);

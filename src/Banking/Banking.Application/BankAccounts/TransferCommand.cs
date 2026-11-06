@@ -7,6 +7,7 @@ namespace ELifeRPG.Banking.Application.BankAccounts;
 public union TransferResult(
     TransferResult.Transferred,
     TransferResult.InvalidAmount,
+    TransferResult.SameAccount,
     TransferResult.BankAccountNotFound,
     TransferResult.TargetBankAccountNotFound,
     TransferResult.NotAuthorized,
@@ -17,6 +18,9 @@ public union TransferResult(
 
     /// <summary>Amount was not strictly positive or not in whole cents.</summary>
     public record InvalidAmount;
+
+    /// <summary>The target is the source account.</summary>
+    public record SameAccount;
 
     public record BankAccountNotFound;
 
@@ -39,6 +43,11 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
         if (!Money.IsValidAmount(request.Amount))
         {
             return new TransferResult.InvalidAmount();
+        }
+
+        if (request.SourceBankAccountId == request.TargetBankAccountId)
+        {
+            return new TransferResult.SameAccount();
         }
 
         var sourceAccount = await bankAccountRepository.FetchForUpdateAsync(request.SourceBankAccountId, cancellationToken);

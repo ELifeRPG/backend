@@ -69,6 +69,26 @@ public sealed class PurchaseListingTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Purchase_FromOwnShopWithItsPayoutAccount_ReturnsBuyerAccountIsPayoutAccountAndChangesNothing()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var sellerId = await CreateCharacterAsync(mediator);
+        var (shopId, listingId, _) = await OpenShopWithListingAsync(mediator, sellerId, price: 5m, stock: 10);
+        var payoutAccountId = await GetShopPayoutAccountIdAsync(mediator, shopId);
+        await mediator.Send(new DepositCommand(payoutAccountId, 100m));
+        var balanceBefore = await GetBalanceAsync(mediator, payoutAccountId);
+
+        var result = await mediator.Send(new PurchaseListingCommand(shopId, listingId, 2, sellerId, payoutAccountId));
+
+        Assert.True(result is PurchaseListingResult.BuyerAccountIsPayoutAccount, $"Expected BuyerAccountIsPayoutAccount, got {result}");
+        Assert.Equal(balanceBefore, await GetBalanceAsync(mediator, payoutAccountId));
+        var shopQuery = await mediator.Send(new ShopQuery(shopId));
+        var found = shopQuery is ShopQueryResult.Found f ? f : throw new InvalidOperationException($"Expected Found, got {shopQuery}");
+        Assert.Equal(10, Assert.Single(found.Listings).Stock);
+    }
+
+    [Fact]
     public async Task Purchase_WithInsufficientStock_ReturnsInsufficientStockAndChargesNothing()
     {
         await using var scope = _provider.CreateAsyncScope();

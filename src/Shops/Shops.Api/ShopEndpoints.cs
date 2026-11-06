@@ -272,6 +272,8 @@ public static class ShopModule
                     PurchaseListingResult.Purchased purchased => Results.Ok(PurchaseListingResultDto.Create(purchased)),
                     PurchaseListingResult.ShopNotFound => Results.Problem(title: "Shop not found", statusCode: StatusCodes.Status404NotFound),
                     PurchaseListingResult.ListingNotFound => Results.Problem(title: "Listing not found", statusCode: StatusCodes.Status404NotFound),
+                    PurchaseListingResult.BuyerAccountIsPayoutAccount => Results.Problem(
+                        title: "Pay from an account other than the shop's payout account", statusCode: StatusCodes.Status400BadRequest),
                     PurchaseListingResult.BuyerAccountNotFound => Results.Problem(title: "Buyer bank account not found", statusCode: StatusCodes.Status404NotFound),
                     PurchaseListingResult.InsufficientStock => Results.Problem(title: "Not enough stock", statusCode: StatusCodes.Status409Conflict),
                     PurchaseListingResult.InsufficientBalance => Results.Problem(title: "Insufficient balance", statusCode: StatusCodes.Status409Conflict),
@@ -288,6 +290,7 @@ public static class ShopModule
             })
             .RequireAuthorization(ShopsWritePolicy)
             .Produces<PurchaseListingResultDto>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)

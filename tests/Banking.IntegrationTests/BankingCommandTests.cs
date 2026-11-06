@@ -238,6 +238,24 @@ public sealed class BankingCommandTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Transfer_ToTheSameAccount_ReturnsSameAccountAndChangesNothing()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
+        var deposit = await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        var balanceBefore = deposit is DepositResult.Deposited d ? d.NewBalance : throw new InvalidOperationException($"Expected Deposited, got {deposit}");
+
+        var result = await mediator.Send(new TransferCommand(bankAccountId, bankAccountId, characterId, 10m));
+
+        Assert.True(result is TransferResult.SameAccount, $"Expected SameAccount, got {result}");
+        var details = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
+        var found = details is BankAccountDetailsResult.Found f ? f : throw new InvalidOperationException($"Expected Found, got {details}");
+        Assert.Equal(balanceBefore, found.BankAccount.Balance);
+    }
+
+    [Fact]
     public async Task Transfer_WithFractionalCentAmount_ReturnsInvalidAmount()
     {
         await using var scope = _provider.CreateAsyncScope();

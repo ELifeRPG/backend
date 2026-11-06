@@ -20,7 +20,7 @@ curl -X POST http://localhost:5100/api/banks/$BANK_ID/accounts \
 
 ## Amounts and fees
 
-Money is held in whole cents. A deposit, withdrawal, transfer, share price or shop listing price must be greater than zero and have at most two decimals. Anything else gets `400` and books nothing. `1.50` and `1.500` are both accepted; `1.005` is not.
+Money is held in whole cents. A deposit, withdrawal, transfer, share price or shop listing price must be greater than zero and have at most two decimals. Anything else gets `400` and books nothing. `1.50` and `1.500` are both accepted; `1.005` is not. A transfer to the account it comes from also gets `400`.
 
 Each booking is charged a fee of `transactionFeeBase + amount × transactionFeeMultiplier`. The account keeps the terms its bank had when the account was opened. The fee is rounded to whole cents half away from zero when the booking is made, so `0.205` is booked as `0.21` and `0.2049` as `0.20`. `amount` plus `fee` therefore always equals the change in balance exactly. The rule is implemented in `Shared.Kernel/Money.cs`.
 
