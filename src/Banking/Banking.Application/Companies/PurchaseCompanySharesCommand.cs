@@ -17,7 +17,7 @@ public union PurchaseCompanySharesResult(
     PurchaseCompanySharesResult.InvalidQuantity,
     PurchaseCompanySharesResult.InvalidPrice)
 {
-    public record Purchased(int Quantity, decimal TotalPaid, decimal Fee, decimal NewBalance);
+    public record Purchased(BankTransactionId TransactionId, int Quantity, decimal TotalPaid, decimal Fee, decimal NewBalance);
 
     public record BankAccountNotFound;
 
@@ -41,7 +41,8 @@ public sealed record PurchaseCompanySharesCommand(
 
 public sealed class PurchaseCompanySharesHandler(
     ICrossModuleTransactionFactory transactionFactory,
-    IMediator mediator)
+    IMediator mediator,
+    ICurrentGameServer currentGameServer)
     : IRequestHandler<PurchaseCompanySharesCommand, PurchaseCompanySharesResult>
 {
     public async ValueTask<PurchaseCompanySharesResult> Handle(PurchaseCompanySharesCommand request, CancellationToken cancellationToken)
@@ -74,11 +75,12 @@ public sealed class PurchaseCompanySharesHandler(
 
         var isAuthorized = await BankAccountAuthorization.IsAuthorizedAsync(bankAccount, request.Buyer, mediator, cancellationToken);
         var totalPrice = request.Quantity * request.PricePerShare;
+        var booking = Booking.New(await currentGameServer.GetIdAsync(cancellationToken));
 
         BankAccountWithdrawn withdrawnEvent;
         try
         {
-            withdrawnEvent = bankAccount.Withdraw(request.Buyer, isAuthorized, totalPrice);
+            withdrawnEvent = bankAccount.Withdraw(booking, request.Buyer, isAuthorized, totalPrice);
         }
         catch (BankAccountAuthorizationException)
         {
@@ -98,6 +100,6 @@ public sealed class PurchaseCompanySharesHandler(
         await companyRepository.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new PurchaseCompanySharesResult.Purchased(request.Quantity, totalPrice, withdrawnEvent.Fee, bankAccount.Balance);
+        return new PurchaseCompanySharesResult.Purchased(booking.TransactionId, request.Quantity, totalPrice, withdrawnEvent.Fee, bankAccount.Balance);
     }
 }

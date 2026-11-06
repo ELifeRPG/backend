@@ -53,9 +53,20 @@ curl -X POST http://localhost:5100/api/banks/$BANK_ID/accounts \
   -d '{"companyId":"<companyId from the create-company response>"}'
 ```
 
+## Bookings
+
+Deposits, withdrawals, transfers and share purchases each create one booking with its own `transactionId`, returned in the response. A deposit names the depositing `characterId`, which is recorded but not checked against the account's owner. Deposit, withdraw and transfer also accept an optional `source` of 1 to 128 characters, such as the ATM's id. Anything outside that range gets `400`.
+
+A `409` from these endpoints means nothing was booked. It carries a `code` and a `retryable` flag:
+
+| `code` | `retryable` | Meaning |
+|---|---|---|
+| `insufficient_balance` | `false` | The balance doesn't cover the amount plus the fee. Resending won't help. |
+| `concurrent_modification` | `true` | Another booking on the account committed first. Resend the request. |
+
 ## Transaction history
 
-`GET /api/bank-accounts/{id}/transactions` lists an account's most recent deposits/withdrawals/transfers (newest first, capped at 30). A transfer carries the other account's `counterpartyNumber` (and its `counterpartyBankAccountId`), so a statement can show who the money went to or came from — no scope beyond authentication, same as the account details endpoint:
+`GET /api/bank-accounts/{id}/transactions` lists an account's most recent deposits/withdrawals/transfers (newest first, capped at 30). A transfer carries the other account's `counterpartyNumber` (and its `counterpartyBankAccountId`), so a statement can show who the money went to or came from. Every row also carries its booking's `transactionId` (both rows of a transfer share it), the `gameServerId` that made it, its `source`, and the `actingCharacterId`: the depositor, the withdrawer or the sender. The receiving side of a transfer has no acting character. The endpoint needs no scope beyond authentication, the same as the account details endpoint:
 
 ```sh
 curl http://localhost:5100/api/bank-accounts/$BANK_ACCOUNT_ID/transactions -H "Authorization: Bearer $BRIDGE_TOKEN"

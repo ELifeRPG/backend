@@ -20,6 +20,9 @@ namespace ELifeRPG.Banking.IntegrationTests;
 /// </summary>
 public sealed class BankAccountConcurrencyTests : IAsyncLifetime
 {
+    // Deposits record who handed over the cash, but never check it; any character id will do.
+    private static readonly CharacterId Depositor = new(Guid.NewGuid());
+
     private ServiceProvider _provider = null!;
 
     public Task InitializeAsync()
@@ -43,7 +46,7 @@ public sealed class BankAccountConcurrencyTests : IAsyncLifetime
         var openResult = await mediator.Send(new OpenBankAccountCommand(bankId, characterId));
         Assert.True(openResult is OpenBankAccountResult.Opened, $"Expected Opened, got {openResult}");
         var bankAccountId = openResult is OpenBankAccountResult.Opened opened ? opened.BankAccountId : throw new InvalidOperationException("Unreachable.");
-        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
 
         // Only one 80-unit withdrawal can succeed against a ~100 balance; a race that loses the
         // concurrency check would let both succeed and drive the balance negative.

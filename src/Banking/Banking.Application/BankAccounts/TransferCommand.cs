@@ -7,6 +7,7 @@ namespace ELifeRPG.Banking.Application.BankAccounts;
 public union TransferResult(
     TransferResult.Transferred,
     TransferResult.InvalidAmount,
+    TransferResult.InvalidSource,
     TransferResult.SameAccount,
     TransferResult.BankAccountNotFound,
     TransferResult.TargetBankAccountNotFound,
@@ -14,10 +15,13 @@ public union TransferResult(
     TransferResult.InsufficientBalance,
     TransferResult.ConcurrentModification)
 {
-    public record Transferred(decimal Amount, decimal Fee, decimal NewBalance);
+    public record Transferred(BankTransactionId TransactionId, decimal Amount, decimal Fee, decimal NewBalance);
 
     /// <summary>Amount was not strictly positive or not in whole cents.</summary>
     public record InvalidAmount;
+
+    /// <summary>Source was empty or longer than <see cref="Booking.MaxSourceLength"/> characters.</summary>
+    public record InvalidSource;
 
     /// <summary>The target is the source account.</summary>
     public record SameAccount;
@@ -33,16 +37,21 @@ public union TransferResult(
     public record ConcurrentModification;
 }
 
-public sealed record TransferCommand(BankAccountId SourceBankAccountId, BankAccountId TargetBankAccountId, CharacterId CharacterId, decimal Amount)
+public sealed record TransferCommand(BankAccountId SourceBankAccountId, BankAccountId TargetBankAccountId, CharacterId CharacterId, decimal Amount, string? Source = null)
     : IRequest<TransferResult>;
 
-public sealed class TransferHandler(IBankAccountRepository bankAccountRepository, IMediator mediator) : IRequestHandler<TransferCommand, TransferResult>
+public sealed class TransferHandler(IBankAccountRepository bankAccountRepository, IMediator mediator, ICurrentGameServer currentGameServer) : IRequestHandler<TransferCommand, TransferResult>
 {
     public async ValueTask<TransferResult> Handle(TransferCommand request, CancellationToken cancellationToken)
     {
         if (!Money.IsValidAmount(request.Amount))
         {
             return new TransferResult.InvalidAmount();
+        }
+
+        if (!Booking.IsValidSource(request.Source))
+        {
+            return new TransferResult.InvalidSource();
         }
 
         if (request.SourceBankAccountId == request.TargetBankAccountId)
@@ -62,12 +71,13 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
             return new TransferResult.TargetBankAccountNotFound();
         }
 
+        var booking = Booking.New(await currentGameServer.GetIdAsync(cancellationToken), request.Source);
         var isAuthorized = await BankAccountAuthorization.IsAuthorizedAsync(sourceAccount, request.CharacterId, mediator, cancellationToken);
 
         BankAccountTransferredOut outEvent;
         try
         {
-            outEvent = sourceAccount.TransferOut(request.CharacterId, isAuthorized, request.TargetBankAccountId, request.Amount);
+            outEvent = sourceAccount.TransferOut(booking, request.CharacterId, isAuthorized, request.TargetBankAccountId, request.Amount);
         }
         catch (BankAccountAuthorizationException)
         {
@@ -78,7 +88,7 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
             return new TransferResult.InsufficientBalance();
         }
 
-        var inEvent = targetAccount.ReceiveTransfer(request.SourceBankAccountId, request.Amount);
+        var inEvent = targetAccount.ReceiveTransfer(booking, request.SourceBankAccountId, request.Amount);
 
         bankAccountRepository.Append(request.SourceBankAccountId, outEvent);
         bankAccountRepository.Append(request.TargetBankAccountId, inEvent);
@@ -92,6 +102,6 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
             return new TransferResult.ConcurrentModification();
         }
 
-        return new TransferResult.Transferred(outEvent.Amount, outEvent.Fee, sourceAccount.Balance);
+        return new TransferResult.Transferred(booking.TransactionId, outEvent.Amount, outEvent.Fee, sourceAccount.Balance);
     }
 }

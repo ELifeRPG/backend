@@ -59,6 +59,7 @@ internal static class TestServices
 
         var fake = new FixedCurrentGameServer(gameServerClientId);
         services.AddScoped<ELifeRPG.Characters.Application.Common.ICurrentGameServer>(_ => fake);
+        services.AddScoped<ELifeRPG.Banking.Application.Common.ICurrentGameServer>(_ => fake);
 
         var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 
@@ -75,10 +76,11 @@ internal static class TestServices
         => Environment.GetEnvironmentVariable(key) is { Length: > 0 } value ? value : fallback;
 }
 
-// Banking and Companies no longer have their own ICurrentGameServer (deleted outright); Characters'
-// and Shops' both survive, reshaped to resolve a durable GameServerId instead of keying tenancy.
+// Characters', Shops' and Banking's ICurrentGameServer all resolve a durable GameServerId (Banking's
+// so each booking records which server made it); this one fake stands in for all of them.
 internal sealed class FixedCurrentGameServer(string clientId) :
-    ELifeRPG.Characters.Application.Common.ICurrentGameServer
+    ELifeRPG.Characters.Application.Common.ICurrentGameServer,
+    ELifeRPG.Banking.Application.Common.ICurrentGameServer
 {
     public string ClientId { get; } = clientId;
 

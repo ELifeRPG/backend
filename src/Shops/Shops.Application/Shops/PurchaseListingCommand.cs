@@ -94,7 +94,9 @@ public sealed class PurchaseListingHandler(
     IShopRepository shopRepository,
     IShopListingRepository listingRepository,
     ICrossModuleTransactionFactory transactionFactory,
-    IMediator mediator)
+    IMediator mediator,
+    // Qualified: Banking.Application.Common, imported above for BankAccountAuthorization, has its own.
+    ELifeRPG.Shops.Application.Common.ICurrentGameServer currentGameServer)
     : IRequestHandler<PurchaseListingCommand, PurchaseListingResult>
 {
     public async ValueTask<PurchaseListingResult> Handle(PurchaseListingCommand request, CancellationToken cancellationToken)
@@ -195,12 +197,13 @@ public sealed class PurchaseListingHandler(
             throw new InvalidOperationException($"Shop {request.ShopId}'s payout bank account {shop.PayoutBankAccountId} does not exist.");
         }
 
+        var booking = Booking.New(await currentGameServer.GetIdAsync(cancellationToken));
         var isAuthorized = await BankAccountAuthorization.IsAuthorizedAsync(buyerAccount, request.BuyerCharacterId, mediator, cancellationToken);
 
         BankAccountTransferredOut outEvent;
         try
         {
-            outEvent = buyerAccount.TransferOut(request.BuyerCharacterId, isAuthorized, shop.PayoutBankAccountId, totalPrice);
+            outEvent = buyerAccount.TransferOut(booking, request.BuyerCharacterId, isAuthorized, shop.PayoutBankAccountId, totalPrice);
         }
         catch (BankAccountAuthorizationException)
         {
@@ -211,7 +214,7 @@ public sealed class PurchaseListingHandler(
             return new PurchaseListingResult.InsufficientBalance();
         }
 
-        var inEvent = payoutAccount.ReceiveTransfer(request.BuyerBankAccountId, totalPrice);
+        var inEvent = payoutAccount.ReceiveTransfer(booking, request.BuyerBankAccountId, totalPrice);
 
         bankAccountRepository.Append(request.BuyerBankAccountId, outEvent);
         bankAccountRepository.Append(shop.PayoutBankAccountId, inEvent);

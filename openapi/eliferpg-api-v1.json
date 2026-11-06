@@ -6207,16 +6207,23 @@
       },
       "BankAccountTransactionDto": {
         "required": [
+          "transactionId",
           "occurredAt",
           "kind",
           "amount",
           "fee",
           "counterpartyBankAccountId",
           "counterpartyNumber",
-          "actingCharacterId"
+          "actingCharacterId",
+          "gameServerId",
+          "source"
         ],
         "type": "object",
         "properties": {
+          "transactionId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "occurredAt": {
             "type": "string",
             "format": "date-time"
@@ -6259,6 +6266,16 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "gameServerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6717,10 +6734,15 @@
       },
       "DepositRequestDto": {
         "required": [
+          "characterId",
           "amount"
         ],
         "type": "object",
         "properties": {
+          "characterId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "amount": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
             "type": [
@@ -6728,6 +6750,12 @@
               "string"
             ],
             "format": "double"
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7766,7 +7794,14 @@
               "null",
               "boolean"
             ],
-            "description": "Whether resending this exact request unmodified can succeed. Present on every problem the World module returns; absent elsewhere, and an absent value means false. See docs/bridge.md."
+            "description": "Whether resending this exact request unmodified can succeed. Present on every problem the World module returns and on the banking booking conflicts; absent elsewhere, and an absent value means false. See docs/bridge.md."
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Stable machine-readable reason for the problem, where the endpoint defines one. See docs/banking.md."
           }
         },
         "additionalProperties": { }
@@ -8557,12 +8592,17 @@
       },
       "TransactionResultDto": {
         "required": [
+          "transactionId",
           "amount",
           "fee",
           "newBalance"
         ],
         "type": "object",
         "properties": {
+          "transactionId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "amount": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
             "type": [
@@ -8612,6 +8652,12 @@
               "string"
             ],
             "format": "double"
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -9060,6 +9106,12 @@
               "string"
             ],
             "format": "double"
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

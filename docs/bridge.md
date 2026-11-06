@@ -88,6 +88,7 @@ Buffering is only safe if replaying a buffered batch is safe. It is, in three la
 | **Batch idempotency** | `POST /api/inventory/snapshots`, keyed on `{gameServerId}:{batchId}`, within `batchIdRetentionSeconds` (default 24h) | Resending an already-applied batch returns the **original response byte-for-byte**, with `replayOfPriorBatch: true`, and re-applies nothing. |
 | **Per-instance last-write-wins** | every upsert, always | Outside the retention window a replay is applied fresh, and is a no-op anyway: a `revision` no higher than the stored one is discarded and counted in `skippedNoOp`. |
 | **A `retryable` flag** | every problem response the World module returns | Present on every `4xx`/`422`/`429` from the inventory and gathering endpoints. `true` means "resend this unchanged"; `false` means "drop it". Absent means treat it as `false`. |
+| **`code` and `retryable` on booking conflicts** | every `409` from the banking booking endpoints | `insufficient_balance` (`retryable: false`) or `concurrent_modification` (`retryable: true`). Nothing was booked either way; see [Banking](./banking.md#bookings). |
 
 The idempotency key is the **pair**, never `batchId` alone. Server A's batch and server B's batch under
 the same `batchId` are different rows: B cannot read A's stored response, and — the half that matters

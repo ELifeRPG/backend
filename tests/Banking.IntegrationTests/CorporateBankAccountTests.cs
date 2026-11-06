@@ -24,6 +24,9 @@ namespace ELifeRPG.Banking.IntegrationTests;
 /// </summary>
 public sealed class CorporateBankAccountTests : IAsyncLifetime
 {
+    // Deposits record who handed over the cash, but never check it; any character id will do.
+    private static readonly CharacterId Depositor = new(Guid.NewGuid());
+
     private ServiceProvider _provider = null!;
 
     public Task InitializeAsync()
@@ -81,7 +84,7 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var (companyId, founderId) = await CreateCompanyWithFounderAsync(mediator);
         var bankAccountId = await OpenCorporateBankAccountAsync(mediator, companyId);
-        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new WithdrawCommand(bankAccountId, founderId, 50m));
 
@@ -95,7 +98,7 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var (companyId, _) = await CreateCompanyWithFounderAsync(mediator);
         var bankAccountId = await OpenCorporateBankAccountAsync(mediator, companyId);
-        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
 
         var rookieId = await CreateCharacterAsync(mediator);
         var addMemberResult = await mediator.Send(new AddMemberCommand(companyId, rookieId));
@@ -113,7 +116,7 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var (companyId, _) = await CreateCompanyWithFounderAsync(mediator);
         var bankAccountId = await OpenCorporateBankAccountAsync(mediator, companyId);
-        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
 
         var strangerId = await CreateCharacterAsync(mediator);
 
@@ -129,7 +132,7 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var (companyId, founderId) = await CreateCompanyWithFounderAsync(mediator);
         var corporateAccountId = await OpenCorporateBankAccountAsync(mediator, companyId);
-        await mediator.Send(new DepositCommand(corporateAccountId, 100m));
+        await mediator.Send(new DepositCommand(corporateAccountId, Depositor, 100m));
         var personalAccountId = await OpenPersonalBankAccountAsync(mediator, founderId);
 
         var result = await mediator.Send(new TransferCommand(corporateAccountId, personalAccountId, founderId, 40m));
