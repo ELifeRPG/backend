@@ -267,6 +267,9 @@ public static class BankingModule
                     TransferResult.InvalidAmount => Results.Problem(
                         title: "Amount must be positive and in whole cents",
                         statusCode: StatusCodes.Status400BadRequest),
+                    TransferResult.SameAccount => Results.Problem(
+                        title: "Can not transfer to the same bank account",
+                        statusCode: StatusCodes.Status400BadRequest),
                     TransferResult.BankAccountNotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
                     TransferResult.TargetBankAccountNotFound => Results.Problem(
                         title: "Target bank account not found",
