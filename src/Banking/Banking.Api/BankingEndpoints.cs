@@ -59,7 +59,7 @@ public static class BankingModule
 
                     return result switch
                     {
-                        OpenBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened, bankId, request.CharacterId.Value)),
+                        OpenBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened.BankAccount)),
                         OpenBankAccountResult.BankNotFound => Results.Problem(title: "Bank not found", statusCode: StatusCodes.Status404NotFound),
                         OpenBankAccountResult.CharacterNotFound => Results.Problem(title: "Character not found", statusCode: StatusCodes.Status404NotFound),
                         OpenBankAccountResult.NumberExhausted => NumberExhaustedProblem(),
@@ -70,7 +70,7 @@ public static class BankingModule
 
                 return corporateResult switch
                 {
-                    OpenCorporateBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened, bankId, request.CompanyId!.Value)),
+                    OpenCorporateBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened.BankAccount)),
                     OpenCorporateBankAccountResult.BankNotFound => Results.Problem(title: "Bank not found", statusCode: StatusCodes.Status404NotFound),
                     OpenCorporateBankAccountResult.CompanyNotFound => Results.Problem(title: "Company not found", statusCode: StatusCodes.Status404NotFound),
                     OpenCorporateBankAccountResult.NumberExhausted => NumberExhaustedProblem(),

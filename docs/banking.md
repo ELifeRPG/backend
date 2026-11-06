@@ -24,6 +24,8 @@ Money is held in whole cents. A deposit, withdrawal, transfer, share price or sh
 
 Each booking is charged a fee of `transactionFeeBase + amount × transactionFeeMultiplier`. The account keeps the terms its bank had when the account was opened. The fee is rounded to whole cents half away from zero when the booking is made, so `0.205` is booked as `0.21` and `0.2049` as `0.20`. `amount` plus `fee` therefore always equals the change in balance exactly. The rule is implemented in `Shared.Kernel/Money.cs`.
 
+Every bank account response carries those terms as `transactionFeeBase` and `transactionFeeMultiplier`. Previewing a fee from them with the same rounding gives exactly the fee that will be booked, even after the bank's own terms (`GET /api/banks`) have changed.
+
 ## Account numbers
 
 Every account gets an 18-character number based on the Dutch IBAN, e.g. `EL90FEBK0123456789`, printed in groups of four as `EL90 FEBK 0123 4567 89`:

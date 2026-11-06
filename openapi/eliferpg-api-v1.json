@@ -6110,7 +6110,9 @@
           "characterId",
           "companyId",
           "number",
-          "balance"
+          "balance",
+          "transactionFeeBase",
+          "transactionFeeMultiplier"
         ],
         "type": "object",
         "properties": {
@@ -6143,6 +6145,22 @@
             "type": "string"
           },
           "balance": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "transactionFeeBase": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "transactionFeeMultiplier": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
             "type": [
               "number",
