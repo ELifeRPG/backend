@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "packageRules": [
+    {
+      "description": "Pin the images the app is built from, as the container repos do. The local dev stack in compose.yml is left as it is.",
+      "matchFileNames": ["Dockerfile", ".devcontainer/Dockerfile"],
+      "pinDigests": true
+    },
+    {
+      "description": "global.json pins one .NET preview SDK with rollForward disabled. The SDK, the build/runtime/devcontainer images and the ASP.NET Core packages ship together and have to move together.",
+      "groupName": ".NET SDK and runtime",
+      "matchDatasources": ["dotnet-version", "docker", "nuget"],
+      "matchPackageNames": [
+        "dotnet-sdk",
+        "mcr.microsoft.com/dotnet/**",
+        "mcr.microsoft.com/devcontainers/dotnet",
+        "Microsoft.AspNetCore.**",
+        "Microsoft.Extensions.ApiDescription.Server"
+      ]
+    },
+    {
+      "description": "Marten builds on a specific Npgsql major.",
+      "groupName": "Marten and Npgsql",
+      "matchDatasources": ["nuget"],
+      "matchPackageNames": ["Marten", "Marten.**", "Npgsql", "Npgsql.**"]
+    },
+    {
+      "description": "The source generator and its abstractions must stay on the same version.",
+      "groupName": "Mediator",
+      "matchDatasources": ["nuget"],
+      "matchPackageNames": ["Mediator.**"]
+    },
+    {
+      "description": "xUnit and the test runner tooling move together.",
+      "groupName": "test tooling",
+      "matchDatasources": ["nuget"],
+      "matchPackageNames": ["xunit", "xunit.**", "Microsoft.NET.Test.Sdk", "coverlet.collector"]
+    },
+    {
+      "description": "A new Postgres major in the dev stack is a data migration, not a routine bump.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["postgres"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}
