@@ -1,0 +1,30 @@
+name: Clean up images
+
+on:
+  schedule:
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Only log what would be deleted
+        type: boolean
+        default: true
+
+concurrency: cleanup-images
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+          use-regex: true
+          exclude-tags: ^(latest|edge|\d+\.\d+\.\d+)$
+          keep-n-tagged: 20
+          delete-untagged: true
+          delete-ghost-images: true
+          delete-partial-images: true
+          validate: true
