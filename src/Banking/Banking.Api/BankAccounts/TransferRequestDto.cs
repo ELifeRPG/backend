@@ -11,10 +11,11 @@ public sealed record TransferRequestDto
     /// <summary>Optional free-form origin of the booking, such as the ATM's id; up to 128 characters. Shown on the ledger row.</summary>
     public string? Source { get; init; }
 
-    public TransferCommand ToCommand(Guid bankAccountId) => new(
+    public TransferCommand ToCommand(Guid bankAccountId, string idempotencyKey) => new(
         new BankAccountId(bankAccountId),
         new BankAccountId(TargetBankAccountId),
         new CharacterId(CharacterId),
         Amount,
-        Source);
+        Source,
+        idempotencyKey);
 }

@@ -30,4 +30,23 @@ public sealed class BankingEndpointContractTests
         Assert.Equal("concurrent_modification", problem.Extensions["code"]);
         Assert.Equal(true, problem.Extensions["retryable"]);
     }
+
+    [Fact]
+    public void IdempotencyKeyReused_Is422AndNotRetryable()
+    {
+        var result = Assert.IsType<ProblemHttpResult>(BankingModule.IdempotencyKeyReusedProblem());
+
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, result.StatusCode);
+        Assert.Equal("idempotency_key_reused", result.ProblemDetails.Extensions["code"]);
+        Assert.Equal(false, result.ProblemDetails.Extensions["retryable"]);
+    }
+
+    [Fact]
+    public void InvalidIdempotencyKey_Is400()
+    {
+        var result = Assert.IsType<ProblemHttpResult>(BankingModule.InvalidIdempotencyKeyProblem());
+
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+    }
 }
+

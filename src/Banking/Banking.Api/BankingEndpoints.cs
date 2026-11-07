@@ -182,10 +182,16 @@ public static class BankingModule
         group.MapPut("bank-accounts/{bankAccountId:guid}/deposit", async (
                 Guid bankAccountId,
                 [FromBody] DepositRequestDto request,
+                [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
-                var result = await mediator.Send(request.ToCommand(bankAccountId), cancellationToken);
+                if (!BookingReceipt.IsValidKey(idempotencyKey))
+                {
+                    return InvalidIdempotencyKeyProblem();
+                }
+
+                var result = await mediator.Send(request.ToCommand(bankAccountId, idempotencyKey!), cancellationToken);
 
                 return result switch
                 {
@@ -207,6 +213,7 @@ public static class BankingModule
                         statusCode: StatusCodes.Status400BadRequest),
                     DepositResult.BankAccountNotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
                     DepositResult.ConcurrentModification => ConcurrentModificationProblem(),
+                    DepositResult.KeyReused => IdempotencyKeyReusedProblem(),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
@@ -214,16 +221,23 @@ public static class BankingModule
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .WithName("DepositToBankAccount")
             .WithDescription("Deposits cash into a bank account.");
 
         group.MapPut("bank-accounts/{bankAccountId:guid}/withdraw", async (
                 Guid bankAccountId,
                 [FromBody] WithdrawRequestDto request,
+                [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
-                var result = await mediator.Send(request.ToCommand(bankAccountId), cancellationToken);
+                if (!BookingReceipt.IsValidKey(idempotencyKey))
+                {
+                    return InvalidIdempotencyKeyProblem();
+                }
+
+                var result = await mediator.Send(request.ToCommand(bankAccountId, idempotencyKey!), cancellationToken);
 
                 return result switch
                 {
@@ -246,6 +260,7 @@ public static class BankingModule
                         statusCode: StatusCodes.Status403Forbidden),
                     WithdrawResult.InsufficientBalance => InsufficientBalanceProblem(),
                     WithdrawResult.ConcurrentModification => ConcurrentModificationProblem(),
+                    WithdrawResult.KeyReused => IdempotencyKeyReusedProblem(),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
@@ -254,16 +269,23 @@ public static class BankingModule
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .WithName("WithdrawFromBankAccount")
             .WithDescription("Withdraws cash from a bank account, e.g. for an ATM.");
 
         group.MapPut("bank-accounts/{bankAccountId:guid}/transaction", async (
                 Guid bankAccountId,
                 [FromBody] TransferRequestDto request,
+                [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
             {
-                var result = await mediator.Send(request.ToCommand(bankAccountId), cancellationToken);
+                if (!BookingReceipt.IsValidKey(idempotencyKey))
+                {
+                    return InvalidIdempotencyKeyProblem();
+                }
+
+                var result = await mediator.Send(request.ToCommand(bankAccountId, idempotencyKey!), cancellationToken);
 
                 return result switch
                 {
@@ -292,6 +314,7 @@ public static class BankingModule
                         statusCode: StatusCodes.Status403Forbidden),
                     TransferResult.InsufficientBalance => InsufficientBalanceProblem(),
                     TransferResult.ConcurrentModification => ConcurrentModificationProblem(),
+                    TransferResult.KeyReused => IdempotencyKeyReusedProblem(),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
@@ -300,6 +323,7 @@ public static class BankingModule
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .WithName("TransferBankAccountFunds")
             .WithDescription("Transfers cash to another bank account.");
 
@@ -358,6 +382,23 @@ public static class BankingModule
         title: "Another operation already committed against this account",
         statusCode: StatusCodes.Status409Conflict,
         extensions: new Dictionary<string, object?> { ["code"] = "concurrent_modification", ["retryable"] = true });
+
+    /// <summary>
+    /// Read by the endpoint itself so a missing key gets a problem body rather than the framework's
+    /// empty 400. That leaves the parameter optional in the OpenAPI document, so Program.cs marks it
+    /// required there.
+    /// </summary>
+    public const string IdempotencyKeyHeader = "Idempotency-Key";
+
+    internal static IResult InvalidIdempotencyKeyProblem() => Results.Problem(
+        title: $"The {IdempotencyKeyHeader} header is required, 1 to {BookingReceipt.MaxKeyLength} characters",
+        statusCode: StatusCodes.Status400BadRequest);
+
+    // Same contract as the 409s above. Resending won't help: the key already stands for another request.
+    internal static IResult IdempotencyKeyReusedProblem() => Results.Problem(
+        title: $"This {IdempotencyKeyHeader} was already used for a different request",
+        statusCode: StatusCodes.Status422UnprocessableEntity,
+        extensions: new Dictionary<string, object?> { ["code"] = "idempotency_key_reused", ["retryable"] = false });
 
     private static IResult NumberExhaustedProblem() => Results.Problem(
         title: "Could not issue a unique account number; try again",

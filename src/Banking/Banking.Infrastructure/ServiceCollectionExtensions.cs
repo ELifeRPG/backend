@@ -51,6 +51,7 @@ public static class BankingInfrastructureExtensions
             store.InitializeWith(new BankSeed());
         }
 
+        services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<IBankRepository, MartenBankRepository>();
         services.TryAddScoped<IBankAccountRepository, MartenBankAccountRepository>();
         services.TryAddScoped<ITransactionParticipant<IBankAccountRepository>, MartenBankAccountParticipant>();
