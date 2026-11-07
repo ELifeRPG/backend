@@ -89,7 +89,8 @@ BUYER_BANK_ACCOUNT_ID=$(curl -s -X POST http://localhost:5100/api/banks/$BANK_ID
 
 curl -s -X PUT http://localhost:5100/api/bank-accounts/$BUYER_BANK_ACCOUNT_ID/deposit \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"amount":1000}' > /dev/null
+  -H "Idempotency-Key: world-docs-$(date +%s%N)" \
+  -d "{\"amount\":1000,\"characterId\":\"$BUYER_CHARACTER_ID\"}" > /dev/null
 ```
 
 ### Purchase, then watch it arrive

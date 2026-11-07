@@ -13,7 +13,8 @@ public union WithdrawResult(
     WithdrawResult.BankAccountNotFound,
     WithdrawResult.NotAuthorized,
     WithdrawResult.InsufficientBalance,
-    WithdrawResult.ConcurrentModification)
+    WithdrawResult.ConcurrentModification,
+    WithdrawResult.KeyReused)
 {
     public record Withdrawn(BankTransactionId TransactionId, decimal Amount, decimal Fee, decimal NewBalance);
 
@@ -30,11 +31,17 @@ public union WithdrawResult(
     public record InsufficientBalance;
 
     public record ConcurrentModification;
+
+    /// <summary>The Idempotency-Key was already used, within its retention, for a request with a different body.</summary>
+    public record KeyReused;
 }
 
-public sealed record WithdrawCommand(BankAccountId BankAccountId, CharacterId CharacterId, decimal Amount, string? Source = null) : IRequest<WithdrawResult>;
+/// <summary>With an IdempotencyKey, see <see cref="DepositCommand"/>.</summary>
+public sealed record WithdrawCommand(BankAccountId BankAccountId, CharacterId CharacterId, decimal Amount, string? Source = null, string? IdempotencyKey = null)
+    : IRequest<WithdrawResult>;
 
-public sealed class WithdrawHandler(IBankAccountRepository bankAccountRepository, IMediator mediator, ICurrentGameServer currentGameServer) : IRequestHandler<WithdrawCommand, WithdrawResult>
+public sealed class WithdrawHandler(IBankAccountRepository bankAccountRepository, IMediator mediator, ICurrentGameServer currentGameServer, TimeProvider timeProvider)
+    : IRequestHandler<WithdrawCommand, WithdrawResult>
 {
     public async ValueTask<WithdrawResult> Handle(WithdrawCommand request, CancellationToken cancellationToken)
     {
@@ -48,13 +55,27 @@ public sealed class WithdrawHandler(IBankAccountRepository bankAccountRepository
             return new WithdrawResult.InvalidSource();
         }
 
+        var gameServerId = await currentGameServer.GetIdAsync(cancellationToken);
+        var idempotent = IdempotentBooking.For(
+            request.IdempotencyKey, gameServerId, "withdraw",
+            request.BankAccountId.Value, request.CharacterId.Value, request.Amount, request.Source);
+        var expiredReceiptExists = false;
+        if (idempotent is not null)
+        {
+            (var prior, expiredReceiptExists) = await idempotent.LookUpAsync(bankAccountRepository, timeProvider, cancellationToken);
+            if (prior is not null)
+            {
+                return Replay(idempotent, prior);
+            }
+        }
+
         var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.BankAccountId, cancellationToken);
         if (bankAccount is null)
         {
             return new WithdrawResult.BankAccountNotFound();
         }
 
-        var booking = Booking.New(await currentGameServer.GetIdAsync(cancellationToken), request.Source);
+        var booking = Booking.New(gameServerId, request.Source);
         var isAuthorized = await BankAccountAuthorization.IsAuthorizedAsync(bankAccount, request.CharacterId, mediator, cancellationToken);
 
         BankAccountWithdrawn domainEvent;
@@ -72,6 +93,7 @@ public sealed class WithdrawHandler(IBankAccountRepository bankAccountRepository
         }
 
         bankAccountRepository.Append(request.BankAccountId, domainEvent);
+        idempotent?.Record(bankAccountRepository, timeProvider, expiredReceiptExists, booking.TransactionId, domainEvent.Amount, domainEvent.Fee, bankAccount.Balance);
 
         try
         {
@@ -79,9 +101,20 @@ public sealed class WithdrawHandler(IBankAccountRepository bankAccountRepository
         }
         catch (BankAccountConcurrencyException)
         {
+            if (idempotent is not null
+                && await idempotent.LookUpAsync(bankAccountRepository, timeProvider, cancellationToken) is ({ } racer, _))
+            {
+                return Replay(idempotent, racer);
+            }
+
             return new WithdrawResult.ConcurrentModification();
         }
 
         return new WithdrawResult.Withdrawn(booking.TransactionId, domainEvent.Amount, domainEvent.Fee, bankAccount.Balance);
     }
+
+    private static WithdrawResult Replay(IdempotentBooking idempotent, BookingReceipt receipt)
+        => idempotent.Matches(receipt)
+            ? new WithdrawResult.Withdrawn(receipt.TransactionId, receipt.Amount, receipt.Fee, receipt.NewBalance)
+            : new WithdrawResult.KeyReused();
 }

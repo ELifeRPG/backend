@@ -19,7 +19,8 @@ namespace ELifeRPG.Banking.IntegrationTests;
 /// </summary>
 internal static class TestServices
 {
-    public static ServiceProvider BuildProvider(string gameServerClientId = "gameserver-dev")
+    /// <param name="timeProvider">Replaces the system clock, e.g. to move past an idempotency key's retention.</param>
+    public static ServiceProvider BuildProvider(string gameServerClientId = "gameserver-dev", TimeProvider? timeProvider = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -37,6 +38,12 @@ internal static class TestServices
             .Build();
 
         var services = new ServiceCollection();
+        if (timeProvider is not null)
+        {
+            // Before the modules' own TryAddSingleton(TimeProvider.System), which then leaves it alone.
+            services.AddSingleton(timeProvider);
+        }
+
         services.AddMediator(options =>
         {
             options.Assemblies =
@@ -92,4 +99,12 @@ internal sealed class FixedCurrentGameServer(string clientId) :
 
     private static Guid DeterministicGuid(string value)
         => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
+}
+
+/// <summary>A clock the test moves by hand.</summary>
+internal sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
+{
+    public DateTimeOffset Now { get; set; } = now;
+
+    public override DateTimeOffset GetUtcNow() => Now;
 }
