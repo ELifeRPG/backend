@@ -55,7 +55,7 @@ curl -X POST http://localhost:5100/api/banks/$BANK_ID/accounts \
 
 ## Bookings
 
-Deposits, withdrawals, transfers and share purchases each create one booking with its own `transactionId`, returned in the response. A deposit names the depositing `characterId`, which is recorded but not checked against the account's owner. Deposit, withdraw and transfer also accept an optional `source` of 1 to 128 characters, such as the ATM's id. Anything outside that range gets `400`.
+Deposits, withdrawals, transfers and share purchases each create one booking with its own `transactionId`, returned in the response. A deposit names the depositing `characterId`, which is recorded but not checked against the account's owner. A missing or empty `characterId` gets `400`; on a withdrawal or transfer it gets `403`, like any character not allowed to use the account. Deposit, withdraw and transfer also accept an optional `source` of 1 to 128 characters, such as the ATM's id. Anything outside that range gets `400`.
 
 A `409` from these endpoints means nothing was booked. It carries a `code` and a `retryable` flag:
 

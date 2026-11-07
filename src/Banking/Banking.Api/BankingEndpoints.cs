@@ -199,6 +199,9 @@ public static class BankingModule
                     DepositResult.InvalidSource => Results.Problem(
                         title: "Source must be 1 to 128 characters",
                         statusCode: StatusCodes.Status400BadRequest),
+                    DepositResult.MissingCharacter => Results.Problem(
+                        title: "characterId is required",
+                        statusCode: StatusCodes.Status400BadRequest),
                     DepositResult.InvalidAmount => Results.Problem(
                         title: "Amount must be positive and in whole cents",
                         statusCode: StatusCodes.Status400BadRequest),

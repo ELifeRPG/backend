@@ -315,6 +315,39 @@ public sealed class BankingCommandTests : IAsyncLifetime
         Assert.Equal("terminal-2", inRow.Booking.Source);
     }
 
+    [Fact]
+    public async Task Deposit_WithoutCharacter_ReturnsMissingCharacterAndBooksNothing()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+
+        var result = await mediator.Send(new DepositCommand(bankAccountId, new CharacterId(Guid.Empty), 100m));
+
+        Assert.True(result is DepositResult.MissingCharacter, $"Expected MissingCharacter, got {result}");
+        var details = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
+        var found = details is BankAccountDetailsResult.Found f ? f : throw new InvalidOperationException($"Expected Found, got {details}");
+        Assert.Equal(0m, found.BankAccount.Balance);
+    }
+
+    [Fact]
+    public async Task Withdraw_AndTransfer_WithoutCharacter_AreNotAuthorized()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
+        var targetAccountId = await OpenBankAccountAsync(mediator);
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
+        var nobody = new CharacterId(Guid.Empty);
+
+        var withdrawn = await mediator.Send(new WithdrawCommand(bankAccountId, nobody, 10m));
+        var transferred = await mediator.Send(new TransferCommand(bankAccountId, targetAccountId, nobody, 10m));
+
+        Assert.True(withdrawn is WithdrawResult.NotAuthorized, $"Expected NotAuthorized, got {withdrawn}");
+        Assert.True(transferred is TransferResult.NotAuthorized, $"Expected NotAuthorized, got {transferred}");
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(Booking.MaxSourceLength + 1)]

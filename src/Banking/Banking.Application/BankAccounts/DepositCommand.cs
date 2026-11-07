@@ -3,7 +3,7 @@ using ELifeRPG.Banking.Domain.Exceptions;
 
 namespace ELifeRPG.Banking.Application.BankAccounts;
 
-public union DepositResult(DepositResult.Deposited, DepositResult.InvalidAmount, DepositResult.InvalidSource, DepositResult.BankAccountNotFound, DepositResult.ConcurrentModification)
+public union DepositResult(DepositResult.Deposited, DepositResult.InvalidAmount, DepositResult.InvalidSource, DepositResult.MissingCharacter, DepositResult.BankAccountNotFound, DepositResult.ConcurrentModification)
 {
     public record Deposited(BankTransactionId TransactionId, decimal Amount, decimal Fee, decimal NewBalance);
 
@@ -12,6 +12,9 @@ public union DepositResult(DepositResult.Deposited, DepositResult.InvalidAmount,
 
     /// <summary>Source was empty or longer than <see cref="Booking.MaxSourceLength"/> characters.</summary>
     public record InvalidSource;
+
+    /// <summary>CharacterId was empty, e.g. left out of the request body, which binds it to <see cref="Guid.Empty"/>.</summary>
+    public record MissingCharacter;
 
     public record BankAccountNotFound;
 
@@ -33,6 +36,11 @@ public sealed class DepositHandler(IBankAccountRepository bankAccountRepository,
         if (!Booking.IsValidSource(request.Source))
         {
             return new DepositResult.InvalidSource();
+        }
+
+        if (request.CharacterId.Value == Guid.Empty)
+        {
+            return new DepositResult.MissingCharacter();
         }
 
         var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.BankAccountId, cancellationToken);
