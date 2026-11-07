@@ -13,7 +13,8 @@ public union TransferResult(
     TransferResult.TargetBankAccountNotFound,
     TransferResult.NotAuthorized,
     TransferResult.InsufficientBalance,
-    TransferResult.ConcurrentModification)
+    TransferResult.ConcurrentModification,
+    TransferResult.KeyReused)
 {
     public record Transferred(BankTransactionId TransactionId, decimal Amount, decimal Fee, decimal NewBalance);
 
@@ -35,12 +36,23 @@ public union TransferResult(
     public record InsufficientBalance;
 
     public record ConcurrentModification;
+
+    /// <summary>The Idempotency-Key was already used, within its retention, for a request with a different body.</summary>
+    public record KeyReused;
 }
 
-public sealed record TransferCommand(BankAccountId SourceBankAccountId, BankAccountId TargetBankAccountId, CharacterId CharacterId, decimal Amount, string? Source = null)
+/// <summary>With an IdempotencyKey, see <see cref="DepositCommand"/>.</summary>
+public sealed record TransferCommand(
+    BankAccountId SourceBankAccountId,
+    BankAccountId TargetBankAccountId,
+    CharacterId CharacterId,
+    decimal Amount,
+    string? Source = null,
+    string? IdempotencyKey = null)
     : IRequest<TransferResult>;
 
-public sealed class TransferHandler(IBankAccountRepository bankAccountRepository, IMediator mediator, ICurrentGameServer currentGameServer) : IRequestHandler<TransferCommand, TransferResult>
+public sealed class TransferHandler(IBankAccountRepository bankAccountRepository, IMediator mediator, ICurrentGameServer currentGameServer, TimeProvider timeProvider)
+    : IRequestHandler<TransferCommand, TransferResult>
 {
     public async ValueTask<TransferResult> Handle(TransferCommand request, CancellationToken cancellationToken)
     {
@@ -59,6 +71,20 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
             return new TransferResult.SameAccount();
         }
 
+        var gameServerId = await currentGameServer.GetIdAsync(cancellationToken);
+        var idempotent = IdempotentBooking.For(
+            request.IdempotencyKey, gameServerId, "transfer",
+            request.SourceBankAccountId.Value, request.TargetBankAccountId.Value, request.CharacterId.Value, request.Amount, request.Source);
+        var expiredReceiptExists = false;
+        if (idempotent is not null)
+        {
+            (var prior, expiredReceiptExists) = await idempotent.LookUpAsync(bankAccountRepository, timeProvider, cancellationToken);
+            if (prior is not null)
+            {
+                return Replay(idempotent, prior);
+            }
+        }
+
         var sourceAccount = await bankAccountRepository.FetchForUpdateAsync(request.SourceBankAccountId, cancellationToken);
         if (sourceAccount is null)
         {
@@ -71,7 +97,7 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
             return new TransferResult.TargetBankAccountNotFound();
         }
 
-        var booking = Booking.New(await currentGameServer.GetIdAsync(cancellationToken), request.Source);
+        var booking = Booking.New(gameServerId, request.Source);
         var isAuthorized = await BankAccountAuthorization.IsAuthorizedAsync(sourceAccount, request.CharacterId, mediator, cancellationToken);
 
         BankAccountTransferredOut outEvent;
@@ -92,6 +118,7 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
 
         bankAccountRepository.Append(request.SourceBankAccountId, outEvent);
         bankAccountRepository.Append(request.TargetBankAccountId, inEvent);
+        idempotent?.Record(bankAccountRepository, timeProvider, expiredReceiptExists, booking.TransactionId, outEvent.Amount, outEvent.Fee, sourceAccount.Balance);
 
         try
         {
@@ -99,9 +126,20 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
         }
         catch (BankAccountConcurrencyException)
         {
+            if (idempotent is not null
+                && await idempotent.LookUpAsync(bankAccountRepository, timeProvider, cancellationToken) is ({ } racer, _))
+            {
+                return Replay(idempotent, racer);
+            }
+
             return new TransferResult.ConcurrentModification();
         }
 
         return new TransferResult.Transferred(booking.TransactionId, outEvent.Amount, outEvent.Fee, sourceAccount.Balance);
     }
+
+    private static TransferResult Replay(IdempotentBooking idempotent, BookingReceipt receipt)
+        => idempotent.Matches(receipt)
+            ? new TransferResult.Transferred(receipt.TransactionId, receipt.Amount, receipt.Fee, receipt.NewBalance)
+            : new TransferResult.KeyReused();
 }

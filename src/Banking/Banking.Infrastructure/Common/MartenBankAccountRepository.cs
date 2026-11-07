@@ -161,6 +161,21 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
     public void StartStream(BankAccount bankAccount, BankAccountOpened domainEvent)
         => _session.Events.StartStream<BankAccount>(bankAccount.Id.Value, domainEvent);
 
+    public async ValueTask<BookingReceipt?> FindReceiptAsync(string receiptId, CancellationToken cancellationToken)
+        => await _session.LoadAsync<BookingReceipt>(receiptId, cancellationToken);
+
+    public void AddReceipt(BookingReceipt receipt, bool replacesExpired)
+    {
+        if (replacesExpired)
+        {
+            _session.Store(receipt);
+        }
+        else
+        {
+            _session.Insert(receipt);
+        }
+    }
+
     public void Append<TEvent>(BankAccountId bankAccountId, TEvent domainEvent) where TEvent : notnull
     {
         if (_pendingStreams.TryGetValue(bankAccountId.Value, out var stream))
@@ -184,6 +199,12 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
         catch (JasperFx.ConcurrencyException)
         {
             throw new BankAccountConcurrencyException("Another operation already committed against this account.");
+        }
+        catch (JasperFx.DocumentAlreadyExistsException exception) when (exception.DocumentType == typeof(BookingReceipt))
+        {
+            // A racing request with the same Idempotency-Key committed first. The caller looks its
+            // receipt up and answers with that.
+            throw new BankAccountConcurrencyException("Another request with the same Idempotency-Key already committed.");
         }
         catch (Exception exception) when (IsNumberCollision(exception))
         {

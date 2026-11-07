@@ -64,6 +64,33 @@ A `409` from these endpoints means nothing was booked. It carries a `code` and a
 | `insufficient_balance` | `false` | The balance doesn't cover the amount plus the fee. Resending won't help. |
 | `concurrent_modification` | `true` | Another booking on the account committed first. Resend the request. |
 
+## Idempotency
+
+Deposit, withdraw and transfer require an `Idempotency-Key` header: any string of 1 to 128 characters that is
+unique per booking, e.g. the ATM's id, the server start and a counter. Without one, or with a longer one, the
+request gets `400`.
+
+```sh
+curl -X PUT http://localhost:5100/api/bank-accounts/$BANK_ACCOUNT_ID/deposit \
+  -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: atm-17-1730995200-42" \
+  -d '{"amount":100,"characterId":"<characterId>","source":"atm-17"}'
+```
+
+- **The same request again** with the same key, within 24 hours, books nothing and returns the first response
+  byte for byte, including its `transactionId`. That's what makes a timeout recoverable: resend with the same
+  key, and you either get the booking that already happened or the one you're making now.
+- **The same key with a different body** (another amount, account, character, source or operation) gets `422`
+  with `code: "idempotency_key_reused"` and `retryable: false`. Nothing is booked.
+- **Two requests with the same key at once** book once. Both get the same answer.
+- **Keys are scoped to the calling game server**, as `{gameServerId}:{key}`. Two servers can use the same key
+  without affecting each other.
+- **Only successful bookings are remembered.** A refused request (`insufficient_balance`, `403`, `404`, ...)
+  booked nothing, so sending it again with the same key is evaluated again.
+- **After 24 hours** the key is forgotten, and the same key books again.
+
+Share purchases don't take a key.
+
 ## Transaction history
 
 `GET /api/bank-accounts/{id}/transactions` lists an account's most recent deposits/withdrawals/transfers (newest first, capped at 30). A transfer carries the other account's `counterpartyNumber` (and its `counterpartyBankAccountId`), so a statement can show who the money went to or came from. Every row also carries its booking's `transactionId` (both rows of a transfer share it), the `gameServerId` that made it, its `source`, and the `actingCharacterId`: the depositor, the withdrawer or the sender. The receiving side of a transfer has no acting character. The endpoint needs no scope beyond authentication, the same as the account details endpoint:

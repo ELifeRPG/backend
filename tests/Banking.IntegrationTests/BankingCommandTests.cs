@@ -534,6 +534,184 @@ public sealed class BankingCommandTests : IAsyncLifetime
         return (await TestAccounts.CreateAsync(scope.ServiceProvider)).Id;
     }
 
+    // ---- Idempotency-Key (#169 point 1) -------------------------------------------------------
+
+    [Fact]
+    public async Task Deposit_SameKeyAndBody_ReturnsTheFirstAnswerAndBooksOnce()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+        var key = NewKey();
+
+        var first = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, "atm-1", key));
+        var second = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, "atm-1", key));
+
+        var deposited = first is DepositResult.Deposited d ? d : throw new InvalidOperationException($"Expected Deposited, got {first}");
+        Assert.Equal(first, second);
+        Assert.Equal(deposited.NewBalance, await BalanceAsync(mediator, bankAccountId));
+        Assert.Single(await HistoryAsync(mediator, bankAccountId), row => row.Kind == BankAccountTransactionKind.Deposited);
+    }
+
+    [Fact]
+    public async Task Withdraw_SameKeyAndBody_ReturnsTheFirstAnswerAndBooksOnce()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
+        var key = NewKey();
+
+        var first = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 10m, IdempotencyKey: key));
+        var second = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 10m, IdempotencyKey: key));
+
+        var withdrawn = first is WithdrawResult.Withdrawn w ? w : throw new InvalidOperationException($"Expected Withdrawn, got {first}");
+        Assert.Equal(first, second);
+        Assert.Equal(withdrawn.NewBalance, await BalanceAsync(mediator, bankAccountId));
+    }
+
+    [Fact]
+    public async Task Transfer_SameKeyAndBody_ReturnsTheFirstAnswerAndBooksOnce()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var sourceAccountId = await OpenBankAccountAsync(mediator, characterId);
+        var targetAccountId = await OpenBankAccountAsync(mediator);
+        await mediator.Send(new DepositCommand(sourceAccountId, Depositor, 100m));
+        var key = NewKey();
+
+        var first = await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 10m, IdempotencyKey: key));
+        var second = await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 10m, IdempotencyKey: key));
+
+        var transferred = first is TransferResult.Transferred t ? t : throw new InvalidOperationException($"Expected Transferred, got {first}");
+        Assert.Equal(first, second);
+        Assert.Equal(transferred.NewBalance, await BalanceAsync(mediator, sourceAccountId));
+        Assert.Equal(10m, await BalanceAsync(mediator, targetAccountId));
+    }
+
+    [Fact]
+    public async Task SameKey_WithADifferentBody_ReturnsKeyReusedAndBooksNothing()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+        var key = NewKey();
+        var first = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, IdempotencyKey: key));
+        var balance = first is DepositResult.Deposited d ? d.NewBalance : throw new InvalidOperationException($"Expected Deposited, got {first}");
+
+        var differentAmount = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 50m, IdempotencyKey: key));
+        var differentSource = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, "atm-2", key));
+
+        Assert.True(differentAmount is DepositResult.KeyReused, $"Expected KeyReused, got {differentAmount}");
+        Assert.True(differentSource is DepositResult.KeyReused, $"Expected KeyReused, got {differentSource}");
+        Assert.Equal(balance, await BalanceAsync(mediator, bankAccountId));
+    }
+
+    [Fact]
+    public async Task SameKey_FromAnotherGameServer_BooksSeparately()
+    {
+        await using var otherServer = TestServices.BuildProvider("gameserver-other");
+        await using var scope = _provider.CreateAsyncScope();
+        await using var otherScope = otherServer.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var otherMediator = otherScope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+        var key = NewKey();
+
+        var first = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, IdempotencyKey: key));
+        var second = await otherMediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, IdempotencyKey: key));
+
+        var a = first is DepositResult.Deposited x ? x : throw new InvalidOperationException($"Expected Deposited, got {first}");
+        var b = second is DepositResult.Deposited y ? y : throw new InvalidOperationException($"Expected Deposited, got {second}");
+        Assert.NotEqual(a.TransactionId, b.TransactionId);
+        Assert.Equal(2, (await HistoryAsync(mediator, bankAccountId)).Count(row => row.Kind == BankAccountTransactionKind.Deposited));
+    }
+
+    [Fact]
+    public async Task SameKey_AfterItsRetention_BooksAgain()
+    {
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        await using var provider = TestServices.BuildProvider(timeProvider: clock);
+        await using var scope = provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+        var key = NewKey();
+        var first = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, IdempotencyKey: key));
+
+        clock.Now += BookingReceipt.Retention + TimeSpan.FromSeconds(1);
+        var afterRetention = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, IdempotencyKey: key));
+        var replayOfThat = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, IdempotencyKey: key));
+
+        var a = first is DepositResult.Deposited x ? x : throw new InvalidOperationException($"Expected Deposited, got {first}");
+        var b = afterRetention is DepositResult.Deposited y ? y : throw new InvalidOperationException($"Expected Deposited, got {afterRetention}");
+        Assert.NotEqual(a.TransactionId, b.TransactionId);
+        Assert.Equal(afterRetention, replayOfThat);
+    }
+
+    [Fact]
+    public async Task SameKey_AfterARefusal_IsEvaluatedAgain()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
+        var key = NewKey();
+
+        var refused = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 10m, IdempotencyKey: key));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
+        var retried = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 10m, IdempotencyKey: key));
+
+        Assert.True(refused is WithdrawResult.InsufficientBalance, $"Expected InsufficientBalance, got {refused}");
+        Assert.True(retried is WithdrawResult.Withdrawn, $"Expected Withdrawn, got {retried}");
+    }
+
+    [Fact]
+    public async Task SameKey_SentTwiceAtOnce_BooksOnceAndBothGetTheSameAnswer()
+    {
+        await using var setupScope = _provider.CreateAsyncScope();
+        var bankAccountId = await OpenBankAccountAsync(setupScope.ServiceProvider.GetRequiredService<IMediator>());
+        var key = NewKey();
+
+        // Separate scopes, so each request has its own repository and Marten session, as two HTTP
+        // requests would. Several rounds, because one round may not actually overlap.
+        for (var round = 0; round < 5; round++)
+        {
+            var roundKey = $"{key}-{round}";
+            var results = await Task.WhenAll(Enumerable.Range(0, 2).Select(async _ =>
+            {
+                await using var scope = _provider.CreateAsyncScope();
+                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+                return await mediator.Send(new DepositCommand(bankAccountId, Depositor, 10m, IdempotencyKey: roundKey));
+            }));
+
+            Assert.All(results, result => Assert.True(result is DepositResult.Deposited, $"Expected Deposited, got {result}"));
+            Assert.Equal(results[0], results[1]);
+        }
+
+        Assert.Equal(5, (await HistoryAsync(setupScope.ServiceProvider.GetRequiredService<IMediator>(), bankAccountId))
+            .Count(row => row.Kind == BankAccountTransactionKind.Deposited));
+    }
+
+    private static string NewKey() => $"test-{Guid.NewGuid():N}";
+
+    private static async Task<decimal> BalanceAsync(IMediator mediator, BankAccountId bankAccountId)
+    {
+        var details = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
+        return details is BankAccountDetailsResult.Found found
+            ? found.BankAccount.Balance
+            : throw new InvalidOperationException($"Expected Found, got {details}");
+    }
+
+    private static async Task<IReadOnlyList<BankAccountTransactionRecord>> HistoryAsync(IMediator mediator, BankAccountId bankAccountId)
+    {
+        var history = await mediator.Send(new BankAccountTransactionHistoryQuery(bankAccountId));
+        return history is BankAccountTransactionHistoryResult.Found found
+            ? found.Transactions
+            : throw new InvalidOperationException($"Expected Found, got {history}");
+    }
+
     private async Task<CharacterId> CreateCharacterAsync(IMediator mediator)
     {
         var accountId = await CreateActiveAccountAsync();

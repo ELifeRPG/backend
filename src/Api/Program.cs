@@ -186,6 +186,26 @@ builder.Services.AddOpenApi("v1", options =>
         return Task.CompletedTask;
     });
 
+    // (1b) `Idempotency-Key` on the banking bookings. The endpoints bind it as a nullable header so
+    // they can answer a missing one with a problem body instead of the framework's empty 400, which
+    // leaves it optional in the document. Marked required here so generated clients make callers send it.
+    options.AddOperationTransformer((operation, _, _) =>
+    {
+        foreach (var parameter in operation.Parameters?.OfType<OpenApiParameter>() ?? [])
+        {
+            if (parameter.In == ParameterLocation.Header && parameter.Name == BankingModule.IdempotencyKeyHeader)
+            {
+                parameter.Required = true;
+                parameter.Description =
+                    "1 to 128 characters, unique per booking, scoped to the calling game server. Sending the same request "
+                    + "again with the same key within 24 hours returns the first response and books nothing; the same "
+                    + "key with a different body gets 422. See docs/banking.md.";
+            }
+        }
+
+        return Task.CompletedTask;
+    });
+
     // (2) `Retry-After` on 429. The rate limiter always sets it (see OnRejected above) and a
     // store-and-forward client is told to wait exactly that long before resending — but a response
     // header is not inferred from anything in the endpoint's metadata, so no ProducesProblem call could

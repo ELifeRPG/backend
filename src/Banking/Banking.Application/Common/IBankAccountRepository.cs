@@ -33,6 +33,20 @@ public interface IBankAccountRepository
     void StartStream(BankAccount bankAccount, BankAccountOpened domainEvent);
 
     /// <summary>
+    /// Reads a stored receipt straight from the database, so it also sees one a racing request just
+    /// committed, including after this repository's own SaveChangesAsync failed.
+    /// </summary>
+    ValueTask<BookingReceipt?> FindReceiptAsync(string receiptId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Queues a receipt in the same session as the booking's events, so SaveChangesAsync commits both or
+    /// neither. A new receipt is a strict insert: if a racing request already stored one under the same
+    /// id, SaveChangesAsync throws BankAccountConcurrencyException. <paramref name="replacesExpired"/>
+    /// overwrites a receipt that is past its retention instead.
+    /// </summary>
+    void AddReceipt(BookingReceipt receipt, bool replacesExpired);
+
+    /// <summary>
     /// Appends an event to an already-open bank account's stream. A single repository instance owns
     /// one Marten session for its whole lifetime (see MartenBankAccountRepository), so calling this
     /// for two different bank accounts before SaveChangesAsync commits both streams atomically —
