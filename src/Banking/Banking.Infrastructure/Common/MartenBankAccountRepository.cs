@@ -148,13 +148,13 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
     private static BankAccountTransactionRecord? ToTransactionRecord(IEvent domainEvent) => domainEvent.Data switch
     {
         BankAccountDeposited deposited => new BankAccountTransactionRecord(
-            domainEvent.Timestamp, BankAccountTransactionKind.Deposited, deposited.Amount, deposited.Fee, null, null),
+            domainEvent.Timestamp, BankAccountTransactionKind.Deposited, deposited.Amount, deposited.Fee, null, deposited.CharacterId, deposited.Booking),
         BankAccountWithdrawn withdrawn => new BankAccountTransactionRecord(
-            domainEvent.Timestamp, BankAccountTransactionKind.Withdrawn, withdrawn.Amount, withdrawn.Fee, null, withdrawn.CharacterId),
+            domainEvent.Timestamp, BankAccountTransactionKind.Withdrawn, withdrawn.Amount, withdrawn.Fee, null, withdrawn.CharacterId, withdrawn.Booking),
         BankAccountTransferredOut transferredOut => new BankAccountTransactionRecord(
-            domainEvent.Timestamp, BankAccountTransactionKind.TransferredOut, transferredOut.Amount, transferredOut.Fee, transferredOut.TargetBankAccountId, transferredOut.CharacterId),
+            domainEvent.Timestamp, BankAccountTransactionKind.TransferredOut, transferredOut.Amount, transferredOut.Fee, transferredOut.TargetBankAccountId, transferredOut.CharacterId, transferredOut.Booking),
         BankAccountTransferredIn transferredIn => new BankAccountTransactionRecord(
-            domainEvent.Timestamp, BankAccountTransactionKind.TransferredIn, transferredIn.Amount, 0m, transferredIn.SourceBankAccountId, null),
+            domainEvent.Timestamp, BankAccountTransactionKind.TransferredIn, transferredIn.Amount, 0m, transferredIn.SourceBankAccountId, null, transferredIn.Booking),
         _ => null,
     };
 

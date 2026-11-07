@@ -3,21 +3,25 @@ using ELifeRPG.Banking.Domain.Exceptions;
 
 namespace ELifeRPG.Banking.Application.BankAccounts;
 
-public union DepositResult(DepositResult.Deposited, DepositResult.InvalidAmount, DepositResult.BankAccountNotFound, DepositResult.ConcurrentModification)
+public union DepositResult(DepositResult.Deposited, DepositResult.InvalidAmount, DepositResult.InvalidSource, DepositResult.BankAccountNotFound, DepositResult.ConcurrentModification)
 {
-    public record Deposited(decimal Amount, decimal Fee, decimal NewBalance);
+    public record Deposited(BankTransactionId TransactionId, decimal Amount, decimal Fee, decimal NewBalance);
 
     /// <summary>Amount was not strictly positive or not in whole cents.</summary>
     public record InvalidAmount;
+
+    /// <summary>Source was empty or longer than <see cref="Booking.MaxSourceLength"/> characters.</summary>
+    public record InvalidSource;
 
     public record BankAccountNotFound;
 
     public record ConcurrentModification;
 }
 
-public sealed record DepositCommand(BankAccountId BankAccountId, decimal Amount) : IRequest<DepositResult>;
+/// <summary>CharacterId is the character handing over the cash. It's recorded on the ledger, not checked against the account's owner.</summary>
+public sealed record DepositCommand(BankAccountId BankAccountId, CharacterId CharacterId, decimal Amount, string? Source = null) : IRequest<DepositResult>;
 
-public sealed class DepositHandler(IBankAccountRepository bankAccountRepository) : IRequestHandler<DepositCommand, DepositResult>
+public sealed class DepositHandler(IBankAccountRepository bankAccountRepository, ICurrentGameServer currentGameServer) : IRequestHandler<DepositCommand, DepositResult>
 {
     public async ValueTask<DepositResult> Handle(DepositCommand request, CancellationToken cancellationToken)
     {
@@ -26,13 +30,19 @@ public sealed class DepositHandler(IBankAccountRepository bankAccountRepository)
             return new DepositResult.InvalidAmount();
         }
 
+        if (!Booking.IsValidSource(request.Source))
+        {
+            return new DepositResult.InvalidSource();
+        }
+
         var bankAccount = await bankAccountRepository.FetchForUpdateAsync(request.BankAccountId, cancellationToken);
         if (bankAccount is null)
         {
             return new DepositResult.BankAccountNotFound();
         }
 
-        var domainEvent = bankAccount.Deposit(request.Amount);
+        var booking = Booking.New(await currentGameServer.GetIdAsync(cancellationToken), request.Source);
+        var domainEvent = bankAccount.Deposit(booking, request.CharacterId, request.Amount);
         bankAccountRepository.Append(request.BankAccountId, domainEvent);
 
         try
@@ -44,6 +54,6 @@ public sealed class DepositHandler(IBankAccountRepository bankAccountRepository)
             return new DepositResult.ConcurrentModification();
         }
 
-        return new DepositResult.Deposited(domainEvent.Amount, domainEvent.Fee, bankAccount.Balance);
+        return new DepositResult.Deposited(booking.TransactionId, domainEvent.Amount, domainEvent.Fee, bankAccount.Balance);
     }
 }

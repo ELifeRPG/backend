@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\src\Accounts\Accounts.Infrastructure\Accounts.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Characters\Characters.Application\Characters.Application.csproj" />
     <ProjectReference Include="..\..\src\Characters\Characters.Infrastructure\Characters.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Banking\Banking.Api\Banking.Api.csproj" />
     <ProjectReference Include="..\..\src\Banking\Banking.Application\Banking.Application.csproj" />
     <ProjectReference Include="..\..\src\Banking\Banking.Infrastructure\Banking.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Companies\Companies.Application\Companies.Application.csproj" />

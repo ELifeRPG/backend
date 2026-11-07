@@ -1,4 +1,6 @@
 using ELifeRPG.Banking.Api.BankAccounts;
+using ELifeRPG.Banking.Api.Common;
+using ELifeRPG.Banking.Application.Common;
 using ELifeRPG.Banking.Api.Banks;
 using ELifeRPG.Banking.Application.Companies;
 using Microsoft.AspNetCore.Http;
@@ -17,6 +19,8 @@ public static class BankingModule
     public static IServiceCollection AddBankingModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddBankingInfrastructure(configuration);
+        services.AddScoped<ICurrentGameServerClientId, HttpContextCurrentGameServerClientId>();
+        services.AddScoped<ICurrentGameServer, RegistryCurrentGameServer>();
 
         services.AddAuthorizationBuilder()
             .AddPolicy(BankingWritePolicy, policy => policy.RequireAssertion(context => HasScope(context, BankingWriteScope)));
@@ -187,17 +191,19 @@ public static class BankingModule
                 {
                     DepositResult.Deposited deposited => Results.Ok(new TransactionResultDto
                     {
+                        TransactionId = deposited.TransactionId.Value,
                         Amount = deposited.Amount,
                         Fee = deposited.Fee,
                         NewBalance = deposited.NewBalance,
                     }),
+                    DepositResult.InvalidSource => Results.Problem(
+                        title: "Source must be 1 to 128 characters",
+                        statusCode: StatusCodes.Status400BadRequest),
                     DepositResult.InvalidAmount => Results.Problem(
                         title: "Amount must be positive and in whole cents",
                         statusCode: StatusCodes.Status400BadRequest),
                     DepositResult.BankAccountNotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
-                    DepositResult.ConcurrentModification => Results.Problem(
-                        title: "Another operation already committed against this account",
-                        statusCode: StatusCodes.Status409Conflict),
+                    DepositResult.ConcurrentModification => ConcurrentModificationProblem(),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
@@ -220,10 +226,14 @@ public static class BankingModule
                 {
                     WithdrawResult.Withdrawn withdrawn => Results.Ok(new TransactionResultDto
                     {
+                        TransactionId = withdrawn.TransactionId.Value,
                         Amount = withdrawn.Amount,
                         Fee = withdrawn.Fee,
                         NewBalance = withdrawn.NewBalance,
                     }),
+                    WithdrawResult.InvalidSource => Results.Problem(
+                        title: "Source must be 1 to 128 characters",
+                        statusCode: StatusCodes.Status400BadRequest),
                     WithdrawResult.InvalidAmount => Results.Problem(
                         title: "Amount must be positive and in whole cents",
                         statusCode: StatusCodes.Status400BadRequest),
@@ -231,12 +241,8 @@ public static class BankingModule
                     WithdrawResult.NotAuthorized => Results.Problem(
                         title: "Not authorized to transact on this account",
                         statusCode: StatusCodes.Status403Forbidden),
-                    WithdrawResult.InsufficientBalance => Results.Problem(
-                        title: "Insufficient balance",
-                        statusCode: StatusCodes.Status409Conflict),
-                    WithdrawResult.ConcurrentModification => Results.Problem(
-                        title: "Another operation already committed against this account",
-                        statusCode: StatusCodes.Status409Conflict),
+                    WithdrawResult.InsufficientBalance => InsufficientBalanceProblem(),
+                    WithdrawResult.ConcurrentModification => ConcurrentModificationProblem(),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
@@ -260,10 +266,14 @@ public static class BankingModule
                 {
                     TransferResult.Transferred transferred => Results.Ok(new TransactionResultDto
                     {
+                        TransactionId = transferred.TransactionId.Value,
                         Amount = transferred.Amount,
                         Fee = transferred.Fee,
                         NewBalance = transferred.NewBalance,
                     }),
+                    TransferResult.InvalidSource => Results.Problem(
+                        title: "Source must be 1 to 128 characters",
+                        statusCode: StatusCodes.Status400BadRequest),
                     TransferResult.InvalidAmount => Results.Problem(
                         title: "Amount must be positive and in whole cents",
                         statusCode: StatusCodes.Status400BadRequest),
@@ -277,12 +287,8 @@ public static class BankingModule
                     TransferResult.NotAuthorized => Results.Problem(
                         title: "Not authorized to transact on this account",
                         statusCode: StatusCodes.Status403Forbidden),
-                    TransferResult.InsufficientBalance => Results.Problem(
-                        title: "Insufficient balance",
-                        statusCode: StatusCodes.Status409Conflict),
-                    TransferResult.ConcurrentModification => Results.Problem(
-                        title: "Another operation already committed against this account",
-                        statusCode: StatusCodes.Status409Conflict),
+                    TransferResult.InsufficientBalance => InsufficientBalanceProblem(),
+                    TransferResult.ConcurrentModification => ConcurrentModificationProblem(),
                 };
             })
             .RequireAuthorization(BankingWritePolicy)
@@ -306,6 +312,7 @@ public static class BankingModule
                 {
                     PurchaseCompanySharesResult.Purchased purchased => Results.Ok(new TransactionResultDto
                     {
+                        TransactionId = purchased.TransactionId.Value,
                         Amount = purchased.TotalPaid,
                         Fee = purchased.Fee,
                         NewBalance = purchased.NewBalance,
@@ -315,9 +322,7 @@ public static class BankingModule
                     PurchaseCompanySharesResult.NotAuthorized => Results.Problem(
                         title: "Not authorized to transact on this account",
                         statusCode: StatusCodes.Status403Forbidden),
-                    PurchaseCompanySharesResult.InsufficientBalance => Results.Problem(
-                        title: "Insufficient balance",
-                        statusCode: StatusCodes.Status409Conflict),
+                    PurchaseCompanySharesResult.InsufficientBalance => InsufficientBalanceProblem(),
                     PurchaseCompanySharesResult.InvalidQuantity => Results.Problem(
                         title: "Quantity must be positive",
                         statusCode: StatusCodes.Status400BadRequest),
@@ -337,6 +342,19 @@ public static class BankingModule
 
         return app;
     }
+
+    // `code` and `retryable` let the Bridge decide without parsing the title, the same contract the
+    // World module's problems follow (docs/bridge.md). Both 409s on the booking endpoints mean nothing
+    // was booked; only a lost race is worth resending.
+    internal static IResult InsufficientBalanceProblem() => Results.Problem(
+        title: "Insufficient balance",
+        statusCode: StatusCodes.Status409Conflict,
+        extensions: new Dictionary<string, object?> { ["code"] = "insufficient_balance", ["retryable"] = false });
+
+    internal static IResult ConcurrentModificationProblem() => Results.Problem(
+        title: "Another operation already committed against this account",
+        statusCode: StatusCodes.Status409Conflict,
+        extensions: new Dictionary<string, object?> { ["code"] = "concurrent_modification", ["retryable"] = true });
 
     private static IResult NumberExhaustedProblem() => Results.Problem(
         title: "Could not issue a unique account number; try again",

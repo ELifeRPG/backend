@@ -19,6 +19,9 @@ namespace ELifeRPG.Banking.IntegrationTests;
 /// </summary>
 public sealed class BankingCommandTests : IAsyncLifetime
 {
+    // Deposits record who handed over the cash, but never check it; any character id will do.
+    private static readonly CharacterId Depositor = new(Guid.NewGuid());
+
     private ServiceProvider _provider = null!;
 
     public Task InitializeAsync()
@@ -74,7 +77,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var characterId = await CreateCharacterAsync(mediator);
         var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
-        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
         var details = await mediator.Send(new BankAccountDetailsQuery(bankAccountId));
         var account = details is BankAccountDetailsResult.Found f ? f.BankAccount : throw new InvalidOperationException($"Expected Found, got {details}");
         var value = decimal.Parse(amount);
@@ -184,7 +187,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var bankAccountId = await OpenBankAccountAsync(mediator);
 
-        var result = await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        var result = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
 
         Assert.True(result is DepositResult.Deposited, $"Expected Deposited, got {result}");
         if (result is DepositResult.Deposited deposited)
@@ -201,7 +204,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var bankAccountId = await OpenBankAccountAsync(mediator);
 
         // The seeded bank charges 0.20 + 2 %: 0.20 + 0.25 * 0.02 = 0.205, booked as 0.21.
-        var result = await mediator.Send(new DepositCommand(bankAccountId, 0.25m));
+        var result = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 0.25m));
 
         var deposited = result is DepositResult.Deposited value ? value : throw new InvalidOperationException($"Expected Deposited, got {result}");
         Assert.Equal(0.21m, deposited.Fee);
@@ -218,7 +221,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var bankAccountId = await OpenBankAccountAsync(mediator);
 
-        var result = await mediator.Send(new DepositCommand(bankAccountId, decimal.Parse(amount)));
+        var result = await mediator.Send(new DepositCommand(bankAccountId, Depositor, decimal.Parse(amount)));
 
         Assert.True(result is DepositResult.InvalidAmount, $"Expected InvalidAmount, got {result}");
     }
@@ -230,7 +233,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var characterId = await CreateCharacterAsync(mediator);
         var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
-        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 1.005m));
 
@@ -244,7 +247,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var characterId = await CreateCharacterAsync(mediator);
         var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
-        var deposit = await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        var deposit = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
         var balanceBefore = deposit is DepositResult.Deposited d ? d.NewBalance : throw new InvalidOperationException($"Expected Deposited, got {deposit}");
 
         var result = await mediator.Send(new TransferCommand(bankAccountId, bankAccountId, characterId, 10m));
@@ -263,11 +266,69 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var characterId = await CreateCharacterAsync(mediator);
         var sourceAccountId = await OpenBankAccountAsync(mediator, characterId);
         var targetAccountId = await OpenBankAccountAsync(mediator);
-        await mediator.Send(new DepositCommand(sourceAccountId, 100m));
+        await mediator.Send(new DepositCommand(sourceAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 1.005m));
 
         Assert.True(result is TransferResult.InvalidAmount, $"Expected InvalidAmount, got {result}");
+    }
+
+    [Fact]
+    public async Task Deposit_LedgerRowCarriesItsTransactionIdDepositorGameServerAndSource()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var bankAccountId = await OpenBankAccountAsync(mediator);
+        var gameServerId = await scope.ServiceProvider.GetRequiredService<ELifeRPG.Banking.Application.Common.ICurrentGameServer>().GetIdAsync(CancellationToken.None);
+
+        var result = await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m, "atm-7"));
+
+        var deposited = result is DepositResult.Deposited value ? value : throw new InvalidOperationException($"Expected Deposited, got {result}");
+        var history = await mediator.Send(new BankAccountTransactionHistoryQuery(bankAccountId));
+        var found = history is BankAccountTransactionHistoryResult.Found f ? f : throw new InvalidOperationException($"Expected Found, got {history}");
+        var row = Assert.Single(found.Transactions);
+        Assert.Equal(deposited.TransactionId, row.Booking.TransactionId);
+        Assert.Equal(Depositor, row.ActingCharacterId);
+        Assert.Equal(gameServerId, row.Booking.GameServerId);
+        Assert.Equal("atm-7", row.Booking.Source);
+    }
+
+    [Fact]
+    public async Task Transfer_BothLedgerRowsShareTheTransactionId()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var sourceAccountId = await OpenBankAccountAsync(mediator, characterId);
+        var targetAccountId = await OpenBankAccountAsync(mediator);
+        await mediator.Send(new DepositCommand(sourceAccountId, Depositor, 100m));
+
+        var result = await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 10m, "terminal-2"));
+
+        var transferred = result is TransferResult.Transferred value ? value : throw new InvalidOperationException($"Expected Transferred, got {result}");
+        var outRow = await LatestRowAsync(mediator, sourceAccountId);
+        var inRow = await LatestRowAsync(mediator, targetAccountId);
+        Assert.Equal(BankAccountTransactionKind.TransferredOut, outRow.Kind);
+        Assert.Equal(BankAccountTransactionKind.TransferredIn, inRow.Kind);
+        Assert.Equal(transferred.TransactionId, outRow.Booking.TransactionId);
+        Assert.Equal(transferred.TransactionId, inRow.Booking.TransactionId);
+        Assert.Equal("terminal-2", inRow.Booking.Source);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(Booking.MaxSourceLength + 1)]
+    public async Task Withdraw_WithEmptyOrOverlongSource_ReturnsInvalidSource(int sourceLength)
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
+
+        var result = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 10m, new string('x', sourceLength)));
+
+        Assert.True(result is WithdrawResult.InvalidSource, $"Expected InvalidSource, got {result}");
     }
 
     [Fact]
@@ -277,7 +338,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var characterId = await CreateCharacterAsync(mediator);
         var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
-        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 50m));
 
@@ -290,7 +351,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         await using var scope = _provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var bankAccountId = await OpenBankAccountAsync(mediator);
-        await mediator.Send(new DepositCommand(bankAccountId, 100m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new WithdrawCommand(bankAccountId, new CharacterId(Guid.NewGuid()), 10m));
 
@@ -304,7 +365,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var characterId = await CreateCharacterAsync(mediator);
         var bankAccountId = await OpenBankAccountAsync(mediator, characterId);
-        await mediator.Send(new DepositCommand(bankAccountId, 10m));
+        await mediator.Send(new DepositCommand(bankAccountId, Depositor, 10m));
 
         var result = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 10_000m));
 
@@ -319,7 +380,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var characterId = await CreateCharacterAsync(mediator);
         var sourceAccountId = await OpenBankAccountAsync(mediator, characterId);
         var targetAccountId = await OpenBankAccountAsync(mediator);
-        await mediator.Send(new DepositCommand(sourceAccountId, 100m));
+        await mediator.Send(new DepositCommand(sourceAccountId, Depositor, 100m));
 
         var result = await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 40m));
 
@@ -358,7 +419,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var sourceAccountId = await OpenBankAccountAsync(mediator, characterId);
         var targetAccountId = await OpenBankAccountAsync(mediator);
 
-        await mediator.Send(new DepositCommand(sourceAccountId, 100m));
+        await mediator.Send(new DepositCommand(sourceAccountId, Depositor, 100m));
         await mediator.Send(new WithdrawCommand(sourceAccountId, characterId, 20m));
         await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 10m));
 
@@ -394,7 +455,7 @@ public sealed class BankingCommandTests : IAsyncLifetime
         var characterId = await CreateCharacterAsync(mediator);
         var sourceAccountId = await OpenBankAccountAsync(mediator, characterId);
         var targetAccountId = await OpenBankAccountAsync(mediator);
-        await mediator.Send(new DepositCommand(sourceAccountId, 100m));
+        await mediator.Send(new DepositCommand(sourceAccountId, Depositor, 100m));
         await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 10m));
 
         var result = await mediator.Send(new BankAccountTransactionHistoryQuery(targetAccountId));
@@ -452,6 +513,14 @@ public sealed class BankingCommandTests : IAsyncLifetime
         }
 
         return created.CharacterId;
+    }
+
+    private static async Task<BankAccountTransactionRecord> LatestRowAsync(IMediator mediator, BankAccountId bankAccountId)
+    {
+        var history = await mediator.Send(new BankAccountTransactionHistoryQuery(bankAccountId));
+        return history is BankAccountTransactionHistoryResult.Found found
+            ? found.Transactions[0]
+            : throw new InvalidOperationException($"Expected Found, got {history}");
     }
 
     private static async Task<string> GetNumberAsync(IMediator mediator, BankAccountId bankAccountId)
