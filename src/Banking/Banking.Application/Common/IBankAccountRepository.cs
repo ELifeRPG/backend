@@ -22,6 +22,9 @@ public interface IBankAccountRepository
 
     ValueTask<IReadOnlyList<BankAccount>> FindByCompanyIdAsync(CompanyId companyId, CancellationToken cancellationToken);
 
+    /// <summary>The accounts of all the given companies, in one query.</summary>
+    ValueTask<IReadOnlyList<BankAccount>> FindByCompanyIdsAsync(IReadOnlyCollection<CompanyId> companyIds, CancellationToken cancellationToken);
+
     /// <summary>
     /// Reads the account's own event stream back as transaction history, newest first, capped at
     /// limit. Does not itself check whether the account exists — an unknown id just yields an empty

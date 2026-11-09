@@ -63,7 +63,7 @@ public static class BankingModule
 
                     return result switch
                     {
-                        OpenBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened.BankAccount)),
+                        OpenBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened.BankAccount, companyName: null)),
                         OpenBankAccountResult.BankNotFound => Results.Problem(title: "Bank not found", statusCode: StatusCodes.Status404NotFound),
                         OpenBankAccountResult.CharacterNotFound => Results.Problem(title: "Character not found", statusCode: StatusCodes.Status404NotFound),
                         OpenBankAccountResult.NumberExhausted => NumberExhaustedProblem(),
@@ -74,7 +74,9 @@ public static class BankingModule
 
                 return corporateResult switch
                 {
-                    OpenCorporateBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(opened.BankAccount)),
+                    OpenCorporateBankAccountResult.Opened opened => Results.Ok(BankAccountDto.Create(
+                        opened.BankAccount,
+                        await CompanyNames.FindAsync(opened.BankAccount, mediator, cancellationToken))),
                     OpenCorporateBankAccountResult.BankNotFound => Results.Problem(title: "Bank not found", statusCode: StatusCodes.Status404NotFound),
                     OpenCorporateBankAccountResult.CompanyNotFound => Results.Problem(title: "Company not found", statusCode: StatusCodes.Status404NotFound),
                     OpenCorporateBankAccountResult.NumberExhausted => NumberExhaustedProblem(),
@@ -94,7 +96,7 @@ public static class BankingModule
                 CancellationToken cancellationToken) =>
             {
                 var accounts = await mediator.Send(new BankAccountsByCharacterQuery(new CharacterId(characterId)), cancellationToken);
-                return Results.Ok(accounts.Select(BankAccountDto.Create).ToList());
+                return Results.Ok(accounts.Select(x => BankAccountDto.Create(x, companyName: null)).ToList());
             })
             .RequireAuthorization(BankingWritePolicy)
             .Produces<List<BankAccountDto>>()
@@ -107,17 +109,42 @@ public static class BankingModule
                 CancellationToken cancellationToken) =>
             {
                 var accounts = await mediator.Send(new BankAccountsByCompanyQuery(new CompanyId(companyId)), cancellationToken);
-                return Results.Ok(accounts.Select(BankAccountDto.Create).ToList());
+                var companyName = await CompanyNames.FindAsync(new CompanyId(companyId), mediator, cancellationToken);
+                return Results.Ok(accounts.Select(x => BankAccountDto.Create(x, companyName)).ToList());
             })
             .RequireAuthorization(BankingWritePolicy)
             .Produces<List<BankAccountDto>>()
             .WithName("ListCompanyBankAccounts")
             .WithDescription("Lists a company's corporate bank accounts.");
 
-        // A filter on the collection rather than a by-number route: the number is free text a player
+        // The collection, filtered. managedBy is required for now: there is no use for an unfiltered
+        // list of every account in the hive.
+        group.MapGet("bank-accounts", async (
+                [FromQuery] Guid? managedBy,
+                IMediator mediator,
+                CancellationToken cancellationToken) =>
+            {
+                if (managedBy is null)
+                {
+                    return Results.Problem(
+                        title: "managedBy is required",
+                        statusCode: StatusCodes.Status400BadRequest);
+                }
+
+                var accounts = await mediator.Send(new BankAccountsManagedByCharacterQuery(new CharacterId(managedBy.Value)), cancellationToken);
+                return Results.Ok(accounts.Select(x => BankAccountDto.Create(x.BankAccount, x.CompanyName)).ToList());
+            })
+            .RequireAuthorization(BankingWritePolicy)
+            .Produces<List<BankAccountDto>>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .WithName("ListBankAccounts")
+            .WithDescription("Lists the bank accounts the character in managedBy (required) may withdraw from: their personal accounts, plus the accounts of every company in which their position includes ManageFinances. The same rule decides whether a withdrawal or transfer is authorized.");
+
+        // Its own route rather than a filter on the collection: it returns a reduced view for whoever
+        // typed the number, not the account itself. A list because the number is free text a player
         // typed, and "no account holds it" is an empty result, not a missing resource. Nullable so a
         // missing number gets the same problem response as an invalid one.
-        group.MapGet("bank-accounts", async (
+        group.MapGet("bank-accounts/lookup-id", async (
                 [FromQuery] string? number,
                 IMediator mediator,
                 CancellationToken cancellationToken) =>
@@ -148,7 +175,9 @@ public static class BankingModule
 
                 return result switch
                 {
-                    BankAccountDetailsResult.Found found => Results.Ok(BankAccountDto.Create(found.BankAccount)),
+                    BankAccountDetailsResult.Found found => Results.Ok(BankAccountDto.Create(
+                        found.BankAccount,
+                        await CompanyNames.FindAsync(found.BankAccount, mediator, cancellationToken))),
                     BankAccountDetailsResult.NotFound => Results.Problem(title: "Bank account not found", statusCode: StatusCodes.Status404NotFound),
                 };
             })

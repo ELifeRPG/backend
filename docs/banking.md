@@ -37,10 +37,10 @@ Every account gets an 18-character number based on the Dutch IBAN, e.g. `EL90FEB
 | Bank code | 4 | `FEBK` | The bank's `code`; it never changes |
 | Account | 10 | `0123456789` | Random, unique (enforced by a unique index) |
 
-The API stores and returns the compact form, and clients group it into fours. Every backend operation, transfers included, is keyed on `bankAccountId`. To turn a number a player typed into that id, the bridge calls `GET /api/bank-accounts?number={number}`. Spaces and letter case are ignored. A missing number, or one with the wrong layout or check digits, gets `400` without being looked up. Otherwise the response is a list with one element, or an empty list if nobody holds the number. Each element is just `bankAccountId`, `bankId`, `number` and `type`, with no balance and no owner, because whoever typed the number need not be the holder.
+The API stores and returns the compact form, and clients group it into fours. Every backend operation, transfers included, is keyed on `bankAccountId`. To turn a number a player typed into that id, the bridge calls `GET /api/bank-accounts/lookup-id?number={number}`. Spaces and letter case are ignored. A missing number, or one with the wrong layout or check digits, gets `400` without being looked up. Otherwise the response is a list with one element, or an empty list if nobody holds the number. Each element is just `bankAccountId`, `bankId`, `number` and `type`, with no balance and no owner, because whoever typed the number need not be the holder.
 
 ```sh
-curl -G http://localhost:5100/api/bank-accounts --data-urlencode "number=EL90 FEBK 0123 4567 89" -H "Authorization: Bearer $BRIDGE_TOKEN"
+curl -G http://localhost:5100/api/bank-accounts/lookup-id --data-urlencode "number=EL90 FEBK 0123 4567 89" -H "Authorization: Bearer $BRIDGE_TOKEN"
 ```
 
 ## Corporate accounts
@@ -51,6 +51,16 @@ A bank account can belong to a character *or* a company — provide exactly one 
 curl -X POST http://localhost:5100/api/banks/$BANK_ID/accounts \
   -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
   -d '{"companyId":"<companyId from the create-company response>"}'
+```
+
+Every bank account response carries `companyName` next to `companyId`: the owning company's name for a Corporate account, `null` for a Personal one.
+
+## Accounts a character may manage
+
+`GET /api/bank-accounts?managedBy={characterId}` lists every account the character may withdraw from or transfer out of: their Personal accounts, plus the accounts of every company in which their position includes `ManageFinances`. It is the same rule the bookings check (`BankAccountAuthorization.RequiredCompanyPermission`), so an account is listed exactly when a withdrawal by that character would be authorized, and a change to their membership shows up in the next response. Each element is a full bank account, with `companyName` set on the company ones. `managedBy` is required; without it the response is `400`.
+
+```sh
+curl "http://localhost:5100/api/bank-accounts?managedBy=$CHARACTER_ID" -H "Authorization: Bearer $BRIDGE_TOKEN"
 ```
 
 ## Bookings

@@ -34,6 +34,10 @@ public static class CompanyInfrastructureExtensions
             options.Events.UseIdentityMapForAggregates = false;
 
             options.Projections.Add<CompanyProjection>(JasperFx.Events.Projections.ProjectionLifecycle.Inline);
+
+            // Serves MartenCompanyRepository.FindByMemberAsync's containment query, which runs every
+            // time the game lists the bank accounts a character may manage.
+            options.Schema.For<Company>().GinIndexJsonData();
         });
 
         services.TryAddScoped<ICompanyRepository, MartenCompanyRepository>();

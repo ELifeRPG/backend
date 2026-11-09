@@ -14,6 +14,13 @@ namespace ELifeRPG.Banking.Application.Common;
 /// </summary>
 internal static class BankAccountAuthorization
 {
+    /// <summary>
+    /// What a company member's position must include to transact on the company's accounts. Also
+    /// decides which company accounts BankAccountsManagedByCharacterQuery lists, so the list and the
+    /// bookings can't disagree.
+    /// </summary>
+    public const CompanyPermissions RequiredCompanyPermission = CompanyPermissions.ManageFinances;
+
     public static async ValueTask<bool> IsAuthorizedAsync(
         BankAccount bankAccount,
         CharacterId actingCharacterId,
@@ -30,6 +37,6 @@ internal static class BankAccountAuthorization
             cancellationToken);
 
         return permissionsLookup is CompanyMemberPermissionsResult.Found found
-            && found.Permissions.HasFlag(CompanyPermissions.ManageFinances);
+            && found.Permissions.HasFlag(RequiredCompanyPermission);
     }
 }

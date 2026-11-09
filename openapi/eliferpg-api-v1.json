@@ -1249,6 +1249,50 @@
         "tags": [
           "Banking"
         ],
+        "description": "Lists the bank accounts the character in managedBy (required) may withdraw from: their personal accounts, plus the accounts of every company in which their position includes ManageFinances. The same rule decides whether a withdrawal or transfer is authorized.",
+        "operationId": "ListBankAccounts",
+        "parameters": [
+          {
+            "name": "managedBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BankAccountDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bank-accounts/lookup-id": {
+      "get": {
+        "tags": [
+          "Banking"
+        ],
         "description": "Finds the bank account holding an account number (required; spaces and letter case are ignored): one element, or empty if no account holds it. Rejects a missing number or invalid check digits without looking it up.",
         "operationId": "ListBankAccountsByNumber",
         "parameters": [
@@ -6176,6 +6220,7 @@
           "type",
           "characterId",
           "companyId",
+          "companyName",
           "number",
           "balance",
           "transactionFeeBase",
@@ -6207,6 +6252,12 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "companyName": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "number": {
             "type": "string"
