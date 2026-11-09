@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/dotnet:2.1.4-11.0-preview@sha256:f759399802ad1c14979059653e9c08de6cff2af5b1f767e0596c72c9c5ca9b22
+FROM mcr.microsoft.com/devcontainers/dotnet:2.2.3-11.0-preview@sha256:291f67fcd33196d4a4b84929902ea341aab511a26514aea09b52756c980452da
 
 # The Kiota CLI (dotnet tool, used to generate API clients from OpenAPI specs) ships targeting
 # a stable .NET runtime, not the preview SDK/runtime this repo is pinned to in global.json.

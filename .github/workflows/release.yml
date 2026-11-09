@@ -21,7 +21,7 @@ jobs:
   build:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    container: mcr.microsoft.com/devcontainers/dotnet:2.1.4-11.0-preview
+    container: mcr.microsoft.com/devcontainers/dotnet:2.2.3-11.0-preview
     permissions:
       contents: read
     env:
