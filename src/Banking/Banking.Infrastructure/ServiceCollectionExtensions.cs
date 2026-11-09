@@ -42,6 +42,12 @@ public static class BankingInfrastructureExtensions
             // uniqueness is the same as uniqueness within the bank.
             options.Schema.For<Bank>().UniqueIndex(x => x.Code);
             options.Schema.For<BankAccount>().UniqueIndex(x => x.Number);
+
+            // Every account list is looked up by owner (FindByCharacterIdAsync, FindByCompanyIdAsync,
+            // FindByCompanyIdsAsync).
+            options.Schema.For<BankAccount>()
+                .Index(x => x.OwnerCharacterId)
+                .Index(x => x.OwnerCompanyId);
         });
 
         // Seeding runs as a hosted service on host start. The build boots the host too, to generate

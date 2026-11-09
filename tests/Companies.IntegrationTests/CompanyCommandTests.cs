@@ -154,6 +154,40 @@ public sealed class CompanyCommandTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CompaniesWithMemberPermissionQuery_ListsOnlyCompaniesWhereThePositionHasThePermission()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var owned = await mediator.Send(new CreateCompanyCommand("Owned Corp", characterId));
+        var ownedCompanyId = owned is CreateCompanyResult.Created created
+            ? created.CompanyId
+            : throw new InvalidOperationException($"Expected Created, got {owned}");
+        var rookieCompanyId = await CreateCompanyAsync(mediator);
+        await mediator.Send(new AddMemberCommand(rookieCompanyId, characterId));
+        await CreateCompanyAsync(mediator);
+
+        var matches = await mediator.Send(new CompaniesWithMemberPermissionQuery(characterId, CompanyPermissions.ManageFinances));
+
+        var match = Assert.Single(matches);
+        Assert.Equal(ownedCompanyId, match.CompanyId);
+        Assert.Equal("Owned Corp", match.Name);
+    }
+
+    [Fact]
+    public async Task CompaniesWithMemberPermissionQuery_ForNonMember_ReturnsNothing()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        await CreateCompanyAsync(mediator);
+        var nonMemberId = await CreateCharacterAsync(mediator);
+
+        var matches = await mediator.Send(new CompaniesWithMemberPermissionQuery(nonMemberId, CompanyPermissions.ManageFinances));
+
+        Assert.Empty(matches);
+    }
+
+    [Fact]
     public async Task AddedMember_WithoutExplicitPosition_HasNonePermissions()
     {
         await using var scope = _provider.CreateAsyncScope();

@@ -12,6 +12,9 @@ public sealed record BankAccountDto
 
     public required Guid? CompanyId { get; init; }
 
+    /// <summary>The owning company's name for a company account; null for a personal account.</summary>
+    public required string? CompanyName { get; init; }
+
     public required string Number { get; init; }
 
     public required decimal Balance { get; init; }
@@ -25,13 +28,14 @@ public sealed record BankAccountDto
 
     public required decimal TransactionFeeMultiplier { get; init; }
 
-    public static BankAccountDto Create(BankAccount source) => new()
+    public static BankAccountDto Create(BankAccount source, string? companyName) => new()
     {
         BankAccountId = source.Id.Value,
         BankId = source.BankId.Value,
         Type = source.Type.ToString(),
         CharacterId = source.OwnerCharacterId?.Value,
         CompanyId = source.OwnerCompanyId?.Value,
+        CompanyName = companyName,
         Number = source.Number,
         Balance = source.Balance,
         TransactionFeeBase = source.TransactionFeeBase,

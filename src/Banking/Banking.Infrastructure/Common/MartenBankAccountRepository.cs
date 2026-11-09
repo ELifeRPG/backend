@@ -102,6 +102,21 @@ public sealed class MartenBankAccountRepository : IBankAccountRepository, IAsync
             .Where(x => x.OwnerCompanyId != null && x.OwnerCompanyId!.Value.Value == companyId.Value)
             .ToListAsync(cancellationToken);
 
+    // A raw where clause for the same reason as GetHistoryAsync's counterparty lookup: LINQ Contains
+    // doesn't accept a list of the strongly typed id. The cast matches the OwnerCompanyId index.
+    public async ValueTask<IReadOnlyList<BankAccount>> FindByCompanyIdsAsync(IReadOnlyCollection<CompanyId> companyIds, CancellationToken cancellationToken)
+    {
+        if (companyIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _session.QueryAsync<BankAccount>(
+            "where (data ->> 'OwnerCompanyId')::uuid = ANY(?)",
+            cancellationToken,
+            companyIds.Select(x => x.Value).ToArray());
+    }
+
     // Deliberately unguarded: data is hive-wide as of the 2026-08-22 tenancy change, so
     // _session.Events.FetchStreamAsync reading any bank account's history regardless of which server
     // originally opened it is intended behavior, not a gap — there is no tenant boundary left to

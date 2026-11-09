@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ELifeRPG.Companies.Application.Common;
 using ELifeRPG.Companies.Domain;
 using ELifeRPG.Companies.Domain.Events;
@@ -88,6 +89,15 @@ public sealed class MartenCompanyRepository : ICompanyRepository, IAsyncDisposab
 
     public async ValueTask<IReadOnlyList<Company>> FindAllAsync(CancellationToken cancellationToken)
         => await _session.Query<Company>().ToListAsync(cancellationToken);
+
+    // Containment on the whole document, so the GIN index on data (CompanyInfrastructureExtensions)
+    // serves it. Strongly typed ids are stored as bare uuid strings, which is what the anonymous
+    // object below serializes to.
+    public async ValueTask<IReadOnlyList<Company>> FindByMemberAsync(CharacterId characterId, CancellationToken cancellationToken)
+    {
+        var membership = JsonSerializer.Serialize(new { Memberships = new[] { new { CharacterId = characterId.Value } } });
+        return await _session.QueryAsync<Company>("where data @> ?::jsonb", cancellationToken, membership);
+    }
 
     public void StartStream(Company company, CompanyCreated domainEvent)
         => _session.Events.StartStream<Company>(company.Id.Value, domainEvent);

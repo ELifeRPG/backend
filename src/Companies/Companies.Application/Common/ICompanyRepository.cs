@@ -16,6 +16,9 @@ public interface ICompanyRepository
 
     ValueTask<IReadOnlyList<Company>> FindAllAsync(CancellationToken cancellationToken);
 
+    /// <summary>The companies the character is a member of, in any position.</summary>
+    ValueTask<IReadOnlyList<Company>> FindByMemberAsync(CharacterId characterId, CancellationToken cancellationToken);
+
     void StartStream(Company company, CompanyCreated domainEvent);
 
     /// <summary>Appends an event to an already-started stream — same pattern as IBankAccountRepository.Append. See ARCHITECTURE.md §9e.</summary>

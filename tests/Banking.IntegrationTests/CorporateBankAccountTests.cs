@@ -173,6 +173,88 @@ public sealed class CorporateBankAccountTests : IAsyncLifetime
         Assert.Equal(BankAccountType.Personal, accounts[0].Type);
     }
 
+    [Fact]
+    public async Task BankAccountsManagedByCharacterQuery_ForOwner_ListsPersonalAndCompanyAccounts()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var (companyId, founderId) = await CreateCompanyWithFounderAsync(mediator);
+        var corporateAccountId = await OpenCorporateBankAccountAsync(mediator, companyId);
+        var personalAccountId = await OpenPersonalBankAccountAsync(mediator, founderId);
+        var (otherCompanyId, _) = await CreateCompanyWithFounderAsync(mediator);
+        await OpenCorporateBankAccountAsync(mediator, otherCompanyId);
+
+        var accounts = await mediator.Send(new BankAccountsManagedByCharacterQuery(founderId));
+
+        Assert.Equal(2, accounts.Count);
+        var personal = Assert.Single(accounts, x => x.BankAccount.Id == personalAccountId);
+        Assert.Null(personal.CompanyName);
+        var corporate = Assert.Single(accounts, x => x.BankAccount.Id == corporateAccountId);
+        Assert.Equal("Corporate Bank Test Corp", corporate.CompanyName);
+    }
+
+    [Fact]
+    public async Task BankAccountsManagedByCharacterQuery_ForMemberWithoutFinancePermission_ListsOnlyPersonalAccounts()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var (companyId, _) = await CreateCompanyWithFounderAsync(mediator);
+        await OpenCorporateBankAccountAsync(mediator, companyId);
+        var rookieId = await CreateCharacterAsync(mediator);
+        await mediator.Send(new AddMemberCommand(companyId, rookieId));
+        var personalAccountId = await OpenPersonalBankAccountAsync(mediator, rookieId);
+
+        var accounts = await mediator.Send(new BankAccountsManagedByCharacterQuery(rookieId));
+
+        Assert.Equal(personalAccountId, Assert.Single(accounts).BankAccount.Id);
+    }
+
+    [Fact]
+    public async Task BankAccountsManagedByCharacterQuery_ForNonMember_ListsOnlyPersonalAccounts()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var (companyId, _) = await CreateCompanyWithFounderAsync(mediator);
+        await OpenCorporateBankAccountAsync(mediator, companyId);
+        var strangerId = await CreateCharacterAsync(mediator);
+        var personalAccountId = await OpenPersonalBankAccountAsync(mediator, strangerId);
+
+        var accounts = await mediator.Send(new BankAccountsManagedByCharacterQuery(strangerId));
+
+        Assert.Equal(personalAccountId, Assert.Single(accounts).BankAccount.Id);
+    }
+
+    // The list's contract: exactly the accounts a withdrawal by this character is authorized on.
+    [Fact]
+    public async Task BankAccountsManagedByCharacterQuery_ListsExactlyTheAccountsTheCharacterMayWithdrawFrom()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var (ownedCompanyId, characterId) = await CreateCompanyWithFounderAsync(mediator);
+        var (rookieCompanyId, _) = await CreateCompanyWithFounderAsync(mediator);
+        await mediator.Send(new AddMemberCommand(rookieCompanyId, characterId));
+        var (strangerCompanyId, _) = await CreateCompanyWithFounderAsync(mediator);
+        BankAccountId[] candidates =
+        [
+            await OpenPersonalBankAccountAsync(mediator, characterId),
+            await OpenCorporateBankAccountAsync(mediator, ownedCompanyId),
+            await OpenCorporateBankAccountAsync(mediator, rookieCompanyId),
+            await OpenCorporateBankAccountAsync(mediator, strangerCompanyId),
+        ];
+
+        var listed = (await mediator.Send(new BankAccountsManagedByCharacterQuery(characterId)))
+            .Select(x => x.BankAccount.Id)
+            .ToHashSet();
+
+        Assert.Equal(2, listed.Count);
+        foreach (var bankAccountId in candidates)
+        {
+            await mediator.Send(new DepositCommand(bankAccountId, Depositor, 100m));
+            var result = await mediator.Send(new WithdrawCommand(bankAccountId, characterId, 10m));
+            Assert.Equal(listed.Contains(bankAccountId), result is WithdrawResult.Withdrawn);
+        }
+    }
+
     // Accounts come from portal signup now, not from joining the gameserver:
     // CreateSessionCommand no longer creates one. See TestAccounts.
     private async Task<AccountId> CreateActiveAccountAsync()
