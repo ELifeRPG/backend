@@ -22,7 +22,7 @@ jobs:
       ASPNETCORE_ENVIRONMENT: Development
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Restore
         run: dotnet restore ELifeRPG.Core.slnx
@@ -46,7 +46,7 @@ jobs:
     env:
       IMAGE: ghcr.io/eliferpg/backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build image
         env:
