@@ -13,7 +13,7 @@
     <!-- Held at 9.x deliberately: Marten 9.x resolves Npgsql through Weasel.Postgresql,
          which is built and tested against Npgsql 9.0.4. There is no Marten release on
          Npgsql 10 yet, so bumping this alone would run Marten against an untested major. -->
-    <PackageVersion Include="Npgsql" Version="9.0.5" />
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
     <PackageVersion Include="Polly.Core" Version="8.6.5" />
