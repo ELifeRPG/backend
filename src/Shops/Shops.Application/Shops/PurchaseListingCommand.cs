@@ -203,7 +203,7 @@ public sealed class PurchaseListingHandler(
         BankAccountTransferredOut outEvent;
         try
         {
-            outEvent = buyerAccount.TransferOut(booking, request.BuyerCharacterId, isAuthorized, shop.PayoutBankAccountId, totalPrice);
+            outEvent = buyerAccount.TransferOut(booking, request.BuyerCharacterId, isAuthorized, payoutAccount, totalPrice);
         }
         catch (BankAccountAuthorizationException)
         {

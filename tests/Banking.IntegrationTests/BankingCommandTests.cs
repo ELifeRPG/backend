@@ -433,6 +433,28 @@ public sealed class BankingCommandTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Transfer_BetweenOwnPersonalAccountsAtSameBank_IsFree()
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        var characterId = await CreateCharacterAsync(mediator);
+        var sourceAccountId = await OpenBankAccountAsync(mediator, characterId);
+        var targetAccountId = await OpenBankAccountAsync(mediator, characterId);
+        var deposit = await mediator.Send(new DepositCommand(sourceAccountId, Depositor, 100m));
+        var balanceBefore = deposit is DepositResult.Deposited d ? d.NewBalance : throw new InvalidOperationException($"Expected Deposited, got {deposit}");
+
+        var result = await mediator.Send(new TransferCommand(sourceAccountId, targetAccountId, characterId, 40m));
+
+        var transferred = result is TransferResult.Transferred t ? t : throw new InvalidOperationException($"Expected Transferred, got {result}");
+        Assert.Equal(0m, transferred.Fee);
+        Assert.Equal(balanceBefore - 40m, transferred.NewBalance);
+
+        var targetDetails = await mediator.Send(new BankAccountDetailsQuery(targetAccountId));
+        var targetFound = targetDetails is BankAccountDetailsResult.Found f ? f : throw new InvalidOperationException($"Expected Found, got {targetDetails}");
+        Assert.Equal(40m, targetFound.BankAccount.Balance);
+    }
+
+    [Fact]
     public async Task TransactionHistory_ForUnknownAccount_ReturnsBankAccountNotFound()
     {
         await using var scope = _provider.CreateAsyncScope();

@@ -103,7 +103,7 @@ public sealed class TransferHandler(IBankAccountRepository bankAccountRepository
         BankAccountTransferredOut outEvent;
         try
         {
-            outEvent = sourceAccount.TransferOut(booking, request.CharacterId, isAuthorized, request.TargetBankAccountId, request.Amount);
+            outEvent = sourceAccount.TransferOut(booking, request.CharacterId, isAuthorized, targetAccount, request.Amount);
         }
         catch (BankAccountAuthorizationException)
         {
