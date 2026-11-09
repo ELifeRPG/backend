@@ -66,20 +66,24 @@ public class BankAccount
         return domainEvent;
     }
 
-    public BankAccountTransferredOut TransferOut(Booking booking, CharacterId actingCharacterId, bool isAuthorized, BankAccountId targetBankAccountId, decimal amount)
+    /// <summary>
+    /// Takes the target aggregate rather than its id because the fee depends on it: moving money
+    /// between two personal accounts of the same character at the same bank is free (#188).
+    /// </summary>
+    public BankAccountTransferredOut TransferOut(Booking booking, CharacterId actingCharacterId, bool isAuthorized, BankAccount target, decimal amount)
     {
         EnsureAuthorized(isAuthorized);
         EnsureValidAmount(amount);
 
-        if (targetBankAccountId == Id)
+        if (target.Id == Id)
         {
             throw new InvalidOperationException("Can not transfer to the same bank account.");
         }
 
-        var fee = CalculateFee(amount);
+        var fee = IsSameOwnerPersonalAccountAtSameBank(target) ? 0m : CalculateFee(amount);
         EnsureSufficientBalance(amount, fee);
 
-        var domainEvent = new BankAccountTransferredOut(Id, targetBankAccountId, amount, fee, actingCharacterId, booking);
+        var domainEvent = new BankAccountTransferredOut(Id, target.Id, amount, fee, actingCharacterId, booking);
         Apply(domainEvent);
         return domainEvent;
     }
@@ -144,5 +148,12 @@ public class BankAccount
     }
 
     /// <summary>Rounded to whole cents at booking time, using the rule documented on <see cref="Money"/>.</summary>
+    private bool IsSameOwnerPersonalAccountAtSameBank(BankAccount other) =>
+        Type == BankAccountType.Personal
+        && other.Type == BankAccountType.Personal
+        && OwnerCharacterId is not null
+        && OwnerCharacterId == other.OwnerCharacterId
+        && BankId == other.BankId;
+
     private decimal CalculateFee(decimal amount) => Money.RoundToCents(TransactionFeeBase + (amount * TransactionFeeMultiplier));
 }

@@ -12,13 +12,14 @@ public class BankAccountTests
     private static readonly CompanyId OwnerCompany = new(Guid.NewGuid());
     private static readonly Booking Booking = ELifeRPG.Banking.Domain.Booking.New(new GameServerId(Guid.NewGuid()));
 
-    private static BankAccount CreatePersonalAccount(decimal feeBase = 0.20m, decimal feeMultiplier = 0.02m)
+    private static BankAccount CreatePersonalAccount(
+        decimal feeBase = 0.20m, decimal feeMultiplier = 0.02m, BankId? bankId = null, CharacterId? owner = null)
     {
         var domainEvent = new BankAccountOpened(
             new BankAccountId(Guid.NewGuid()),
-            new BankId(Guid.NewGuid()),
+            bankId ?? new BankId(Guid.NewGuid()),
             BankAccountType.Personal,
-            Owner,
+            owner ?? Owner,
             null,
             "EL90FEBK0123456789",
             feeBase,
@@ -27,11 +28,11 @@ public class BankAccountTests
         return BankAccount.Create(domainEvent);
     }
 
-    private static BankAccount CreateCorporateAccount(decimal feeBase = 0.20m, decimal feeMultiplier = 0.02m)
+    private static BankAccount CreateCorporateAccount(decimal feeBase = 0.20m, decimal feeMultiplier = 0.02m, BankId? bankId = null)
     {
         var domainEvent = new BankAccountOpened(
             new BankAccountId(Guid.NewGuid()),
-            new BankId(Guid.NewGuid()),
+            bankId ?? new BankId(Guid.NewGuid()),
             BankAccountType.Corporate,
             null,
             OwnerCompany,
@@ -128,7 +129,7 @@ public class BankAccountTests
         account.Deposit(Booking, Owner, 100m);
 
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => account.TransferOut(Booking, Owner, isAuthorized: true, new BankAccountId(Guid.NewGuid()), 1.005m));
+            () => account.TransferOut(Booking, Owner, isAuthorized: true, CreatePersonalAccount(), 1.005m));
     }
 
     [Fact]
@@ -181,13 +182,79 @@ public class BankAccountTests
     {
         var account = CreatePersonalAccount();
         account.Deposit(Booking, Owner, 100m);
-        var targetId = new BankAccountId(Guid.NewGuid());
+        var target = CreatePersonalAccount();
 
-        var domainEvent = account.TransferOut(Booking, Owner, isAuthorized: true, targetId, 50m);
+        var domainEvent = account.TransferOut(Booking, Owner, isAuthorized: true, target, 50m);
 
-        Assert.Equal(targetId, domainEvent.TargetBankAccountId);
+        Assert.Equal(target.Id, domainEvent.TargetBankAccountId);
         Assert.Equal(1.2m, domainEvent.Fee);
         Assert.Equal(97.8m - 51.2m, account.Balance);
+    }
+
+    [Fact]
+    public void TransferOut_BetweenOwnPersonalAccountsAtSameBank_IsFree()
+    {
+        var bankId = new BankId(Guid.NewGuid());
+        var account = CreatePersonalAccount(bankId: bankId);
+        account.Deposit(Booking, Owner, 100m);
+        var balanceBefore = account.Balance;
+        var target = CreatePersonalAccount(bankId: bankId);
+
+        var domainEvent = account.TransferOut(Booking, Owner, isAuthorized: true, target, 50m);
+
+        Assert.Equal(0m, domainEvent.Fee);
+        Assert.Equal(balanceBefore - 50m, account.Balance);
+    }
+
+    [Fact]
+    public void TransferOut_CanMoveTheWholeBalanceBetweenOwnAccountsAtSameBank()
+    {
+        var bankId = new BankId(Guid.NewGuid());
+        var account = CreatePersonalAccount(bankId: bankId);
+        account.Deposit(Booking, Owner, 100m);
+        var target = CreatePersonalAccount(bankId: bankId);
+
+        account.TransferOut(Booking, Owner, isAuthorized: true, target, account.Balance);
+
+        Assert.Equal(0m, account.Balance);
+    }
+
+    [Fact]
+    public void TransferOut_ToOwnPersonalAccountAtAnotherBank_PaysFee()
+    {
+        var account = CreatePersonalAccount();
+        account.Deposit(Booking, Owner, 100m);
+        var target = CreatePersonalAccount(owner: Owner);
+
+        var domainEvent = account.TransferOut(Booking, Owner, isAuthorized: true, target, 50m);
+
+        Assert.Equal(1.2m, domainEvent.Fee);
+    }
+
+    [Fact]
+    public void TransferOut_ToAnotherCharactersAccountAtSameBank_PaysFee()
+    {
+        var bankId = new BankId(Guid.NewGuid());
+        var account = CreatePersonalAccount(bankId: bankId);
+        account.Deposit(Booking, Owner, 100m);
+        var target = CreatePersonalAccount(bankId: bankId, owner: new CharacterId(Guid.NewGuid()));
+
+        var domainEvent = account.TransferOut(Booking, Owner, isAuthorized: true, target, 50m);
+
+        Assert.Equal(1.2m, domainEvent.Fee);
+    }
+
+    [Fact]
+    public void TransferOut_BetweenPersonalAndCorporateAccountsAtSameBank_PaysFee()
+    {
+        var bankId = new BankId(Guid.NewGuid());
+        var personal = CreatePersonalAccount(bankId: bankId);
+        personal.Deposit(Booking, Owner, 100m);
+        var corporate = CreateCorporateAccount(bankId: bankId);
+        corporate.Deposit(Booking, Owner, 100m);
+
+        Assert.Equal(1.2m, personal.TransferOut(Booking, Owner, isAuthorized: true, corporate, 50m).Fee);
+        Assert.Equal(1.2m, corporate.TransferOut(Booking, Owner, isAuthorized: true, personal, 50m).Fee);
     }
 
     [Fact]
@@ -198,7 +265,7 @@ public class BankAccountTests
         var otherCharacter = new CharacterId(Guid.NewGuid());
 
         Assert.Throws<BankAccountAuthorizationException>(
-            () => account.TransferOut(Booking, otherCharacter, isAuthorized: false, new BankAccountId(Guid.NewGuid()), 10m));
+            () => account.TransferOut(Booking, otherCharacter, isAuthorized: false, CreatePersonalAccount(), 10m));
     }
 
     [Fact]
@@ -208,7 +275,7 @@ public class BankAccountTests
         account.Deposit(Booking, Owner, 10m);
 
         Assert.Throws<InsufficientBalanceException>(
-            () => account.TransferOut(Booking, Owner, isAuthorized: true, new BankAccountId(Guid.NewGuid()), 1000m));
+            () => account.TransferOut(Booking, Owner, isAuthorized: true, CreatePersonalAccount(), 1000m));
     }
 
     [Fact]
@@ -217,7 +284,7 @@ public class BankAccountTests
         var account = CreatePersonalAccount();
         account.Deposit(Booking, Owner, 100m);
 
-        Assert.Throws<InvalidOperationException>(() => account.TransferOut(Booking, Owner, isAuthorized: true, account.Id, 10m));
+        Assert.Throws<InvalidOperationException>(() => account.TransferOut(Booking, Owner, isAuthorized: true, account, 10m));
     }
 
     [Fact]
