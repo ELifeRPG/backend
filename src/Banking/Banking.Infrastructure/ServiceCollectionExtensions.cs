@@ -18,6 +18,7 @@ public static class BankingInfrastructureExtensions
         var store = services.AddMartenStore<IBankingStore>(options =>
         {
             options.UseSystemTextJsonWithPrivateSetters();
+            options.RegisterStronglyTypedIds(typeof(BankId), typeof(BankTransactionId));
             options.Connection(configuration.GetConnectionString("BankingDatabase")!);
             options.Events.DatabaseSchemaName = "banking";
             options.DatabaseSchemaName = "banking";

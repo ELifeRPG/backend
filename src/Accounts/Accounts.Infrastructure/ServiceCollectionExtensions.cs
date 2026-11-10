@@ -16,6 +16,7 @@ public static class AccountInfrastructureExtensions
         services.AddMarten(options =>
             {
                 options.UseSystemTextJsonWithPrivateSetters();
+                options.RegisterStronglyTypedIds(typeof(KeycloakUserId), typeof(GameIdentityId), typeof(GameAccountLinkId), typeof(WhitelistApplicationId));
                 options.Connection(configuration.GetConnectionString("AccountDatabase")!);
                 options.Events.DatabaseSchemaName = "account";
                 options.DatabaseSchemaName = "account";

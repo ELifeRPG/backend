@@ -34,6 +34,7 @@ public static class WorldInfrastructureExtensions
             options.DatabaseSchemaName = "world";
             options.Events.DatabaseSchemaName = "world";
             options.UseSystemTextJsonWithPrivateSetters();
+            options.RegisterStronglyTypedIds();
 
             // RootCharacterId is the hot read — every character-inventory load filters on it. The
             // rest support the delivery loop (PendingSpawn), ground-item pruning (ExpiresAt), the

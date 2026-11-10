@@ -18,6 +18,7 @@ public static class CharacterInfrastructureExtensions
         services.AddMartenStore<ICharactersStore>(options =>
         {
             options.UseSystemTextJsonWithPrivateSetters();
+            options.RegisterStronglyTypedIds(typeof(ELifeRPG.Characters.Domain.Skills.CharacterSkillsId));
             options.Connection(configuration.GetConnectionString("CharacterDatabase")!);
             options.Events.DatabaseSchemaName = "characters";
             options.DatabaseSchemaName = "characters";
