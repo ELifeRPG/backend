@@ -16,6 +16,7 @@ public static class ItemInfrastructureExtensions
         services.AddMartenStore<IItemsStore>(options =>
         {
             options.UseSystemTextJsonWithPrivateSetters();
+            options.RegisterStronglyTypedIds();
 
             options.Connection(configuration.GetConnectionString("ItemDatabase")!);
             options.Events.DatabaseSchemaName = "items";

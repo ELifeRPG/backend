@@ -17,6 +17,7 @@ public static class CompanyInfrastructureExtensions
         services.AddMartenStore<ICompaniesStore>(options =>
         {
             options.UseSystemTextJsonWithPrivateSetters();
+            options.RegisterStronglyTypedIds(typeof(CompanyPositionId), typeof(CompanyApplicationId));
             options.Connection(configuration.GetConnectionString("CompanyDatabase")!);
             options.Events.DatabaseSchemaName = "companies";
             options.DatabaseSchemaName = "companies";

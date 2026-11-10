@@ -21,6 +21,7 @@ public static class PhoneInfrastructureExtensions
         services.AddMartenStore<IPhoneStore>(options =>
         {
             options.UseSystemTextJsonWithPrivateSetters(new PhoneNumberJsonConverter());
+            options.RegisterStronglyTypedIds(typeof(PhoneDeviceId), typeof(PhoneCallId), typeof(ContactBookId), typeof(ContactId), typeof(MessageThreadId), typeof(MessageId));
 
             options.Connection(configuration.GetConnectionString("PhoneDatabase")!);
             options.Events.DatabaseSchemaName = "phone";

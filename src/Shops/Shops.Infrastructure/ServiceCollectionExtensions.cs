@@ -16,6 +16,7 @@ public static class ShopInfrastructureExtensions
         services.AddMartenStore<IShopsStore>(options =>
         {
             options.UseSystemTextJsonWithPrivateSetters();
+            options.RegisterStronglyTypedIds(typeof(ELifeRPG.Shops.Domain.ShopId), typeof(ELifeRPG.Shops.Domain.ShopListingId));
 
             options.Connection(configuration.GetConnectionString("ShopDatabase")!);
             options.Events.DatabaseSchemaName = "shops";
