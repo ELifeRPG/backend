@@ -198,8 +198,9 @@ dotnet test tests/Accounts.IntegrationTests/Accounts.IntegrationTests.csproj
 ```
 
 Exercises `CreateSessionCommand` against **live** Postgres and Keycloak — both of which the
-devcontainer already started and put on the same network, so there's nothing to set up. Not yet
-wired into any CI, since none exists in this repo yet.
+devcontainer already started and put on the same network, so there's nothing to set up. CI runs
+every `*.IntegrationTests` project the same way, against `compose.yml`'s Postgres and Keycloak (the
+`integration-tests` job in `.github/workflows/build-and-test.yml`).
 
 Most tests no longer touch Keycloak at all: accounts are created by portal signup, so
 `TestAccounts.CreateAsync` builds them straight from the aggregate. The exceptions are the ones that

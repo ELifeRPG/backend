@@ -1,13 +1,12 @@
 name: Build and Domain Unit Tests
 
-# Scope: this workflow builds the whole solution and runs the *.Domain.UnitTests projects only.
+# Two test tiers:
 #
-# It deliberately does NOT run *.IntegrationTests — those need live Postgres/Keycloak
-# infrastructure that isn't wired into CI yet (see ARCHITECTURE.md's no-CI-yet note). That matters
-# here in particular: all of this branch's money-safety concurrency test evidence (the Banking and
-# Companies concurrency tests, and the cross-module Shops purchase tests) lives in the excluded
-# IntegrationTests tier. A green run of this workflow covers compilation and domain-level unit
-# tests only — it is not evidence that the concurrency-safety work is covered by CI.
+# - build-and-test builds the whole solution and runs the *.Domain.UnitTests projects.
+# - integration-tests runs the *.IntegrationTests projects against the Compose stack's Postgres and
+#   Keycloak (compose.yml), the same way they run from the host locally (README.md). This tier holds
+#   the money-safety concurrency tests and every query against a real Marten store, so a change
+#   that breaks how Marten translates a filter shows up here and nowhere else.
 
 on:
   push:
@@ -37,8 +36,50 @@ jobs:
           done
 
 
+  integration-tests:
+    # On the runner itself, not in the devcontainer image: docker compose needs the host's Docker,
+    # and the stack bind-mounts infra/postgres and infra/keycloak from the checkout.
+    runs-on: ubuntu-latest
+    env:
+      ASPNETCORE_ENVIRONMENT: Development
+      ELIFERPG_TEST_DB: Host=localhost;Port=5433;Database=postgres;Username=postgres;Password=supersecret
+      ELIFERPG_TEST_KEYCLOAK_URL: http://localhost:8180/
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Start Postgres and Keycloak
+        run: docker compose up -d --wait postgres keycloak
+
+      - name: Restore
+        run: dotnet restore ELifeRPG.Core.slnx
+
+      - name: Build
+        run: dotnet build ELifeRPG.Core.slnx --no-restore --configuration Release
+
+      # One project at a time: they share one Postgres and interfere when run in parallel.
+      # A project that fails is retried once, because against a brand-new database test collections
+      # race each other creating the Marten schema (README.md). A real failure fails both runs.
+      - name: Integration tests
+        run: |
+          set -e
+          for proj in $(find tests -iname "*.IntegrationTests.csproj" | sort); do
+            if ! dotnet test "$proj" --no-build --configuration Release; then
+              echo "::warning::$proj failed on the first run, retrying once"
+              dotnet test "$proj" --no-build --configuration Release
+            fi
+          done
+
+      - name: Stack logs
+        if: failure()
+        run: docker compose logs postgres keycloak
+
   image:
-    needs: build-and-test
+    needs: [build-and-test, integration-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
