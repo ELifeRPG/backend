@@ -69,20 +69,18 @@ public sealed class LockAccountCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Handle_LockedAccount_TokenExchangeAgainstItsKeycloakUserStillSucceeds_KnownKeycloakLimitation()
+    public async Task Handle_LockedAccount_TokenExchangeAgainstItsKeycloakUserIsRefused()
     {
-        // Documents a verified Keycloak behavior, not the desired one: disabling a user does NOT stop
-        // Keycloak's classic impersonation-based token-exchange grant (requested_subject) from minting it
-        // a valid token — unlike normal login grants, which do honor `enabled`. See ARCHITECTURE.md §4.3
-        // for the full investigation. The real enforcement boundary is application-layer:
-        // player-connected checks AccountStatus before ever attempting this exchange (see
-        // SessionLocalEndpoints.cs). This test exists so a future Keycloak upgrade or config change that
-        // starts enforcing `enabled` here gets noticed (it'll start failing) rather than silently assumed.
+        // Keycloak 26.0.8 still minted an impersonation token (requested_subject) for a disabled user,
+        // and this test used to pin that limitation so an upgrade that closed it would get noticed.
+        // Keycloak 26.8.1 closed it: the exchange is refused with access_denied (ARCHITECTURE.md §4.3).
+        // Now it guards that behavior. The application-layer AccountStatus check in
+        // BridgeTokenProvider stays the primary enforcement either way.
         var (accountId, _, username) = await CreateAccountAsync();
 
         await Send<LockAccountCommand, LockAccountResult>(new LockAccountCommand(accountId));
 
-        Assert.True(await _keycloak.TokenExchangeSucceedsAsync(username));
+        Assert.False(await _keycloak.TokenExchangeSucceedsAsync(username));
     }
 
     [Fact]
